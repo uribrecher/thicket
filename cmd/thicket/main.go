@@ -49,7 +49,7 @@ func newStartCmd() *cobra.Command {
 		Use:   "start <ticket>",
 		Short: "Spawn a workspace for a ticket",
 		Args:  cobra.ExactArgs(1),
-		RunE:  notImplemented("start"),
+		RunE:  runStart,
 	}
 	c.Flags().StringSlice("only", nil, "use exactly these repos (skips LLM)")
 	c.Flags().String("branch", "", "override branch name")
@@ -64,7 +64,7 @@ func newInitCmd() *cobra.Command {
 		Use:   "init",
 		Short: "First-run setup wizard",
 		Args:  cobra.NoArgs,
-		RunE:  notImplemented("init"),
+		RunE:  runInit,
 	}
 }
 
@@ -73,17 +73,19 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List active workspaces",
 		Args:  cobra.NoArgs,
-		RunE:  notImplemented("list"),
+		RunE:  runList,
 	}
 }
 
 func newRmCmd() *cobra.Command {
-	return &cobra.Command{
+	c := &cobra.Command{
 		Use:   "rm <slug>",
 		Short: "Remove a workspace and its worktrees",
 		Args:  cobra.ExactArgs(1),
-		RunE:  notImplemented("rm"),
+		RunE:  runRm,
 	}
+	c.Flags().Bool("force", false, "remove even if worktrees have local changes")
+	return c
 }
 
 func newCatalogCmd() *cobra.Command {
@@ -91,7 +93,7 @@ func newCatalogCmd() *cobra.Command {
 		Use:   "catalog",
 		Short: "Show or refresh the GitHub-org repo cache",
 		Args:  cobra.NoArgs,
-		RunE:  notImplemented("catalog"),
+		RunE:  runCatalog,
 	}
 	c.Flags().Bool("refresh", false, "force-refresh the cache")
 	return c
@@ -102,7 +104,7 @@ func newDoctorCmd() *cobra.Command {
 		Use:   "doctor",
 		Short: "Diagnose configuration, tokens, and required external tools",
 		Args:  cobra.NoArgs,
-		RunE:  notImplemented("doctor"),
+		RunE:  runDoctor,
 	}
 }
 
@@ -113,7 +115,7 @@ func newVersionCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			v, c, d := buildInfo()
-			fmt.Printf("thicket %s (%s, built %s)\n", v, c, d)
+			fmt.Fprintf(cmd.OutOrStdout(), "thicket %s (%s, built %s)\n", v, c, d)
 		},
 	}
 }
