@@ -273,8 +273,37 @@ thicket catalog         Show the GitHub-org repo cache.
 thicket doctor          Diagnose config, tokens, external tools.
                         Reports password-manager status, per-secret
                         fetchability, and env-var overrides.
+thicket update          Check for and apply a newer release in place
+                        (ignores the 24h auto-update cache).
 thicket version         Print version info.
 ```
+
+### Self-update
+
+Most commands (everything except `version`, `help`, and `update`
+itself) run a quick "is there a newer release?" probe before the
+actual work, cached for 24h so the GitHub round-trip happens at most
+once a day per machine. The cache lives next to your config —
+`$XDG_CONFIG_HOME/thicket/.update-check.json` (typically
+`~/.config/thicket/` on Linux, `~/Library/Application Support/thicket/`
+on macOS).
+
+When a newer release is available and stderr is a TTY, you're
+prompted to apply it. Saying yes downloads the matching release
+tarball, verifies its SHA-256 against `checksums.txt`, and
+atomically swaps the running binary in place.
+
+The probe is synchronous but bounded by a 2-second HTTP timeout and
+silently soft-fails on any network / parse error — so a flaky GitHub
+or an offline machine never blocks your actual command by more than
+that. Dev/dirty builds (unparseable version), non-TTY output, and
+binaries living under Homebrew / Nix / `go install` / source-build
+paths all silently fall through (in the unmanaged-binary case you
+get a one-line install command instead).
+
+Force-check at any time with `thicket update`. Disable the probe
+entirely with `THICKET_NO_UPDATE_CHECK=1` or `--no-update-check` on
+any command.
 
 ## Troubleshooting
 
