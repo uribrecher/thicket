@@ -1,0 +1,32 @@
+version: "2"
+
+run:
+  go: "1.22"
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - gocritic
+    - gosec
+
+  settings:
+    gosec:
+      excludes:
+        # We shell out to git/gh with arguments we control.
+        - G204
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+        - singleCaseSwitch
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
