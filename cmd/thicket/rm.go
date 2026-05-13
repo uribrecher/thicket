@@ -37,7 +37,6 @@ func runRm(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-
 	workspaces, err := listManagedWorkspaces(cfg)
 	if err != nil {
 		return err

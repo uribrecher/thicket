@@ -63,9 +63,22 @@ changelog:
 release:
   draft: false
   prerelease: auto
+  # Ship install.sh as a top-level release asset so users can do:
+  #   curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh
+  extra_files:
+    - glob: ./install.sh
   footer: |
     ---
-    Download a binary above and drop it on your `$PATH`, or:
+    ## Install
+
+    Quick install (auto-detects OS + arch, verifies checksum):
+    ```
+    curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh
+    ```
+
+    Or, with Go:
     ```
     go install github.com/uribrecher/thicket/cmd/thicket@latest
     ```
+
+    Or grab a tarball above and drop the `thicket` binary on your `$PATH`.

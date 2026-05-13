@@ -27,12 +27,37 @@ End result: `thicket start sc-12345` → fuzzy-pick repos → you're coding.
 
 ## Install
 
-### Pre-built binary (macOS, Linux)
+### One-liner (macOS, Linux)
 
-Download from
-[the latest GitHub release](https://github.com/uribrecher/thicket/releases/latest)
-(`thicket_<version>_<os>_<arch>.tar.gz`), extract, and drop the `thicket`
-binary on your `$PATH`.
+```sh
+curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh
+```
+
+The script:
+- Detects your OS + arch (`darwin`/`linux`, `amd64`/`arm64`).
+- Downloads the matching release tarball and `checksums.txt`.
+- Verifies the SHA-256 against the checksums file before installing.
+- Drops the `thicket` binary into `$HOME/.local/bin` and tells you to
+  add that to `$PATH` if it isn't already.
+
+Pin a specific version: `THICKET_VERSION=v0.1.0 sh`. Pick a different
+install dir: `INSTALL_DIR=/usr/local/bin sh` (will need `sudo`).
+
+### With Go
+
+```sh
+go install github.com/uribrecher/thicket/cmd/thicket@latest
+```
+
+Drops the binary at `$GOBIN` or `$GOPATH/bin`. If `go install` complains
+"`cannot install, GOBIN must be an absolute path`" fix once with
+`go env -w GOBIN="$HOME/go/bin"`.
+
+### Manual
+
+Grab a tarball from
+[the latest release](https://github.com/uribrecher/thicket/releases/latest)
+and drop `thicket` on your `$PATH`.
 
 ### From source
 
@@ -45,8 +70,8 @@ go install ./cmd/thicket
 ```
 
 Requires Go 1.24+, `git`, [`gh`](https://cli.github.com/), and optionally
-[`task`](https://taskfile.dev/) on `$PATH`. See `task --list` for the full
-set of dev tasks.
+[`task`](https://taskfile.dev/) on `$PATH`. `task --list` shows the full
+dev task set.
 
 ## Quickstart
 
