@@ -280,9 +280,10 @@ thicket version         Print version info.
 
 ### Self-update
 
-Every command runs a quick "is there a newer release?" probe before
-the actual work, cached for 24h so the GitHub round-trip happens at
-most once a day per machine. The cache lives next to your config —
+Most commands (everything except `version`, `help`, and `update`
+itself) run a quick "is there a newer release?" probe before the
+actual work, cached for 24h so the GitHub round-trip happens at most
+once a day per machine. The cache lives next to your config —
 `$XDG_CONFIG_HOME/thicket/.update-check.json` (typically
 `~/.config/thicket/` on Linux, `~/Library/Application Support/thicket/`
 on macOS).

@@ -1,13 +1,17 @@
 // Package updater implements the `thicket` self-update check and the
-// in-Go install path. The check runs on every command (gated by a 24h
-// cache and the THICKET_NO_UPDATE_CHECK env var) and, when a newer
-// release exists, prompts the user. On confirm we download the right
-// release tarball, verify SHA-256 against the release's checksums.txt,
-// and atomically swap the running binary in place.
+// in-Go install path. The check runs on most commands (excluding
+// `version`, `help`, and the manual `update` subcommand itself),
+// gated by a 24h cache and the THICKET_NO_UPDATE_CHECK env var. When
+// a newer release exists we either prompt the user (TTY + managed
+// install), print a one-line install hint (TTY + unmanaged install
+// or non-TTY), or stay silent (cache hit on a known-declined
+// version). On confirm we download the right release tarball, verify
+// SHA-256 against the release's checksums.txt, and atomically swap
+// the running binary in place.
 //
-// Two callers exist:
+// Two entry points:
 //
-//   - rootCmd's PersistentPreRunE → CheckOnRun (24h cache, soft fail)
+//   - rootCmd's PersistentPreRun → CheckOnRun (24h cache, soft fail)
 //   - `thicket update` subcommand → CheckAndApplyNow (no cache, hard
 //     fail if anything misbehaves)
 package updater
@@ -15,10 +19,12 @@ package updater
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -33,12 +39,27 @@ const repoSlug = "uribrecher/thicket"
 // update check (the manual `thicket update` command still works).
 const EnvDisable = "THICKET_NO_UPDATE_CHECK"
 
-// httpClient is a package-global so tests can swap it for an httptest
-// server. Timeout is intentionally short: on a cache miss we pay it
-// synchronously before the user's actual command runs, so 99% of the
-// time (cache hits) we add ~no latency, and on the rare miss we cap
-// the worst case to two seconds.
-var httpClient = &http.Client{Timeout: 2 * time.Second}
+// probeClient is used for the cheap "what's the latest tag?" call:
+// short-timeout so the pre-run probe can't stall a user's command
+// for more than a couple seconds on a flaky network. Cache hits skip
+// the HTTP entirely, so the typical user pays nothing.
+//
+// downloadClient covers the actual binary + checksums.txt downloads
+// during Apply(). Those are multi-MB and may follow GitHub redirects,
+// so they get a much longer timeout. Keeping the two clients separate
+// means we can't accidentally regress probe latency by tuning the
+// download path (or vice versa).
+//
+// Both are package-global so tests can swap them for an httptest
+// server.
+var (
+	probeClient    = &http.Client{Timeout: 2 * time.Second}
+	downloadClient = &http.Client{Timeout: 60 * time.Second}
+)
+
+// apiBaseURL is the GitHub API root used to look up `releases/latest`.
+// Test-only override.
+var apiBaseURL = "https://api.github.com"
 
 // CheckOnRun is the lightweight "did a new release land?" probe.
 // Synchronous on the calling goroutine: cache hits are effectively
@@ -67,7 +88,13 @@ func CheckOnRun(currentVersion string, out, errOut io.Writer) {
 		return
 	}
 
-	cache, _ := loadCache()
+	cache, err := loadCache()
+	if err != nil {
+		// Cache I/O failure (permission denied, broken fs, etc.).
+		// Soft-fail the whole probe so we don't end up doing an
+		// uncached GitHub fetch on every single command.
+		return
+	}
 	var latestTag string
 	if cache.fresh() {
 		latestTag = cache.LatestVersion
@@ -94,8 +121,9 @@ func CheckOnRun(currentVersion string, out, errOut io.Writer) {
 	}
 	if cache.DeclinedVersion == latestTag {
 		// User said "no" to this exact version inside the current
-		// 24h window — don't pester them again until the cache
-		// expires or a newer release lands.
+		// 24h window, OR we already printed the unmanaged-install
+		// install hint once for this version — don't pester them
+		// again until the cache expires or a newer release lands.
 		return
 	}
 
@@ -134,10 +162,27 @@ func CheckAndApplyNow(currentVersion string, out, errOut io.Writer) error {
 
 // promptAndApply renders the interactive (or non-interactive) gate
 // in front of Apply(). Used by CheckOnRun only.
+//
+// Three layers, top to bottom:
+//
+//  1. Unmanaged install (brew / nix / go install / source build) —
+//     auto-update can't touch the binary, so print a one-line install
+//     hint and persist the decline (so the same version doesn't
+//     re-print every command for 24h).
+//  2. Non-TTY (CI / pipes) — managed install but can't prompt; print
+//     a hint and leave it at that.
+//  3. TTY + managed — render the huh confirm; on yes, Apply().
 func promptAndApply(currentVersion, latestTag string, out, errOut io.Writer) {
+	_, managed := resolveAndCheckManaged()
+	if !managed {
+		printUnmanagedHint(errOut, currentVersion, latestTag)
+		if st, err := loadCache(); err == nil {
+			st.DeclinedVersion = latestTag
+			_ = saveCache(st)
+		}
+		return
+	}
 	if !isTerminal(errOut) {
-		// Non-interactive shell / CI / piped output — never prompt;
-		// instead print a one-line hint so the user knows.
 		fmt.Fprintf(errOut, "thicket: a newer release is available (%s → %s). Run `thicket update` to apply.\n",
 			currentVersion, latestTag)
 		return
@@ -173,17 +218,43 @@ func promptAndApply(currentVersion, latestTag string, out, errOut io.Writer) {
 
 	fmt.Fprintf(errOut, "Updating thicket %s → %s …\n", currentVersion, latestTag)
 	if err := Apply(latestTag); err != nil {
-		if err == ErrUnmanagedInstall {
-			fmt.Fprintln(errOut, "This thicket binary lives outside a managed install path, so")
-			fmt.Fprintln(errOut, "auto-update won't touch it. To update manually, run:")
-			fmt.Fprintln(errOut, "  curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh")
-			fmt.Fprintln(errOut, "or, for go-install users: `go install github.com/uribrecher/thicket/cmd/thicket@latest`.")
+		// Eligibility was already checked above, so ErrUnmanagedInstall
+		// shouldn't fire here in normal flow. Handle it defensively in
+		// case the binary moved between resolveAndCheckManaged() and
+		// Apply() (highly unlikely but possible).
+		if errors.Is(err, ErrUnmanagedInstall) {
+			printUnmanagedHint(errOut, currentVersion, latestTag)
 			return
 		}
 		fmt.Fprintf(errOut, "update failed: %v\n", err)
 		return
 	}
 	fmt.Fprintf(errOut, "thicket updated to %s. Continuing with your original command using the previous binary…\n", latestTag)
+}
+
+// resolveAndCheckManaged returns the symlink-resolved current
+// executable path and whether it lives in a managed-install path
+// (auto-update can safely write to it). On any resolution error we
+// return ("", false), which routes the caller into the unmanaged-
+// install hint path — safer than guessing.
+func resolveAndCheckManaged() (string, bool) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", false
+	}
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return "", false
+	}
+	return resolved, IsManagedInstall(resolved)
+}
+
+func printUnmanagedHint(w io.Writer, currentVersion, latestTag string) {
+	fmt.Fprintf(w, "\nA newer thicket release is available: %s → %s\n", currentVersion, latestTag)
+	fmt.Fprintln(w, "(this binary lives outside a managed install path, so auto-update won't touch it)")
+	fmt.Fprintln(w, "To update:")
+	fmt.Fprintln(w, "  curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh")
+	fmt.Fprintln(w, "or, for go-install users: `go install github.com/uribrecher/thicket/cmd/thicket@latest`.")
 }
 
 func isTerminal(w io.Writer) bool {
@@ -197,14 +268,14 @@ func isTerminal(w io.Writer) bool {
 // fetchLatestTag hits GitHub's releases/latest endpoint and returns
 // the tag_name (e.g. "v0.1.2"). No auth — public repo.
 func fetchLatestTag(ctx context.Context) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repoSlug)
+	url := fmt.Sprintf("%s/repos/%s/releases/latest", apiBaseURL, repoSlug)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "thicket-self-update")
-	resp, err := httpClient.Do(req)
+	resp, err := probeClient.Do(req)
 	if err != nil {
 		return "", err
 	}

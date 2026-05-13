@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Self-update.** Every command runs a quick probe (cached for 24h,
-  bounded by a 2-second HTTP timeout) against `releases/latest`. When
+- **Self-update.** Most commands (all except `version`, `help`, and
+  `update` itself) run a quick probe (cached for 24h, bounded by a
+  2-second HTTP timeout) against `releases/latest`. When
   a newer release is available in a TTY, you get a confirm prompt —
   saying yes downloads the matching tarball, verifies SHA-256 against
   the release's `checksums.txt`, and atomically swaps the running

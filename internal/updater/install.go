@@ -35,11 +35,15 @@ func archiveName(version, goos, goarch string) string {
 		strings.TrimPrefix(version, "v"), goos, goarch)
 }
 
+// downloadBaseURL is the GitHub root used to build release-asset
+// download URLs. Test-only override.
+var downloadBaseURL = "https://github.com"
+
 // downloadURL returns the GitHub releases asset URL for a given
 // release tag and asset filename.
 func downloadURL(tag, asset string) string {
-	return fmt.Sprintf("https://github.com/%s/releases/download/%s/%s",
-		repoSlug, tag, asset)
+	return fmt.Sprintf("%s/%s/releases/download/%s/%s",
+		downloadBaseURL, repoSlug, tag, asset)
 }
 
 // Apply downloads the asset for `tag` matching this binary's
@@ -100,9 +104,14 @@ func IsManagedInstall(exePath string) bool {
 		"/usr/local/Cellar/",
 		"/opt/homebrew/Cellar/",
 		"/nix/store/",
-		"/var/folders/", // macOS $TMPDIR
+		"/var/folders/",         // macOS $TMPDIR (raw)
+		"/private/var/folders/", // macOS $TMPDIR (symlink-resolved)
 		"/tmp/",
+		"/private/tmp/",
 		os.TempDir() + string(filepath.Separator),
+	}
+	if tmpResolved, err := filepath.EvalSymlinks(os.TempDir()); err == nil {
+		skipPrefixes = append(skipPrefixes, tmpResolved+string(filepath.Separator))
 	}
 	for _, p := range skipPrefixes {
 		if strings.HasPrefix(exePath, p) {
@@ -130,16 +139,19 @@ func IsManagedInstall(exePath string) bool {
 		return false
 	}
 	// Otherwise: check the parent dir is writable. If we can't even
-	// rename a temp file into it we can't do an atomic swap, and the
+	// create a temp file in it we can't do an atomic swap, and the
 	// user almost certainly has a system-managed install (e.g. owned
-	// by root in /usr/bin).
-	probe := filepath.Join(dir, ".thicket-write-probe")
-	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
+	// by root in /usr/bin). os.CreateTemp uses a unique pattern so
+	// concurrent thicket invocations don't collide on a fixed name
+	// (and crash-stale probe files don't false-negative subsequent
+	// checks).
+	f, err := os.CreateTemp(dir, ".thicket-write-probe-*")
 	if err != nil {
 		return false
 	}
+	name := f.Name()
 	_ = f.Close()
-	_ = os.Remove(probe)
+	_ = os.Remove(name)
 	return true
 }
 
@@ -149,7 +161,7 @@ func download(url, dest string) error {
 		return err
 	}
 	req.Header.Set("User-Agent", "thicket-self-update")
-	resp, err := httpClient.Do(req)
+	resp, err := downloadClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -177,7 +189,7 @@ func fetchChecksum(tag, asset string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", "thicket-self-update")
-	resp, err := httpClient.Do(req)
+	resp, err := downloadClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -259,14 +271,22 @@ func extractBinary(archive, dest string) error {
 // the file at `src`. On the same filesystem this is os.Rename. If
 // they're on different filesystems (e.g. /tmp vs /home), we fall back
 // to copy-into-target-dir-then-rename so the final swap is still
-// atomic on the destination FS.
+// atomic on the destination FS. The staging name is uniquified via
+// os.CreateTemp so a crashed prior update or concurrent invocations
+// can't contend on a fixed `.new` path.
 func swapBinary(src, target string) error {
 	if err := os.Rename(src, target); err == nil {
 		return nil
 	}
-	// Cross-fs fallback: copy src to a sibling of target, then rename.
-	staging := target + ".new"
+	dir := filepath.Dir(target)
+	stagingF, err := os.CreateTemp(dir, "thicket-*.new")
+	if err != nil {
+		return err
+	}
+	staging := stagingF.Name()
+	_ = stagingF.Close()
 	if err := copyFile(src, staging); err != nil {
+		_ = os.Remove(staging)
 		return err
 	}
 	if err := os.Chmod(staging, 0o755); err != nil {
