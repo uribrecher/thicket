@@ -39,7 +39,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Step 1: paths, orgs (no secrets here — trust gained gradually).
-	if err := runBaseConfigForm(cfg, errOut); err != nil {
+	if err := runBaseConfigForm(cfg, out, errOut); err != nil {
 		return err
 	}
 
@@ -90,7 +90,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 // ----- Step 1 -----
 
-func runBaseConfigForm(cfg *config.Config, errOut io.Writer) error {
+func runBaseConfigForm(cfg *config.Config, out, errOut io.Writer) error {
 	available := availableGitHubOrgs()
 
 	// Welcome note runs in its own form so the orgs widget can switch
@@ -103,7 +103,7 @@ func runBaseConfigForm(cfg *config.Config, errOut io.Writer) error {
 		return err
 	}
 
-	if err := collectGitHubOrgs(cfg, available); err != nil {
+	if err := collectGitHubOrgs(cfg, available, out); err != nil {
 		return err
 	}
 
@@ -144,7 +144,9 @@ func availableGitHubOrgs() []string {
 // collectGitHubOrgs shows a multiselect over the user's actual gh
 // memberships when available. Falls back to free-text input if gh
 // returned nothing useful (not auth'd, offline, no org memberships).
-func collectGitHubOrgs(cfg *config.Config, available []string) error {
+// When the user belongs to exactly one org we skip the picker
+// entirely (same pattern as the 1Password account picker).
+func collectGitHubOrgs(cfg *config.Config, available []string, out io.Writer) error {
 	if len(available) == 0 {
 		var orgs string
 		err := huh.NewForm(huh.NewGroup(
@@ -163,6 +165,12 @@ func collectGitHubOrgs(cfg *config.Config, available []string) error {
 			return err
 		}
 		cfg.GithubOrgs = splitCSV(orgs)
+		return nil
+	}
+
+	if len(available) == 1 {
+		cfg.GithubOrgs = []string{available[0]}
+		fmt.Fprintf(out, "  ✓ GitHub org: %s\n", available[0])
 		return nil
 	}
 
