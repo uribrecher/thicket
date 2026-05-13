@@ -57,7 +57,7 @@ type pickerModel struct {
 
 func newPickerModel(cat []catalog.Repo, picks []detector.RepoMatch) pickerModel {
 	ti := textinput.New()
-	ti.Placeholder = "type to fuzzy-search · ↑/↓ navigate · enter toggle · empty enter finish"
+	ti.Placeholder = "type to fuzzy-search · ↑/↓ navigate · enter toggle · empty enter to finish"
 	ti.Focus()
 	ti.CharLimit = 80
 	ti.Prompt = "› "
@@ -108,6 +108,11 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "enter":
+			// Empty input + Enter is the "I'm done" gesture (most common
+			// when the LLM pre-selected things and the user is happy).
+			// To drop a selected repo, type any portion of its name —
+			// the match will surface as `(selected)`, and Enter toggles
+			// it off.
 			if strings.TrimSpace(m.input.Value()) == "" {
 				m.finished = true
 				return m, tea.Quit
@@ -197,7 +202,7 @@ func (m pickerModel) View() string {
 	if len(m.matches) > 0 {
 		isSelectionView := strings.TrimSpace(m.input.Value()) == ""
 		if isSelectionView {
-			b.WriteString("  " + dimStyle.Render("(showing your current selection — enter to drop one)"))
+			b.WriteString("  " + dimStyle.Render("(showing current selection — type a name to drop, empty enter to finish)"))
 		} else {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("%d match(es) — enter to toggle", len(m.matches))))
 		}

@@ -223,6 +223,15 @@ func withProgress(w io.Writer, label string, fn func() error) error {
 	return err
 }
 
+// isDir reports whether path exists and is a directory.
+func isDir(path string) bool {
+	if path == "" {
+		return false
+	}
+	st, err := os.Stat(path)
+	return err == nil && st.IsDir()
+}
+
 // fetchSecret resolves a secret using the highest-priority source
 // available: env var → password manager. Each manager call is
 // constructed fresh with the secret's own 1Password account so different
@@ -437,9 +446,18 @@ func buildPlan(cfg *config.Config, flags startFlags, src ticket.Source, tk ticke
 	planRepos := make([]workspace.PlanRepo, 0, len(chosen))
 	memRepos := make([]memory.RepoEntry, 0, len(chosen))
 	for _, r := range chosen {
-		exists, err := g.BranchExists(r.LocalPath, branch)
-		if err != nil {
-			return workspace.Plan{}, fmt.Errorf("check branch in %s: %w", r.Name, err)
+		// In --dry-run, repos that the user agreed to clone have
+		// r.LocalPath set to the *would-be* target — there's no git
+		// repo there yet, so BranchExists would fail and abort the
+		// preview. Treat them as branch-doesn't-exist for plan
+		// rendering; the real run probes for real after cloning.
+		var exists bool
+		if !flags.dryRun || isDir(r.LocalPath) {
+			var err error
+			exists, err = g.BranchExists(r.LocalPath, branch)
+			if err != nil {
+				return workspace.Plan{}, fmt.Errorf("check branch in %s: %w", r.Name, err)
+			}
 		}
 		wt := filepath.Join(wsDir, r.Name)
 		planRepos = append(planRepos, workspace.PlanRepo{

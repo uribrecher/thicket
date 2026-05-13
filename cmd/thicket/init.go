@@ -59,7 +59,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	// Step 4: per-secret references. Skips the Anthropic key when
 	// claude_backend is "cli" — the local `claude` CLI handles auth.
-	if err := collectSecretRefs(ctx, cfg, mgr); err != nil {
+	if err := collectSecretRefs(ctx, cfg, mgr, out); err != nil {
 		return err
 	}
 
@@ -333,7 +333,7 @@ type secretSlot struct {
 	acctPtr *string // nil for non-1password managers
 }
 
-func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Manager) error {
+func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Manager, out io.Writer) error {
 	// All candidate slots, paired with the env var that would
 	// short-circuit them at runtime.
 	type candidate struct {
@@ -358,7 +358,7 @@ func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Mana
 	var slots []secretSlot
 	for _, c := range candidates {
 		if v := os.Getenv(c.envVar); v != "" {
-			fmt.Printf("\n  ℹ $%s is set — skipping %s setup (env var wins at runtime).\n",
+			fmt.Fprintf(out, "\n  ℹ $%s is set — skipping %s setup (env var wins at runtime).\n",
 				c.envVar, c.slot.label)
 			continue
 		}
@@ -371,17 +371,17 @@ func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Mana
 	// 1Password gets the nice account-per-slot + item/field picker.
 	// Other managers stick with the typed-string path.
 	if mgr.Name() == "1password" {
-		return collectSecretRefs1Password(ctx, slots)
+		return collectSecretRefs1Password(ctx, slots, out)
 	}
-	return collectSecretRefsTyped(ctx, mgr, slots)
+	return collectSecretRefsTyped(ctx, mgr, slots, out)
 }
 
 // collectSecretRefsTyped is the typed-string fallback used by every
 // manager except 1Password.
-func collectSecretRefsTyped(ctx context.Context, mgr secrets.Manager, slots []secretSlot) error {
-	fmt.Println()
-	fmt.Println("For each secret below, enter the item reference in your password manager.")
-	fmt.Printf("  Reference format: %s\n\n", mgr.Describe())
+func collectSecretRefsTyped(ctx context.Context, mgr secrets.Manager, slots []secretSlot, out io.Writer) error {
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "For each secret below, enter the item reference in your password manager.")
+	fmt.Fprintf(out, "  Reference format: %s\n\n", mgr.Describe())
 
 	// env mode records env-var *names* — the variables themselves may not
 	// be set at init time (they'll be set in CI / the shell config), so we
@@ -416,9 +416,9 @@ func collectSecretRefsTyped(ctx context.Context, mgr secrets.Manager, slots []se
 		}
 		*s.refPtr = strings.TrimSpace(val)
 		if envMode {
-			fmt.Printf("  ✓ %s — recorded (will read $%s at runtime)\n", s.label, *s.refPtr)
+			fmt.Fprintf(out, "  ✓ %s — recorded (will read $%s at runtime)\n", s.label, *s.refPtr)
 		} else {
-			fmt.Printf("  ✓ %s — fetched OK\n", s.label)
+			fmt.Fprintf(out, "  ✓ %s — fetched OK\n", s.label)
 		}
 	}
 	return nil
@@ -429,7 +429,7 @@ func collectSecretRefsTyped(ctx context.Context, mgr secrets.Manager, slots []se
 // The previous slot's account is offered as the default for the next so
 // users with multi-account setups can move quickly while still being
 // able to switch.
-func collectSecretRefs1Password(ctx context.Context, slots []secretSlot) error {
+func collectSecretRefs1Password(ctx context.Context, slots []secretSlot, out io.Writer) error {
 	accs, err := secrets.ListOnePasswordAccounts(ctx)
 	if err != nil {
 		return fmt.Errorf("list 1Password accounts: %w", err)
@@ -444,17 +444,17 @@ func collectSecretRefs1Password(ctx context.Context, slots []secretSlot) error {
 	lastAccount := ""
 
 	for i, s := range slots {
-		fmt.Printf("\n━━ [%d/%d] %s ━━\n", i+1, len(slots), s.label)
+		fmt.Fprintf(out, "\n━━ [%d/%d] %s ━━\n", i+1, len(slots), s.label)
 
 		def := firstNonEmpty(*s.acctPtr, lastAccount, accs[0].AccountUUID)
-		account, err := pickAccountForSlot(s.label, accs, def)
+		account, err := pickAccountForSlot(s.label, accs, def, out)
 		if err != nil {
 			return err
 		}
 		lastAccount = account
 		*s.acctPtr = account
 
-		items, err := loadItemsForAccount(ctx, itemsByAccount, account, accountLabel(account, accs))
+		items, err := loadItemsForAccount(ctx, itemsByAccount, account, accountLabel(account, accs), out)
 		if err != nil {
 			return err
 		}
@@ -464,9 +464,9 @@ func collectSecretRefs1Password(ctx context.Context, slots []secretSlot) error {
 			return err
 		}
 		*s.refPtr = ref
-		fmt.Printf("  ✓ %s — %s\n", s.label, ref)
+		fmt.Fprintf(out, "  ✓ %s — %s\n", s.label, ref)
 	}
-	fmt.Println()
+	fmt.Fprintln(out)
 	return nil
 }
 
@@ -474,10 +474,10 @@ func collectSecretRefs1Password(ctx context.Context, slots []secretSlot) error {
 // account known to op, we skip the picker entirely. `def` is the
 // account to highlight initially when the picker does appear.
 func pickAccountForSlot(label string, accs []secrets.OnePasswordAccount,
-	def string) (string, error) {
+	def string, out io.Writer) (string, error) {
 
 	if len(accs) == 1 {
-		fmt.Printf("  ✓ account: %s (%s)\n", accs[0].Email, accs[0].URL)
+		fmt.Fprintf(out, "  ✓ account: %s (%s)\n", accs[0].Email, accs[0].URL)
 		return accs[0].AccountUUID, nil
 	}
 
@@ -502,12 +502,12 @@ func pickAccountForSlot(label string, accs []secrets.OnePasswordAccount,
 
 // loadItemsForAccount fetches and caches the item list for one account.
 func loadItemsForAccount(ctx context.Context, cache map[string][]secrets.OnePasswordItem,
-	account, accountLabel string) ([]secrets.OnePasswordItem, error) {
+	account, accountLabel string, out io.Writer) ([]secrets.OnePasswordItem, error) {
 
 	if items, ok := cache[account]; ok {
 		return items, nil
 	}
-	fmt.Printf("Loading 1Password items for %s… (may prompt for biometric auth)\n", accountLabel)
+	fmt.Fprintf(out, "Loading 1Password items for %s… (may prompt for biometric auth)\n", accountLabel)
 	op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
 	items, err := op.ListItems(ctx)
 	if err != nil {
@@ -516,7 +516,7 @@ func loadItemsForAccount(ctx context.Context, cache map[string][]secrets.OnePass
 	if len(items) == 0 {
 		return nil, errors.New("no 1Password items visible to this account")
 	}
-	fmt.Printf("  ✓ loaded %d items\n", len(items))
+	fmt.Fprintf(out, "  ✓ loaded %d items\n", len(items))
 	cache[account] = items
 	return items, nil
 }
