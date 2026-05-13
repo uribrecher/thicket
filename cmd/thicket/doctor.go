@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -8,32 +9,33 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/uribrecher/thicket/internal/config"
+	"github.com/uribrecher/thicket/internal/secrets"
 )
 
-func runDoctor(_ *cobra.Command, _ []string) error {
+func runDoctor(cmd *cobra.Command, _ []string) error {
 	report := []check{}
 
 	// Config
 	cfgPath, err := config.Path()
 	if err != nil {
 		report = append(report, fail("config dir", err.Error()))
-	} else {
-		cfg, err := config.Load(cfgPath)
-		switch {
-		case errors.Is(err, config.ErrNoConfig):
-			report = append(report, fail("config file", "missing — run `thicket init`"))
-			printReport(report)
-			return errors.New("doctor: setup required")
-		case err != nil:
-			report = append(report, fail("config file", err.Error()))
-			printReport(report)
-			return err
-		default:
-			report = append(report, ok("config file", cfgPath))
-			report = append(report, checkConfigValues(cfg)...)
-			report = append(report, checkSecrets(cfg)...)
-		}
+		printReport(report)
+		return err
 	}
+	cfg, err := config.Load(cfgPath)
+	switch {
+	case errors.Is(err, config.ErrNoConfig):
+		report = append(report, fail("config file", "missing — run `thicket init`"))
+		printReport(report)
+		return errors.New("doctor: setup required")
+	case err != nil:
+		report = append(report, fail("config file", err.Error()))
+		printReport(report)
+		return err
+	}
+	report = append(report, ok("config file", cfgPath))
+	report = append(report, checkConfigValues(cfg)...)
+	report = append(report, checkSecrets(cmd.Context(), cfg)...)
 
 	// External tools
 	report = append(report, checkBinary("git"))
@@ -96,20 +98,45 @@ func checkConfigValues(c *config.Config) []check {
 	return out
 }
 
-func checkSecrets(c *config.Config) []check {
-	store := config.DefaultStore(c)
+func checkSecrets(ctx context.Context, c *config.Config) []check {
 	var out []check
-	for _, sec := range []struct {
-		key, label string
-	}{
-		{config.SecretShortcutAPIToken, "shortcut token"},
-		{config.SecretAnthropicAPIKey, "anthropic key"},
-	} {
-		if v, err := store.Get(sec.key); err == nil && v != "" {
-			out = append(out, ok(sec.label, "found"))
-		} else {
-			out = append(out, fail(sec.label, "missing — run `thicket init`"))
+	if c.Passwords.Manager == "" {
+		return append(out, fail("password manager", "not configured — run `thicket init`"))
+	}
+	mgr, err := secrets.New(c.Passwords.Manager)
+	if err != nil {
+		return append(out, fail("password manager", err.Error()))
+	}
+	if err := mgr.Check(ctx); err != nil {
+		switch {
+		case errors.Is(err, secrets.ErrCLIMissing):
+			return append(out, fail("password manager",
+				fmt.Sprintf("%s: CLI not installed", c.Passwords.Manager)))
+		case errors.Is(err, secrets.ErrNotAuthenticated):
+			return append(out, fail("password manager",
+				fmt.Sprintf("%s: not signed in / unlocked", c.Passwords.Manager)))
+		default:
+			return append(out, fail("password manager", err.Error()))
 		}
+	}
+	out = append(out, ok("password manager", c.Passwords.Manager+" — installed, unlocked"))
+
+	for _, sec := range []struct {
+		label, ref string
+	}{
+		{"shortcut token", c.Passwords.ShortcutTokenRef},
+		{"anthropic key", c.Passwords.AnthropicKeyRef},
+	} {
+		if sec.ref == "" {
+			out = append(out, fail(sec.label, "no reference set — run `thicket init`"))
+			continue
+		}
+		_, err := mgr.Get(ctx, sec.ref)
+		if err != nil {
+			out = append(out, fail(sec.label, fmt.Sprintf("%s: %v", sec.ref, err)))
+			continue
+		}
+		out = append(out, ok(sec.label, "fetched OK from "+c.Passwords.Manager))
 	}
 	return out
 }

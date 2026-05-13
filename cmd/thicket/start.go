@@ -19,6 +19,7 @@ import (
 	gitops "github.com/uribrecher/thicket/internal/git"
 	"github.com/uribrecher/thicket/internal/launcher"
 	"github.com/uribrecher/thicket/internal/memory"
+	"github.com/uribrecher/thicket/internal/secrets"
 	"github.com/uribrecher/thicket/internal/ticket"
 	"github.com/uribrecher/thicket/internal/ticket/shortcut"
 	"github.com/uribrecher/thicket/internal/tui"
@@ -37,8 +38,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 
+	// Password manager (cached for the lifetime of this command).
+	mgr, err := buildSecretManager(cmd.Context(), cfg)
+	if err != nil {
+		return err
+	}
+
 	// 1. Ticket source + ID parsing
-	src, err := buildTicketSource(cfg)
+	src, err := buildTicketSource(cmd.Context(), cfg, mgr)
 	if err != nil {
 		return err
 	}
@@ -63,7 +70,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(out, "catalog: %d active repos across %v\n", len(repos), cfg.GithubOrgs)
 
 	// 4. Detect involved repos
-	picks, err := detectRepos(cmd.Context(), cfg, flags, tk, repos)
+	picks, err := detectRepos(cmd.Context(), cfg, mgr, flags, tk, repos)
 	if err != nil {
 		return err
 	}
@@ -151,13 +158,29 @@ func readStartFlags(cmd *cobra.Command) (startFlags, error) {
 	}, nil
 }
 
-func buildTicketSource(cfg *config.Config) (ticket.Source, error) {
-	store := config.DefaultStore(cfg)
+func buildSecretManager(ctx context.Context, cfg *config.Config) (secrets.Manager, error) {
+	if cfg.Passwords.Manager == "" {
+		return nil, errors.New("no password manager configured — run `thicket init`")
+	}
+	m, err := secrets.New(cfg.Passwords.Manager)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.Check(ctx); err != nil {
+		return nil, fmt.Errorf("%s: %w", cfg.Passwords.Manager, err)
+	}
+	return secrets.NewCached(m), nil
+}
+
+func buildTicketSource(ctx context.Context, cfg *config.Config, mgr secrets.Manager) (ticket.Source, error) {
 	switch cfg.TicketSource {
 	case "shortcut":
-		token, err := store.Get(config.SecretShortcutAPIToken)
+		if cfg.Passwords.ShortcutTokenRef == "" {
+			return nil, errors.New("shortcut_token_ref not configured — run `thicket init`")
+		}
+		token, err := mgr.Get(ctx, cfg.Passwords.ShortcutTokenRef)
 		if err != nil {
-			return nil, fmt.Errorf("no Shortcut token in keychain/env — run `thicket init`")
+			return nil, fmt.Errorf("fetch shortcut token from %s: %w", mgr.Name(), err)
 		}
 		return shortcut.New(token, ""), nil
 	default:
@@ -186,7 +209,7 @@ func loadCatalog(cfg *config.Config) ([]catalog.Repo, error) {
 	return catalog.WithLocalPaths(repos, cfg.ReposRoot), nil
 }
 
-func detectRepos(ctx context.Context, cfg *config.Config, flags startFlags,
+func detectRepos(ctx context.Context, cfg *config.Config, mgr secrets.Manager, flags startFlags,
 	tk ticket.Ticket, repos []catalog.Repo) ([]detector.RepoMatch, error) {
 
 	catRepos := make([]detector.CatalogRepo, len(repos))
@@ -208,10 +231,12 @@ func detectRepos(ctx context.Context, cfg *config.Config, flags startFlags,
 		})
 	}
 
-	store := config.DefaultStore(cfg)
-	key, err := store.Get(config.SecretAnthropicAPIKey)
+	if cfg.Passwords.AnthropicKeyRef == "" {
+		return nil, errors.New("anthropic_key_ref not configured — run `thicket init`")
+	}
+	key, err := mgr.Get(ctx, cfg.Passwords.AnthropicKeyRef)
 	if err != nil {
-		return nil, fmt.Errorf("no Anthropic key in keychain/env — run `thicket init`")
+		return nil, fmt.Errorf("fetch anthropic key from %s: %w", mgr.Name(), err)
 	}
 	model := anthropic.Model(cfg.ClaudeModel)
 	d := detector.NewAnthropic(key, "", model)

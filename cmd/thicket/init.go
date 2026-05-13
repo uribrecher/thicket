@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,53 +12,71 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/uribrecher/thicket/internal/config"
+	"github.com/uribrecher/thicket/internal/secrets"
 )
 
-func runInit(_ *cobra.Command, _ []string) error {
+func runInit(cmd *cobra.Command, _ []string) error {
+	ctx := cmd.Context()
 	cfgPath, err := config.Path()
 	if err != nil {
 		return err
 	}
 
-	// Load existing config if present so the wizard pre-fills.
 	cfg, err := config.Load(cfgPath)
 	if errors.Is(err, config.ErrNoConfig) || cfg == nil {
 		d := config.Default()
 		cfg = &d
 	} else if err != nil {
-		// Don't fail the wizard on parse errors — start from defaults but
-		// warn the user so they don't silently lose data.
 		fmt.Fprintf(os.Stderr, "warning: existing config at %s is invalid (%v); starting fresh.\n",
 			cfgPath, err)
 		d := config.Default()
 		cfg = &d
 	}
 
-	store := config.DefaultStore(cfg)
-	existingShortcut, _ := store.Get(config.SecretShortcutAPIToken)
-	existingAnthropic, _ := store.Get(config.SecretAnthropicAPIKey)
+	// Step 1: paths, orgs (no secrets here — trust gained gradually).
+	if err := runBaseConfigForm(cfg); err != nil {
+		return err
+	}
 
+	// Step 2: password manager — choose, then verify CLI is available + unlocked.
+	mgr, err := chooseAndVerifyManager(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	// Step 3: per-secret item references. We only ever ask for the *ref*,
+	// never the value; we test-fetch each one immediately to fail fast.
+	if err := collectSecretRefs(ctx, cfg, mgr); err != nil {
+		return err
+	}
+
+	// Persist.
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	if err := cfg.Save(cfgPath); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(cfg.WorkspaceRoot, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not create workspace_root %s: %v\n",
+			cfg.WorkspaceRoot, err)
+	}
+
+	fmt.Printf("\nconfig written to %s\n", cfgPath)
+	verifyExternalTools()
+	return nil
+}
+
+// ----- Step 1 -----
+
+func runBaseConfigForm(cfg *config.Config) error {
 	orgs := strings.Join(cfg.GithubOrgs, ",")
-	shortcutToken := ""
-	anthropicKey := ""
 
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
 				Title("Welcome to thicket").
-				Description("Walk through the prerequisites once. You can re-run `thicket init` any time to change values."),
-		),
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Shortcut API token").
-				Description(prefilledLabel(existingShortcut, "leave blank to keep existing")).
-				Password(true).
-				Value(&shortcutToken),
-			huh.NewInput().
-				Title("Anthropic API key").
-				Description(prefilledLabel(existingAnthropic, "leave blank to keep existing")).
-				Password(true).
-				Value(&anthropicKey),
+				Description("Walk through the prerequisites once. You can re-run `thicket init` any time to change values.\n\nThicket never asks you to paste a raw API token. Instead, you point it at your password manager and we fetch on demand."),
 		),
 		huh.NewGroup(
 			huh.NewInput().
@@ -81,52 +100,117 @@ func runInit(_ *cobra.Command, _ []string) error {
 	if err := form.Run(); err != nil {
 		return err
 	}
-
-	if shortcutToken != "" {
-		if err := store.Set(config.SecretShortcutAPIToken, shortcutToken); err != nil {
-			return fmt.Errorf("store shortcut token: %w", err)
-		}
-	}
-	if anthropicKey != "" {
-		if err := store.Set(config.SecretAnthropicAPIKey, anthropicKey); err != nil {
-			return fmt.Errorf("store anthropic key: %w", err)
-		}
-	}
 	cfg.GithubOrgs = splitCSV(orgs)
-	if cfg.ClaudeModel == "" {
-		cfg.ClaudeModel = config.Default().ClaudeModel
-	}
-	if cfg.ClaudeBinary == "" {
-		cfg.ClaudeBinary = config.Default().ClaudeBinary
-	}
-	if cfg.DefaultBranch == "" {
-		cfg.DefaultBranch = config.Default().DefaultBranch
-	}
-	if cfg.TicketSource == "" {
-		cfg.TicketSource = config.Default().TicketSource
-	}
-	if err := cfg.Validate(); err != nil {
-		return err
-	}
-	if err := cfg.Save(cfgPath); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(cfg.WorkspaceRoot, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not create workspace_root %s: %v\n",
-			cfg.WorkspaceRoot, err)
-	}
-
-	fmt.Printf("\nconfig written to %s\n", cfgPath)
-	verifyExternalTools()
+	fillDefaults(cfg)
 	return nil
 }
 
-func prefilledLabel(existing, blankMsg string) string {
-	if existing != "" {
-		return blankMsg
+func fillDefaults(cfg *config.Config) {
+	d := config.Default()
+	if cfg.ClaudeModel == "" {
+		cfg.ClaudeModel = d.ClaudeModel
 	}
-	return "required"
+	if cfg.ClaudeBinary == "" {
+		cfg.ClaudeBinary = d.ClaudeBinary
+	}
+	if cfg.DefaultBranch == "" {
+		cfg.DefaultBranch = d.DefaultBranch
+	}
+	if cfg.TicketSource == "" {
+		cfg.TicketSource = d.TicketSource
+	}
 }
+
+// ----- Step 2 -----
+
+func chooseAndVerifyManager(ctx context.Context, cfg *config.Config) (secrets.Manager, error) {
+	options := make([]huh.Option[string], 0, len(secrets.Supported))
+	for _, id := range secrets.Supported {
+		// Construct an instance just to call Describe() — cheap, no network/exec.
+		m, _ := secrets.New(id)
+		options = append(options, huh.NewOption(
+			fmt.Sprintf("%s — %s", id, m.Describe()),
+			id,
+		))
+	}
+	choice := cfg.Passwords.Manager
+	if choice == "" {
+		choice = "1password"
+	}
+
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Pick a password manager").
+				Description("Thicket fetches API tokens from your password manager on demand. Pick the one you already use. If you don't use any of these, choose \"env\" and we'll read from environment variables."),
+			huh.NewSelect[string]().
+				Title("Password manager").
+				Options(options...).
+				Value(&choice).
+				Height(8),
+		),
+	)
+	if err := form.Run(); err != nil {
+		return nil, err
+	}
+
+	mgr, err := secrets.New(choice)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Passwords.Manager = choice
+
+	if err := mgr.Check(ctx); err != nil {
+		return nil, fmt.Errorf("%s check failed: %w — install the CLI and sign in, then re-run `thicket init`",
+			choice, err)
+	}
+	fmt.Printf("  ✓ %s CLI is installed and unlocked\n", choice)
+	return mgr, nil
+}
+
+// ----- Step 3 -----
+
+func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Manager) error {
+	fmt.Println()
+	fmt.Println("For each secret below, enter the item reference in your password manager.")
+	fmt.Printf("  Reference format: %s\n\n", mgr.Describe())
+
+	type slot struct {
+		label   string
+		current *string
+	}
+	slots := []slot{
+		{"Shortcut API token reference", &cfg.Passwords.ShortcutTokenRef},
+		{"Anthropic API key reference", &cfg.Passwords.AnthropicKeyRef},
+	}
+
+	for _, s := range slots {
+		val := *s.current
+		err := huh.NewInput().
+			Title(s.label).
+			Value(&val).
+			Validate(func(in string) error {
+				in = strings.TrimSpace(in)
+				if in == "" {
+					return errors.New("reference is required")
+				}
+				_, err := mgr.Get(ctx, in)
+				if err != nil {
+					return fmt.Errorf("test fetch failed: %w", err)
+				}
+				return nil
+			}).
+			Run()
+		if err != nil {
+			return err
+		}
+		*s.current = strings.TrimSpace(val)
+		fmt.Printf("  ✓ %s — fetched OK\n", s.label)
+	}
+	return nil
+}
+
+// ----- helpers shared with other subcommands -----
 
 func splitCSV(s string) []string {
 	parts := strings.Split(s, ",")

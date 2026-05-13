@@ -33,12 +33,9 @@ type Config struct {
 	TicketSource string   `toml:"ticket_source"`
 	GithubOrgs   []string `toml:"github_orgs"`
 
-	Shortcut    ShortcutConfig `toml:"shortcut"`
-	RepoAliases []RepoAlias    `toml:"repo_alias"`
-
-	// Secrets is a plain-text fallback ONLY. The keychain is preferred and
-	// env vars are a secondary fallback. If non-empty, Load emits a warning.
-	Secrets SecretsConfig `toml:"secrets,omitempty"`
+	Shortcut    ShortcutConfig  `toml:"shortcut"`
+	RepoAliases []RepoAlias     `toml:"repo_alias"`
+	Passwords   PasswordsConfig `toml:"passwords"`
 }
 
 type ShortcutConfig struct {
@@ -50,9 +47,17 @@ type RepoAlias struct {
 	Aliases []string `toml:"aliases"`
 }
 
-type SecretsConfig struct {
-	ShortcutAPIToken string `toml:"shortcut_api_token,omitempty"`
-	AnthropicAPIKey  string `toml:"anthropic_api_key,omitempty"`
+// PasswordsConfig records the user's chosen password manager and the
+// per-secret item references the tool should fetch at runtime. Crucially,
+// this file stores only references — the raw secrets live in the user's
+// password manager and never touch thicket's config.
+type PasswordsConfig struct {
+	// Manager is one of: "1password", "bitwarden", "pass", "env".
+	Manager string `toml:"manager"`
+	// ShortcutTokenRef is the PM ref for the Shortcut API token.
+	ShortcutTokenRef string `toml:"shortcut_token_ref,omitempty"`
+	// AnthropicKeyRef is the PM ref for the Anthropic API key.
+	AnthropicKeyRef string `toml:"anthropic_key_ref,omitempty"`
 }
 
 // Default returns a Config pre-filled with the defaults the init wizard
@@ -146,6 +151,9 @@ func (c *Config) Validate() error {
 	}
 	if c.ClaudeModel == "" {
 		problems = append(problems, "claude_model is required")
+	}
+	if c.Passwords.Manager == "" {
+		problems = append(problems, "passwords.manager is required (run `thicket init`)")
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid config:\n  - %s\nrun `thicket init` to set these up",
