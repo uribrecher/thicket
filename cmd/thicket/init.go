@@ -38,55 +38,36 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		cfg = &d
 	}
 
-	// Step 1: paths, orgs (no secrets here — trust gained gradually).
-	if err := runBaseConfigForm(cfg, out, errOut); err != nil {
-		return err
+	// Sequential step machine so the user can press Esc at any prompt
+	// to back up to the previous step. Any huh.ErrUserAborted from a
+	// step is interpreted as "go back"; on step 0 it means cancel
+	// (there's nothing earlier to return to).
+	steps := []func() error{
+		func() error { return runBaseConfigForm(cfg, out, errOut) },
+		func() error { return chooseClaudeBackend(cfg) },
+		func() error { return collectSecretsStep(ctx, cfg, out) },
 	}
-
-	// Step 2: pick the Claude backend (CLI vs API) so we know whether
-	// to ask for an Anthropic API key at all.
-	if err := chooseClaudeBackend(cfg); err != nil {
-		return err
-	}
-
-	// If every secret thicket needs at runtime is already in env, no
-	// password manager is required — fetchSecret's env-override path
-	// will satisfy each lookup. Skip the picker AND ref collection.
-	if allSecretsCoveredByEnv(cfg) {
-		fmt.Fprintln(out, "  ✓ found $SHORTCUT_API_TOKEN in env")
-		if cfg.ClaudeBackend == "api" {
-			fmt.Fprintln(out, "  ✓ found $ANTHROPIC_API_KEY in env")
-		}
-		fmt.Fprintln(out, "  All secrets covered by env vars — no password manager needed.")
-		// Validate() needs a non-empty manager string. "env" is the
-		// natural identity for "secrets come from the environment".
-		cfg.Passwords.Manager = "env"
-	} else {
-		// Step 3: pick a password manager. Account selection happens
-		// per-secret in step 4 because users may keep secrets in
-		// different 1Password accounts.
-		mgr, err := chooseManager(cfg)
-		if err != nil {
+	i := 0
+	for i < len(steps) {
+		err := steps[i]()
+		switch {
+		case errors.Is(err, huh.ErrUserAborted):
+			if i == 0 {
+				fmt.Fprintln(out, "cancelled.")
+				return nil
+			}
+			i--
+			fmt.Fprintln(out, "  ← back to previous step")
+		case err != nil:
 			return err
-		}
-		// Step 4: per-secret references. Skips the Anthropic key when
-		// claude_backend is "cli" — the local `claude` CLI handles auth.
-		// Individual slots whose env vars are already set are also
-		// skipped (their values come from the env at runtime).
-		if err := collectSecretRefs(ctx, cfg, mgr, out); err != nil {
-			return err
+		default:
+			i++
 		}
 	}
 
-	// Expand ~ in path fields so MkdirAll doesn't create a literal
-	// ./~/tasks folder when the user accepts the default. The saved
-	// config then carries absolute paths, which round-trip cleanly
-	// through Load.
 	if err := cfg.ExpandPaths(); err != nil {
 		return err
 	}
-
-	// Persist.
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -101,6 +82,25 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(out, "\nconfig written to %s\n", cfgPath)
 	verifyExternalTools(out, cfg)
 	return nil
+}
+
+// collectSecretsStep is the third init step: either announce env-only
+// coverage and skip, or run the manager picker + per-secret collection.
+func collectSecretsStep(ctx context.Context, cfg *config.Config, out io.Writer) error {
+	if allSecretsCoveredByEnv(cfg) {
+		fmt.Fprintln(out, "  ✓ found $SHORTCUT_API_TOKEN in env")
+		if cfg.ClaudeBackend == "api" {
+			fmt.Fprintln(out, "  ✓ found $ANTHROPIC_API_KEY in env")
+		}
+		fmt.Fprintln(out, "  All secrets covered by env vars — no password manager needed.")
+		cfg.Passwords.Manager = "env"
+		return nil
+	}
+	mgr, err := chooseManager(cfg)
+	if err != nil {
+		return err
+	}
+	return collectSecretRefs(ctx, cfg, mgr, out)
 }
 
 // ----- Step 1 -----
