@@ -9,9 +9,17 @@
 
 <link rel="icon" type="image/png" href="assets/thicket.png">
 
-<!-- asciinema player (3.x) -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.css">
-<script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.js" defer></script>
+<!-- asciinema player 3.8.0 — pinned via SRI so a compromised CDN
+     can't swap in tampered JS/CSS. Hashes regenerated whenever the
+     pinned version moves. -->
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.css"
+      integrity="sha384-xIgcyJjR+nMz6lgbiCjOoZ68DUmktyZFzr/6rcDx3hjC/9C9ukiujF4nzMB4rWCE"
+      crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.js"
+        integrity="sha384-svQ3ol2I6XJvPsGztCmG9/XctZ37XNsP86aAFDcKciKlaGHNbEmhhedZ7tNu5b9h"
+        crossorigin="anonymous"
+        defer></script>
 
 <link rel="stylesheet" href="styles.css">
 
@@ -32,7 +40,13 @@
 
   <div class="hero__install">
     <code id="install-cmd">curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh</code>
-    <button class="copy-btn" type="button" data-copy-target="install-cmd" title="Copy">⧉</button>
+    <button class="copy-btn" type="button"
+            data-copy-target="install-cmd"
+            aria-label="Copy install command to clipboard"
+            title="Copy">
+      <span class="copy-btn__icon" aria-hidden="true">⧉</span>
+    </button>
+    <span id="copy-status" class="visually-hidden" aria-live="polite"></span>
   </div>
 
   <p class="hero__ctas">
@@ -207,15 +221,55 @@ thicket rm sc-12345-fix-inventory</code></pre>
   });
 
   // Clipboard copy for the hero install command.
+  //
+  // Tries the modern async API first; on rejection (non-secure
+  // context, denied permission, unsupported API) falls back to a
+  // textarea + execCommand('copy') selection trick that works
+  // wherever rich JS doesn't. Either path gives visual + screen
+  // reader feedback; both paths fall through to '✗' on hard failure
+  // so the user knows to manually select the command instead of
+  // staring at nothing.
+  function legacyCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
   document.querySelectorAll('.copy-btn').forEach(function (btn) {
+    var icon = btn.querySelector('.copy-btn__icon') || btn;
+    var status = document.getElementById('copy-status');
+
+    function feedback(symbol, message) {
+      icon.textContent = symbol;
+      if (status) status.textContent = message;
+      setTimeout(function () {
+        icon.textContent = '⧉';
+        if (status) status.textContent = '';
+      }, 1500);
+    }
+
     btn.addEventListener('click', function () {
       var t = document.getElementById(btn.dataset.copyTarget);
       if (!t) return;
-      navigator.clipboard.writeText(t.textContent).then(function () {
-        var prev = btn.textContent;
-        btn.textContent = '✓';
-        setTimeout(function () { btn.textContent = prev; }, 1200);
-      });
+      var text = t.textContent;
+      var done = function (ok) { feedback(ok ? '✓' : '✗', ok ? 'Copied' : 'Copy failed'); };
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          function () { done(true); },
+          function () { done(legacyCopy(text)); }
+        );
+      } else {
+        done(legacyCopy(text));
+      }
     });
   });
 </script>
