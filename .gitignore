@@ -1,5 +1,7 @@
 /thicket
+/bin/
 /dist/
+/.task/
 *.test
 *.out
 .DS_Store

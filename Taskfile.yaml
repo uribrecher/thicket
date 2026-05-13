@@ -1,0 +1,107 @@
+version: "3"
+
+vars:
+  BINARY: thicket
+  BIN_DIR: bin
+  MAIN: ./cmd/thicket
+  LDFLAGS: >-
+    -s -w
+    -X main.version={{.GIT_TAG | default "dev"}}
+    -X main.commit={{.GIT_COMMIT}}
+    -X main.date={{.BUILD_DATE}}
+
+env:
+  GIT_TAG:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  GIT_COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo unknown
+  BUILD_DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the thicket binary into ./bin/
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BIN_DIR}}/{{.BINARY}} {{.MAIN}}
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.BIN_DIR}}/{{.BINARY}}"
+
+  install:
+    desc: go install the binary into $GOBIN / $GOPATH/bin
+    cmds:
+      - go install -ldflags "{{.LDFLAGS}}" {{.MAIN}}
+
+  test:
+    desc: Run unit tests
+    cmds:
+      - go test ./...
+
+  test:race:
+    desc: Run unit tests with the race detector
+    cmds:
+      - go test -race -count=1 ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  lint:fix:
+    desc: Auto-format Go files and run golangci-lint with --fix
+    cmds:
+      - gofmt -s -w .
+      - golangci-lint run --fix ./...
+
+  tidy:
+    desc: go mod tidy
+    cmds:
+      - go mod tidy
+
+  clean:
+    desc: Remove build artifacts (bin/ and dist/)
+    cmds:
+      - rm -rf {{.BIN_DIR}} dist
+
+  release:check:
+    desc: Validate .goreleaser.yaml without building
+    cmds:
+      - goreleaser check
+
+  release:snapshot:
+    desc: Local snapshot release (no publish)
+    cmds:
+      - goreleaser release --snapshot --clean --skip=publish
+
+  release:
+    desc: Cut a real release (requires a clean working tree and a tag)
+    preconditions:
+      - sh: '[ -z "$(git status --porcelain)" ]'
+        msg: "working tree is dirty — commit or stash before releasing"
+    cmds:
+      - goreleaser release --clean
+
+  ci:
+    desc: Run everything CI runs (test + vet + lint)
+    deps: [test, vet, lint]
+
+  all:
+    desc: Tidy, build, and run the full CI suite
+    cmds:
+      - task: tidy
+      - task: build
+      - task: ci

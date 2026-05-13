@@ -65,26 +65,7 @@ release:
   prerelease: auto
   footer: |
     ---
-    Install with Homebrew:
+    Download a binary above and drop it on your `$PATH`, or:
     ```
-    brew install uribrecher/thicket/thicket
+    go install github.com/uribrecher/thicket/cmd/thicket@latest
     ```
-    Or download a binary above and drop it on your `$PATH`.
-
-brews:
-  - name: thicket
-    repository:
-      owner: uribrecher
-      name: homebrew-thicket
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    homepage: "https://github.com/uribrecher/thicket"
-    description: "Ticket-driven multi-repo workspace bootstrapper"
-    license: "MIT"
-    test: |
-      system "#{bin}/thicket version"
-    install: |
-      bin.install "thicket"
-    dependencies:
-      - name: git
-      - name: gh
-        type: optional
