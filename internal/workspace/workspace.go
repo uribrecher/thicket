@@ -141,7 +141,10 @@ func (w *Workspace) Create(p Plan) error {
 // worktree listed in its state manifest, then the directory itself.
 // force=true tolerates dirty worktrees AND lets the caller delete a
 // directory that has no state manifest (i.e. wasn't created by thicket
-// or had its manifest deleted) — see safety note below.
+// or had its manifest deleted) — see safety note below. progress, if
+// non-nil, receives one line per teardown step (`✓ removed worktree
+// …`, `✓ deleted workspace directory …`); pass nil for silent
+// operation (tests, scripts).
 //
 // Safety:
 //   - If any worktree refuses to be removed (e.g. dirty changes with
@@ -152,10 +155,6 @@ func (w *Workspace) Create(p Plan) error {
 //     directory unless force=true. This stops `thicket rm` from
 //     becoming a blind `rm -rf` against any folder that happens to
 //     live under workspace_root.
-//
-// progress, if non-nil, receives one line per teardown step
-// (`✓ removed worktree …`, `✓ deleted workspace directory …`); pass
-// nil for silent operation (tests, scripts).
 func (w *Workspace) Remove(workspaceDir string, force bool, progress io.Writer) error {
 	st, err := ReadState(workspaceDir)
 	if err != nil {

@@ -115,11 +115,21 @@ func doRemove(cmd *cobra.Command, dir string, st *workspace.State, force, skipCo
 	}
 
 	w := workspace.New(git.New())
-	fmt.Fprintln(out)
+	// Visual separators around the progress stream — but ONLY when
+	// there was an interactive preview + prompt above us. With
+	// --yes (skipConfirm) we want clean machine-readable output:
+	// just the ✓ lines and the final `removed <dir>`, no leading
+	// blank lines polluting the stream.
+	if !skipConfirm {
+		fmt.Fprintln(out)
+	}
 	if err := w.RemoveWithState(dir, st, force, out); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "\nremoved %s\n", dir)
+	if !skipConfirm {
+		fmt.Fprintln(out)
+	}
+	fmt.Fprintf(out, "removed %s\n", dir)
 	return nil
 }
 
