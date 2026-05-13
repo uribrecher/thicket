@@ -150,6 +150,7 @@ func submitReposInputSchema() anthropic.ToolInputSchemaParam {
 
 const promptTmpl = `You are routing a ticket to the GitHub repos that will need code changes.
 Be conservative — prefer fewer repos. Do not include repos that are merely mentioned but not modified.
+If the ticket has too little information to route confidently, return an empty array.
 
 TICKET:
   Title: {{.TicketTitle}}
@@ -160,7 +161,8 @@ KNOWN REPOS:
 {{range .Repos}}  - {{.Name}}{{if .Description}}: {{.Description}}{{end}}
 {{end}}
 
-Call the submit_repos tool with the array of repos that need code changes. Confidence is 0..1.`
+Return a JSON array of repos that need code changes, in this exact shape:
+[{"name": "<repo-name>", "confidence": 0.0-1.0, "reason": "<one short sentence>"}]`
 
 type promptData struct {
 	TicketTitle  string

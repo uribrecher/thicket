@@ -25,7 +25,7 @@ func TestRenderPrompt_includesTitleBodyAndRepos(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	for _, sub := range []string{"Fix inventory grouping", "Line one", "Line two",
-		"alpha: first repo", "beta", "submit_repos"} {
+		"alpha: first repo", "beta", "JSON array"} {
 		if !strings.Contains(got, sub) {
 			t.Errorf("missing %q in prompt:\n%s", sub, got)
 		}

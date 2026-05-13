@@ -55,6 +55,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
+	if strings.TrimSpace(tk.Body) == "" {
+		fmt.Fprintln(out, "  ⚠ ticket has no description — LLM routing will lack context;\n"+
+			"    consider \"thicket start <ticket> --only repo1,repo2\" instead.")
+	}
 
 	// 3. Catalog
 	repos, err := loadCatalog(cfg)

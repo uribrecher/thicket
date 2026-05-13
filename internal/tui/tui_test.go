@@ -29,6 +29,40 @@ func TestAutoSelector_takesPicksAsIs(t *testing.T) {
 	}
 }
 
+func TestRemoveFromSlice(t *testing.T) {
+	cases := map[string]struct {
+		in   []string
+		drop string
+		want []string
+	}{
+		"middle":  {[]string{"a", "b", "c"}, "b", []string{"a", "c"}},
+		"first":   {[]string{"a", "b"}, "a", []string{"b"}},
+		"last":    {[]string{"a", "b"}, "b", []string{"a"}},
+		"missing": {[]string{"a", "b"}, "z", []string{"a", "b"}},
+		"empty":   {nil, "x", nil},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := removeFromSlice(tc.in, tc.drop)
+			if !sliceEqual(got, tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func sliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestTruncate(t *testing.T) {
 	cases := map[string]struct {
 		in  string

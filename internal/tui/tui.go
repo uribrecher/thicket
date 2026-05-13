@@ -5,8 +5,10 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/charmbracelet/huh"
 
@@ -16,10 +18,10 @@ import (
 
 // Selector drives the user-facing selection + confirm prompts.
 type Selector interface {
-	// SelectRepos shows a multi-select over the full catalog with the LLM's
-	// picks pre-checked. Returns the names of the repos the user kept,
-	// in input order (catalog order). Returns ErrCancelled if the user
-	// aborted.
+	// SelectRepos asks the user which repos to include in the workspace.
+	// `picks` is the LLM's pre-selection. Implementations are free to
+	// pre-load them or ignore them. Returns the chosen repo names in
+	// catalog order. Returns ErrCancelled if the user aborted.
 	SelectRepos(catalog []catalog.Repo, picks []detector.RepoMatch) ([]string, error)
 
 	// ConfirmClone asks the user whether to clone a repo that isn't yet
@@ -35,82 +37,128 @@ var ErrCancelled = huh.ErrUserAborted
 
 type HuhSelector struct{}
 
+// SelectRepos uses an autocomplete-input loop instead of a multi-select
+// over the full catalog. Showing every repo at once was overwhelming on
+// orgs with hundreds of repos and provided no extra value over a typed
+// query with tab-completion.
+//
+// Flow:
+//   - LLM picks (if any) are pre-loaded into the selection.
+//   - On each iteration the current selection is printed, then a one-line
+//     huh.Input prompts the user to add a name (Tab to complete, blank
+//     to finish, "-name" to drop one).
+//   - The autocomplete suggestions are the full catalog.
+//
+// The loop exits when the user submits an empty input.
 func (HuhSelector) SelectRepos(cat []catalog.Repo, picks []detector.RepoMatch) ([]string, error) {
-	pickMap := make(map[string]detector.RepoMatch, len(picks))
-	for _, p := range picks {
-		pickMap[p.Name] = p
-	}
-
-	type entry struct {
-		name      string
-		isLLMPick bool
-	}
-	// Sort: LLM picks first (by descending confidence), then the rest of
-	// the catalog alphabetically. This puts the suggested repos at the top
-	// for easy review without hiding the long-tail catalog.
-	entries := make([]entry, 0, len(cat))
-	for _, r := range cat {
-		_, isPick := pickMap[r.Name]
-		entries = append(entries, entry{name: r.Name, isLLMPick: isPick})
-	}
-	sort.SliceStable(entries, func(i, j int) bool {
-		ip, jp := entries[i].isLLMPick, entries[j].isLLMPick
-		if ip != jp {
-			return ip // picks first
-		}
-		if ip && jp {
-			return pickMap[entries[i].name].Confidence > pickMap[entries[j].name].Confidence
-		}
-		return entries[i].name < entries[j].name
-	})
-
+	nameSet := make(map[string]bool, len(cat))
+	names := make([]string, 0, len(cat))
 	descByName := make(map[string]string, len(cat))
 	for _, r := range cat {
+		nameSet[r.Name] = true
+		names = append(names, r.Name)
 		descByName[r.Name] = r.Description
 	}
+	sort.Strings(names)
 
-	opts := make([]huh.Option[string], 0, len(entries))
-	for _, e := range entries {
-		label := e.name
-		if e.isLLMPick {
-			m := pickMap[e.name]
-			label = fmt.Sprintf("%s — %s (LLM %.0f%%: %s)", e.name,
-				truncate(descByName[e.name], 48), m.Confidence*100, m.Reason)
-		} else if d := descByName[e.name]; d != "" {
-			label = fmt.Sprintf("%s — %s", e.name, truncate(d, 48))
-		}
-		opts = append(opts, huh.NewOption(label, e.name))
-	}
-
-	selected := make([]string, 0, len(picks))
+	selected := map[string]bool{}
+	order := make([]string, 0, len(picks))
 	for _, p := range picks {
-		selected = append(selected, p.Name)
-	}
-
-	form := huh.NewForm(huh.NewGroup(
-		huh.NewMultiSelect[string]().
-			Title("Select repos to include in the workspace").
-			Description("LLM picks are pre-selected at the top. Space toggles. Type to filter.").
-			Options(opts...).
-			Value(&selected).
-			Filterable(true).
-			Height(15),
-	))
-	if err := form.Run(); err != nil {
-		return nil, err
-	}
-	// Re-order result to follow catalog order for predictability downstream.
-	keep := make(map[string]bool, len(selected))
-	for _, s := range selected {
-		keep[s] = true
-	}
-	out := make([]string, 0, len(selected))
-	for _, r := range cat {
-		if keep[r.Name] {
-			out = append(out, r.Name)
+		if nameSet[p.Name] && !selected[p.Name] {
+			selected[p.Name] = true
+			order = append(order, p.Name)
 		}
 	}
-	return out, nil
+
+	if len(picks) == 0 {
+		fmt.Println("\nLLM returned no suggestions — add repos manually below.")
+		fmt.Printf("  catalog has %d repos · type to autocomplete · Tab to accept · blank to finish.\n", len(cat))
+	} else {
+		fmt.Printf("\nLLM suggested %d repo(s): %s\n", len(order), strings.Join(order, ", "))
+		for _, p := range picks {
+			if p.Reason != "" {
+				fmt.Printf("  • %s (%.0f%%): %s\n", p.Name, p.Confidence*100, p.Reason)
+			}
+		}
+	}
+
+	for {
+		printCurrentSelection(order)
+
+		var input string
+		err := huh.NewInput().
+			Title("Add or drop a repo (blank to finish)").
+			Description("type to filter · Tab to autocomplete · prefix \"-\" to drop").
+			Suggestions(names).
+			Value(&input).
+			Run()
+		if err != nil {
+			return nil, err
+		}
+		input = strings.TrimSpace(input)
+		if input == "" {
+			break
+		}
+		if strings.HasPrefix(input, "-") {
+			name := strings.TrimSpace(strings.TrimPrefix(input, "-"))
+			if !selected[name] {
+				fmt.Printf("  ✗ %q is not in the current selection\n", name)
+				continue
+			}
+			delete(selected, name)
+			order = removeFromSlice(order, name)
+			fmt.Printf("  − dropped %s\n", name)
+			continue
+		}
+		if !nameSet[input] {
+			fmt.Printf("  ✗ %q is not in the catalog (try Tab autocomplete)\n", input)
+			continue
+		}
+		if selected[input] {
+			fmt.Printf("  • %s is already in the selection\n", input)
+			continue
+		}
+		selected[input] = true
+		order = append(order, input)
+		if d := descByName[input]; d != "" {
+			fmt.Printf("  + %s — %s\n", input, truncate(d, 64))
+		} else {
+			fmt.Printf("  + %s\n", input)
+		}
+	}
+
+	if len(order) == 0 {
+		return nil, errors.New("no repos selected — nothing to do")
+	}
+
+	// Re-order to follow catalog order for predictability downstream.
+	final := make([]string, 0, len(order))
+	for _, r := range cat {
+		if selected[r.Name] {
+			final = append(final, r.Name)
+		}
+	}
+	fmt.Printf("\n✓ Selected (%d): %s\n", len(final), strings.Join(final, ", "))
+	return final, nil
+}
+
+func printCurrentSelection(order []string) {
+	fmt.Println()
+	if len(order) == 0 {
+		fmt.Println("  current selection: (none)")
+		return
+	}
+	fmt.Printf("  current selection (%d): %s\n", len(order), strings.Join(order, ", "))
+}
+
+func removeFromSlice(s []string, v string) []string {
+	out := s[:0]
+	for _, x := range s {
+		if x != v {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 func (HuhSelector) ConfirmClone(repoName, targetPath string) (bool, error) {
