@@ -49,7 +49,7 @@ func TestLoadSave_roundtrip(t *testing.T) {
 
 	in := validConfig()
 	in.RepoAliases = []RepoAlias{
-		{Name: "sentra-scan-state-manager", Aliases: []string{"ssm"}},
+		{Name: "acme-scan-state-manager", Aliases: []string{"ssm"}},
 	}
 	if err := in.Save(path); err != nil {
 		t.Fatalf("save: %v", err)
@@ -61,7 +61,7 @@ func TestLoadSave_roundtrip(t *testing.T) {
 	if out.ReposRoot != in.ReposRoot {
 		t.Errorf("repos_root: got %q want %q", out.ReposRoot, in.ReposRoot)
 	}
-	if len(out.RepoAliases) != 1 || out.RepoAliases[0].Name != "sentra-scan-state-manager" {
+	if len(out.RepoAliases) != 1 || out.RepoAliases[0].Name != "acme-scan-state-manager" {
 		t.Errorf("repo aliases not preserved: %+v", out.RepoAliases)
 	}
 }
@@ -83,7 +83,7 @@ default_branch  = "main"
 claude_model    = "claude-haiku-4-5"
 claude_binary   = "claude"
 ticket_source   = "shortcut"
-github_orgs     = ["sentrasec"]
+github_orgs     = ["acme"]
 [passwords]
 manager = "env"
 `
@@ -127,7 +127,7 @@ func validConfig() Config {
 		ClaudeModel:   "claude-haiku-4-5",
 		ClaudeBinary:  "claude",
 		TicketSource:  "shortcut",
-		GithubOrgs:    []string{"sentrasec"},
+		GithubOrgs:    []string{"acme"},
 		Passwords:     PasswordsConfig{Manager: "env"},
 	}
 }

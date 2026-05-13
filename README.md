@@ -68,15 +68,15 @@ thicket rm sc-12345-fix-x     # remove worktrees + folder
 
 ```
 ~/code/                          # repos_root — where you keep clones
-├── sentra-foo/   ← source clone, stays on main
-└── sentra-bar/
+├── acme-foo/   ← source clone, stays on main
+└── acme-bar/
 
 ~/tasks/                         # workspace_root — where thicket puts workspaces
 └── sc-12345-fix-inventory/
     ├── CLAUDE.local.md          ← seeded with ticket context
     ├── .thicket/state.json      ← manifest for `thicket rm`
-    ├── sentra-foo/              ← git worktree on uri/sc-12345-fix-inventory
-    └── sentra-bar/              ← git worktree on uri/sc-12345-fix-inventory
+    ├── acme-foo/              ← git worktree on uri/sc-12345-fix-inventory
+    └── acme-bar/              ← git worktree on uri/sc-12345-fix-inventory
 ```
 
 Source clones never get checked out to a feature branch — they stay clean

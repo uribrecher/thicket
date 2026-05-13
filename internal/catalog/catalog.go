@@ -48,7 +48,7 @@ const DefaultCacheTTL = 7 * 24 * time.Hour
 
 // ErrEmptyCatalog is returned by Build when every configured org came
 // back with zero non-archived repos. Cached empty results are usually a
-// symptom of a typo in `github_orgs` (e.g. "sentrasec" vs "sentraio")
+// symptom of a typo in `github_orgs` (e.g. "acme-corp" vs "acme-io")
 // or missing `gh` access to the org — refusing to return them lets
 // callers prompt the user to re-check config instead of silently
 // caching an empty list.

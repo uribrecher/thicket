@@ -1,6 +1,6 @@
 # Ticket sc-12345 — Fix inventory grouping for AWS native rules
 
-- **URL:** https://app.shortcut.com/sentra/story/12345
+- **URL:** https://app.shortcut.com/acme/story/12345
 - **State:** In Development
 - **Owner:** uri
 - **Branch:** `uri/sc-12345-fix-inventory-grouping`
@@ -11,8 +11,8 @@
 
 | Repo | Branch | Worktree | Default branch |
 | ---- | ------ | -------- | -------------- |
-| sentra-scan-state-manager | `uri/sc-12345-fix-inventory-grouping` | `/Users/uri/tasks/sc-12345-fix-inventory-grouping/sentra-scan-state-manager` | main |
-| sentra-discovery | `uri/sc-12345-fix-inventory-grouping` | `/Users/uri/tasks/sc-12345-fix-inventory-grouping/sentra-discovery` | main |
+| acme-scan-state-manager | `uri/sc-12345-fix-inventory-grouping` | `/Users/uri/tasks/sc-12345-fix-inventory-grouping/acme-scan-state-manager` | main |
+| acme-discovery | `uri/sc-12345-fix-inventory-grouping` | `/Users/uri/tasks/sc-12345-fix-inventory-grouping/acme-discovery` | main |
 
 ## Ticket body
 

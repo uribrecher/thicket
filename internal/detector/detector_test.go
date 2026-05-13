@@ -123,16 +123,16 @@ func TestAnthropicDetector_missingToolUse(t *testing.T) {
 
 func TestRuleDetector_resolvesNamesAndAliases(t *testing.T) {
 	d := &RuleDetector{
-		Catalog: []CatalogRepo{{Name: "sentra-scan-state-manager"}, {Name: "sentra-discovery"}},
-		Aliases: map[string]string{"ssm": "sentra-scan-state-manager"},
+		Catalog: []CatalogRepo{{Name: "acme-scan-state-manager"}, {Name: "acme-discovery"}},
+		Aliases: map[string]string{"ssm": "acme-scan-state-manager"},
 	}
 	got, err := d.Detect(context.Background(), Input{
-		TicketBody: "ssm, sentra-discovery",
+		TicketBody: "ssm, acme-discovery",
 	})
 	if err != nil {
 		t.Fatalf("detect: %v", err)
 	}
-	if len(got) != 2 || got[0].Name != "sentra-scan-state-manager" || got[1].Name != "sentra-discovery" {
+	if len(got) != 2 || got[0].Name != "acme-scan-state-manager" || got[1].Name != "acme-discovery" {
 		t.Errorf("got %+v", got)
 	}
 	for _, m := range got {

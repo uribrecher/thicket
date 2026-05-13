@@ -90,7 +90,7 @@ func TestOnePassword_Check_prependsAccountFlag(t *testing.T) {
 func TestListOnePasswordAccounts_parsesOpJSON(t *testing.T) {
 	fr := &fakeRunner{stdout: []byte(`[
 		{"url":"my.1password.com","email":"a@x.com","user_uuid":"U1","account_uuid":"A1"},
-		{"url":"sentra.1password.com","email":"b@y.com","user_uuid":"U2","account_uuid":"A2"}
+		{"url":"acme.1password.com","email":"b@y.com","user_uuid":"U2","account_uuid":"A2"}
 	]`)}
 	accs, err := listOnePasswordAccounts(context.Background(), fr, alwaysFound)
 	if err != nil {
@@ -102,7 +102,7 @@ func TestListOnePasswordAccounts_parsesOpJSON(t *testing.T) {
 	if accs[0].Email != "a@x.com" || accs[0].AccountUUID != "A1" {
 		t.Errorf("first row mismatched: %+v", accs[0])
 	}
-	if accs[1].URL != "sentra.1password.com" {
+	if accs[1].URL != "acme.1password.com" {
 		t.Errorf("second row mismatched: %+v", accs[1])
 	}
 	got := strings.Join(fr.calls[0].args, " ")
