@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.1.2] - 2026-05-13
+
+Self-update. Most commands now check for a newer release once a day
+and offer to apply it; new `thicket update` command for the manual
+path. `THICKET_NO_UPDATE_CHECK=1` or `--no-update-check` opts out.
+
 ### Added
 
 - **Self-update.** Most commands (all except `version`, `help`, and
