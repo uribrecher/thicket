@@ -40,7 +40,7 @@ task build           # produces ./bin/thicket
 go install ./cmd/thicket
 ```
 
-Requires Go 1.23+, `git`, [`gh`](https://cli.github.com/), and optionally
+Requires Go 1.24+, `git`, [`gh`](https://cli.github.com/), and optionally
 [`task`](https://taskfile.dev/) on `$PATH`. See `task --list` for the full
 set of dev tasks.
 

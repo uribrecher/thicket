@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
+	"github.com/sahilm/fuzzy"
 
 	"github.com/uribrecher/thicket/internal/catalog"
 	"github.com/uribrecher/thicket/internal/detector"
@@ -99,31 +100,35 @@ func (HuhSelector) SelectRepos(cat []catalog.Repo, picks []detector.RepoMatch) (
 		if input == "" {
 			break
 		}
+		// Drop intent: `-foo`
 		if strings.HasPrefix(input, "-") {
-			name := strings.TrimSpace(strings.TrimPrefix(input, "-"))
-			if !selected[name] {
-				fmt.Printf("  ✗ %q is not in the current selection\n", name)
+			query := strings.TrimSpace(strings.TrimPrefix(input, "-"))
+			match, err := resolveQuery(query, order, descByName)
+			if err != nil {
+				fmt.Printf("  ✗ %v\n", err)
 				continue
 			}
-			delete(selected, name)
-			order = removeFromSlice(order, name)
-			fmt.Printf("  − dropped %s\n", name)
+			delete(selected, match)
+			order = removeFromSlice(order, match)
+			fmt.Printf("  − dropped %s\n", match)
 			continue
 		}
-		if !nameSet[input] {
-			fmt.Printf("  ✗ %q is not in the catalog (try Tab autocomplete)\n", input)
+		// Add intent: `foo` (exact, prefix, or fuzzy substring/subsequence).
+		match, err := resolveQuery(input, names, descByName)
+		if err != nil {
+			fmt.Printf("  ✗ %v\n", err)
 			continue
 		}
-		if selected[input] {
-			fmt.Printf("  • %s is already in the selection\n", input)
+		if selected[match] {
+			fmt.Printf("  • %s is already in the selection\n", match)
 			continue
 		}
-		selected[input] = true
-		order = append(order, input)
-		if d := descByName[input]; d != "" {
-			fmt.Printf("  + %s — %s\n", input, truncate(d, 64))
+		selected[match] = true
+		order = append(order, match)
+		if d := descByName[match]; d != "" {
+			fmt.Printf("  + %s — %s\n", match, truncate(d, 64))
 		} else {
-			fmt.Printf("  + %s\n", input)
+			fmt.Printf("  + %s\n", match)
 		}
 	}
 
@@ -149,6 +154,75 @@ func printCurrentSelection(order []string) {
 		return
 	}
 	fmt.Printf("  current selection (%d): %s\n", len(order), strings.Join(order, ", "))
+}
+
+// resolveQuery turns user-typed text into a concrete repo name.
+//
+// Resolution order:
+//  1. exact match
+//  2. unique prefix match
+//  3. fuzzy subsequence match (e.g. "pymo" → "sentra-pymodels") — if a
+//     single candidate is clearly best (score gap > 50%), pick it
+//     directly; otherwise show a small disambiguation picker over the
+//     top candidates.
+//
+// haystack is the searchable name list (full catalog when adding, the
+// current selection when dropping). descByName is used only to enrich
+// the disambiguation labels.
+func resolveQuery(query string, haystack []string, descByName map[string]string) (string, error) {
+	if query == "" {
+		return "", errors.New("empty query")
+	}
+	// Exact
+	for _, n := range haystack {
+		if n == query {
+			return n, nil
+		}
+	}
+	// Unique prefix
+	lq := strings.ToLower(query)
+	var prefixMatches []string
+	for _, n := range haystack {
+		if strings.HasPrefix(strings.ToLower(n), lq) {
+			prefixMatches = append(prefixMatches, n)
+		}
+	}
+	if len(prefixMatches) == 1 {
+		return prefixMatches[0], nil
+	}
+	// Fuzzy (subsequence) match — works on substrings, scoring by
+	// character proximity.
+	matches := fuzzy.Find(query, haystack)
+	if len(matches) == 0 {
+		return "", fmt.Errorf("%q: no match", query)
+	}
+	if len(matches) == 1 ||
+		(len(matches) >= 2 && matches[0].Score >= matches[1].Score*3/2) {
+		return matches[0].Str, nil
+	}
+	// Ambiguous — show the top candidates and let the user pick.
+	const maxCandidates = 8
+	opts := make([]huh.Option[string], 0, maxCandidates)
+	for i, m := range matches {
+		if i >= maxCandidates {
+			break
+		}
+		label := m.Str
+		if d := descByName[m.Str]; d != "" {
+			label = fmt.Sprintf("%s — %s", m.Str, truncate(d, 56))
+		}
+		opts = append(opts, huh.NewOption(label, m.Str))
+	}
+	pick := matches[0].Str
+	if err := huh.NewSelect[string]().
+		Title(fmt.Sprintf("Multiple matches for %q — pick one", query)).
+		Description("↑/↓ to move  ·  enter to confirm  ·  Esc to cancel this add").
+		Options(opts...).
+		Value(&pick).
+		Run(); err != nil {
+		return "", err
+	}
+	return pick, nil
 }
 
 func removeFromSlice(s []string, v string) []string {

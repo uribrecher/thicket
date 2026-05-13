@@ -1,12 +1,13 @@
 module github.com/uribrecher/thicket
 
-go 1.23.1
+go 1.24.5
 
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/adrg/xdg v0.5.3
 	github.com/anthropics/anthropic-sdk-go v1.42.0
 	github.com/charmbracelet/huh v1.0.0
+	github.com/sahilm/fuzzy v0.1.1
 	github.com/spf13/cobra v1.10.2
 )
 
