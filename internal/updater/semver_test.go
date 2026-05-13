@@ -3,22 +3,27 @@ package updater
 import "testing"
 
 func TestParseRelease_accepts(t *testing.T) {
-	cases := map[string]Release{
-		"v0.1.0":    {0, 1, 0},
-		"v0.1.1":    {0, 1, 1},
-		"v1.0.0":    {1, 0, 0},
-		"0.1.1":     {0, 1, 1},
-		" v0.1.1":   {0, 1, 1},
-		"v10.20.30": {10, 20, 30},
+	// Slice (not map) so we can include leading-whitespace inputs
+	// without triggering gocritic's mapKey check.
+	cases := []struct {
+		in   string
+		want Release
+	}{
+		{"v0.1.0", Release{0, 1, 0}},
+		{"v0.1.1", Release{0, 1, 1}},
+		{"v1.0.0", Release{1, 0, 0}},
+		{"0.1.1", Release{0, 1, 1}},
+		{" v0.1.1", Release{0, 1, 1}},
+		{"v10.20.30", Release{10, 20, 30}},
 	}
-	for in, want := range cases {
-		t.Run(in, func(t *testing.T) {
-			got, err := ParseRelease(in)
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			got, err := ParseRelease(tc.in)
 			if err != nil {
-				t.Fatalf("parse(%q): %v", in, err)
+				t.Fatalf("parse(%q): %v", tc.in, err)
 			}
-			if got != want {
-				t.Errorf("parse(%q) = %v, want %v", in, got, want)
+			if got != tc.want {
+				t.Errorf("parse(%q) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
 	}

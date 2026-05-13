@@ -102,7 +102,7 @@ func IsManagedInstall(exePath string) bool {
 		"/nix/store/",
 		"/var/folders/", // macOS $TMPDIR
 		"/tmp/",
-		filepath.Join(os.TempDir()) + string(filepath.Separator),
+		os.TempDir() + string(filepath.Separator),
 	}
 	for _, p := range skipPrefixes {
 		if strings.HasPrefix(exePath, p) {
