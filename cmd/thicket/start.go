@@ -266,17 +266,17 @@ func pickAssignedTicket(ctx context.Context, src ticket.Source, cfg *config.Conf
 	}
 
 	// Cross-reference with existing managed workspaces so the picker
-	// can surface 'already has a workspace' inline. We tolerate a
-	// listing error here (the picker still works without the column)
-	// but warn so the user knows their workspace_root is dodgy
-	// before workspace.Create eventually trips on the same issue.
-	workspaces, listErr := listManagedWorkspaces(cfg)
-	if listErr != nil {
-		fmt.Fprintf(errOut, "warning: could not enumerate existing workspaces: %v\n", listErr)
+	// can surface 'already has a workspace' inline. We tolerate
+	// per-manifest read errors here (the picker still works without
+	// the column) but warn so the user knows their workspace_root is
+	// dodgy before workspace.Create eventually trips on the same issue.
+	workspaces, warnings := workspace.ListManaged(cfg.WorkspaceRoot)
+	for _, w := range warnings {
+		fmt.Fprintf(errOut, "warning: %v\n", w)
 	}
 	slugByTicket := make(map[string]string, len(workspaces))
 	for _, w := range workspaces {
-		slugByTicket[w.ticket] = w.slug
+		slugByTicket[w.State.TicketID] = w.Slug
 	}
 
 	columns := []tui.Column{

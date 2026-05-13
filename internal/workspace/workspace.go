@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -142,17 +143,36 @@ func (w *Workspace) Remove(workspaceDir string, force bool) error {
 	st, err := ReadState(workspaceDir)
 	if err != nil {
 		if errors.Is(err, ErrNoState) {
-			if !force {
-				return fmt.Errorf(
-					"%w at %s — refusing to delete (use --force to override)",
-					ErrNoState, workspaceDir)
-			}
-			// force=true: explicit operator opt-in for legacy / orphaned
-			// directories. Just nuke the directory.
-			return os.RemoveAll(workspaceDir)
+			return w.removeNoManifest(workspaceDir, force)
 		}
 		return err
 	}
+	return w.removeWithState(workspaceDir, st, force)
+}
+
+// RemoveWithState is the optimized entry point for callers that already
+// loaded the manifest (e.g. via ListManaged) and want to avoid a second
+// ReadState. Pass nil to indicate "no manifest" — Remove's safety
+// semantics still apply (refuses unless force=true).
+func (w *Workspace) RemoveWithState(workspaceDir string, st *State, force bool) error {
+	if st == nil {
+		return w.removeNoManifest(workspaceDir, force)
+	}
+	return w.removeWithState(workspaceDir, *st, force)
+}
+
+func (w *Workspace) removeNoManifest(workspaceDir string, force bool) error {
+	if !force {
+		return fmt.Errorf(
+			"%w at %s — refusing to delete (use --force to override)",
+			ErrNoState, workspaceDir)
+	}
+	// force=true: explicit operator opt-in for legacy / orphaned
+	// directories. Just nuke the directory.
+	return os.RemoveAll(workspaceDir)
+}
+
+func (w *Workspace) removeWithState(workspaceDir string, st State, force bool) error {
 	var firstErr error
 	for _, r := range st.Repos {
 		if err := w.Git.RemoveWorktree(r.SourcePath, r.WorktreePath, force); err != nil {
@@ -168,6 +188,50 @@ func (w *Workspace) Remove(workspaceDir string, force bool) error {
 		return firstErr
 	}
 	return os.RemoveAll(workspaceDir)
+}
+
+// ManagedWorkspace is a directory under workspace_root that has a
+// thicket state manifest.
+type ManagedWorkspace struct {
+	Slug  string
+	Path  string
+	State State
+}
+
+// ListManaged enumerates thicket-managed workspaces under root, newest
+// first by CreatedAt. Entries with no state manifest are skipped
+// silently (they're not thicket workspaces); entries with a
+// corrupt/unreadable manifest are reported via the warnings slice so
+// the caller can surface them without aborting the whole listing.
+func ListManaged(root string) ([]ManagedWorkspace, []error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, []error{fmt.Errorf("read %s: %w", root, err)}
+	}
+	var out []ManagedWorkspace
+	var warnings []error
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		ws := filepath.Join(root, e.Name())
+		st, err := ReadState(ws)
+		switch {
+		case errors.Is(err, ErrNoState):
+			continue
+		case err != nil:
+			warnings = append(warnings, fmt.Errorf("%s: %w", e.Name(), err))
+			continue
+		}
+		out = append(out, ManagedWorkspace{Slug: e.Name(), Path: ws, State: st})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].State.CreatedAt.After(out[j].State.CreatedAt)
+	})
+	return out, warnings
 }
 
 // ----- state manifest -----

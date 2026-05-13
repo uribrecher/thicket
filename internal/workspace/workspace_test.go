@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -215,6 +216,77 @@ func TestRemove_noManifest_forceDeletes(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Errorf("dir should be removed under force")
+	}
+}
+
+func TestListManaged_skipsNonWorkspacesAndWarnsOnCorruptManifests(t *testing.T) {
+	root := t.TempDir()
+
+	// Bare directory with no .thicket/state.json — should be skipped silently.
+	if err := os.MkdirAll(filepath.Join(root, "not-a-thicket-ws"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Regular file at the top level — should be ignored entirely.
+	if err := os.WriteFile(filepath.Join(root, "stray.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Two valid workspaces with different CreatedAt values to verify ordering.
+	older := filepath.Join(root, "ws-older")
+	newer := filepath.Join(root, "ws-newer")
+	writeFakeState(t, older, State{
+		TicketID: "sc-1", Branch: "a", CreatedAt: time.Now().Add(-2 * time.Hour),
+	})
+	writeFakeState(t, newer, State{
+		TicketID: "sc-2", Branch: "b", CreatedAt: time.Now(),
+	})
+	// Corrupt manifest — should surface as a warning, not a panic.
+	corrupt := filepath.Join(root, "ws-corrupt")
+	if err := os.MkdirAll(filepath.Join(corrupt, ".thicket"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(corrupt, ".thicket", "state.json"),
+		[]byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, warnings := ListManaged(root)
+
+	if len(got) != 2 {
+		t.Fatalf("want 2 workspaces, got %d: %+v", len(got), got)
+	}
+	if got[0].Slug != "ws-newer" || got[1].Slug != "ws-older" {
+		t.Errorf("ordering wrong: %s then %s (want ws-newer then ws-older)",
+			got[0].Slug, got[1].Slug)
+	}
+	if got[0].State.TicketID != "sc-2" {
+		t.Errorf("newer state not propagated: %+v", got[0].State)
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("want 1 warning for corrupt manifest, got %d: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0].Error(), "ws-corrupt") {
+		t.Errorf("warning should name the corrupt slug, got %v", warnings[0])
+	}
+}
+
+func TestListManaged_missingRootIsNotAnError(t *testing.T) {
+	got, warnings := ListManaged(filepath.Join(t.TempDir(), "does-not-exist"))
+	if got != nil || warnings != nil {
+		t.Errorf("missing root should return nil/nil, got %v / %v", got, warnings)
+	}
+}
+
+func writeFakeState(t *testing.T, dir string, st State) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, ".thicket"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".thicket", "state.json"), b, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
