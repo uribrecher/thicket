@@ -273,8 +273,27 @@ thicket catalog         Show the GitHub-org repo cache.
 thicket doctor          Diagnose config, tokens, external tools.
                         Reports password-manager status, per-secret
                         fetchability, and env-var overrides.
+thicket update          Check for and apply a newer release in place
+                        (ignores the 24h auto-update cache).
 thicket version         Print version info.
 ```
+
+### Self-update
+
+Every command runs a self-update probe in the background, cached for
+24h in `~/.config/thicket/.update-check.json`. When a newer release is
+available you're prompted to apply it; saying yes downloads the
+matching release tarball, verifies its SHA-256 against
+`checksums.txt`, and atomically swaps the running binary in place.
+
+The probe never blocks: network failures, missing TTY, dev/dirty
+builds, and binaries living under Homebrew / Nix / `go install` /
+source-build paths all silently fall through (in the unmanaged-binary
+case you get a one-line install command instead).
+
+Force-check at any time with `thicket update`. Disable the
+background check entirely with `THICKET_NO_UPDATE_CHECK=1` or
+`--no-update-check` on any command.
 
 ## Troubleshooting
 

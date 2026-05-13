@@ -6,6 +6,8 @@ import (
 	"runtime/debug"
 
 	"github.com/spf13/cobra"
+
+	"github.com/uribrecher/thicket/internal/updater"
 )
 
 var (
@@ -27,15 +29,49 @@ func newRootCmd() *cobra.Command {
 		Long:          "thicket spawns an isolated workspace of git worktrees for one ticket.\nSee https://github.com/uribrecher/thicket for the full guide.",
 		SilenceUsage:  true,
 		SilenceErrors: false,
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+			// Self-update probe. Cached for 24h; soft-fails on any
+			// network / cache issue. The Names() set below covers
+			// commands where running the probe is pointless or
+			// would loop (`update` runs its own forced check, and
+			// `version` / `help` are read-only diagnostics).
+			switch cmd.Name() {
+			case "update", "version", "help", "":
+				return
+			}
+			if noCheck, _ := cmd.Flags().GetBool("no-update-check"); noCheck {
+				return
+			}
+			v, _, _ := buildInfo()
+			updater.CheckOnRun(v, cmd.OutOrStdout(), cmd.ErrOrStderr())
+		},
 	}
+	root.PersistentFlags().Bool("no-update-check", false,
+		"skip the daily self-update probe (also: THICKET_NO_UPDATE_CHECK=1)")
 	root.AddCommand(newStartCmd())
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newListCmd())
 	root.AddCommand(newRmCmd())
 	root.AddCommand(newCatalogCmd())
 	root.AddCommand(newDoctorCmd())
+	root.AddCommand(newUpdateCmd())
 	root.AddCommand(newVersionCmd())
 	return root
+}
+
+func newUpdateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "update",
+		Short: "Check for a new thicket release and apply it",
+		Long: "Force-fetches the latest release from GitHub, ignoring the 24h\n" +
+			"update cache, and replaces the running thicket binary in place if\n" +
+			"a newer version is available. No-op if you're already on latest.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			v, _, _ := buildInfo()
+			return updater.CheckAndApplyNow(v, cmd.OutOrStdout(), cmd.ErrOrStderr())
+		},
+	}
 }
 
 func newStartCmd() *cobra.Command {
