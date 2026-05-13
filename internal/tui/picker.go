@@ -57,7 +57,7 @@ type pickerModel struct {
 
 func newPickerModel(cat []catalog.Repo, picks []detector.RepoMatch) pickerModel {
 	ti := textinput.New()
-	ti.Placeholder = "type to fuzzy-search · ↑/↓ navigate · enter toggle · empty enter to finish"
+	ti.Placeholder = "type to fuzzy-search · ↑/↓ navigate · enter toggle · tab finish"
 	ti.Focus()
 	ti.CharLimit = 80
 	ti.Prompt = "› "
@@ -108,24 +108,35 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "enter":
-			// Empty input + Enter is the "I'm done" gesture (most common
-			// when the LLM pre-selected things and the user is happy).
-			// To drop a selected repo, type any portion of its name —
-			// the match will surface as `(selected)`, and Enter toggles
-			// it off.
-			if strings.TrimSpace(m.input.Value()) == "" {
-				m.finished = true
-				return m, tea.Quit
-			}
+			// Enter always toggles the row under the cursor — both in
+			// the selection view (empty input, listing currently
+			// selected repos) and in the search view (typed input,
+			// listing fuzzy matches). The previous "empty input +
+			// Enter = finish" overload meant the user could move the
+			// cursor onto a selected repo, press Enter expecting to
+			// drop it, and instead silently finish with that repo
+			// still in the workspace — a real footgun. Use Tab to
+			// finish instead.
 			if m.cursor < len(m.matches) {
 				m.toggle(m.matches[m.cursor])
 				m.input.SetValue("")
 				m.status = ""
 				m.recomputeMatches()
-			} else {
+			} else if strings.TrimSpace(m.input.Value()) != "" {
 				m.status = fmt.Sprintf("no match for %q", m.input.Value())
 			}
 			return m, nil
+		case "tab":
+			// Tab finishes with the current selection. Needs at least
+			// one repo, otherwise we'd just produce a "no repos
+			// selected" error one screen later — better to keep the
+			// user in the picker.
+			if len(m.selectedOrder) == 0 {
+				m.status = "select at least one repo before finishing (or esc to cancel)"
+				return m, nil
+			}
+			m.finished = true
+			return m, tea.Quit
 		}
 	}
 	// Only re-run the fuzzy matcher when the input text actually
@@ -202,7 +213,7 @@ func (m pickerModel) View() string {
 	if len(m.matches) > 0 {
 		isSelectionView := strings.TrimSpace(m.input.Value()) == ""
 		if isSelectionView {
-			b.WriteString("  " + dimStyle.Render("(showing current selection — type a name to drop, empty enter to finish)"))
+			b.WriteString("  " + dimStyle.Render("(showing current selection — enter drops the highlighted row, tab finishes)"))
 		} else {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("%d match(es) — enter to toggle", len(m.matches))))
 		}
@@ -217,7 +228,7 @@ func (m pickerModel) View() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("  ↑/↓ navigate · enter toggle · empty enter to finish · esc cancel"))
+	b.WriteString(dimStyle.Render("  ↑/↓ navigate · enter toggle · tab finish · esc cancel"))
 	b.WriteString("\n")
 	return b.String()
 }

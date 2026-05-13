@@ -48,13 +48,38 @@ func runStart(cmd *cobra.Command, args []string) error {
 	var tk ticket.Ticket
 	if len(args) == 0 {
 		// Interactive picker over the user's active assigned tickets.
-		tk, err = pickAssignedTicket(cmd.Context(), src, cfg, errOut)
+		// The picker uses the slim search-results payload (title +
+		// state) — it does NOT carry the Markdown description that
+		// the LLM repo-detector needs. Re-fetch the full story by id
+		// after the user picks so downstream code sees a complete
+		// ticket. Without this the "ticket has no description"
+		// warning fires for stories that DO have descriptions —
+		// because Shortcut's /stories/search response is slim.
+		//
+		// Fetch + ListAssigned have asymmetric coverage: the search
+		// path resolves the workflow-state NAME (via
+		// /api/v3/workflows) and the fetch path doesn't, while the
+		// fetch path carries the full description and the search
+		// path doesn't. We need both, so preserve whatever the
+		// picker resolved on top of the fetch result.
+		picked, err := pickAssignedTicket(cmd.Context(), src, cfg, errOut)
 		if err != nil {
 			if errors.Is(err, tui.ErrCancelled) {
 				fmt.Fprintln(out, "cancelled.")
 				return nil
 			}
 			return err
+		}
+		id, err := src.Parse(picked.SourceID)
+		if err != nil {
+			return err
+		}
+		tk, err = src.Fetch(id)
+		if err != nil {
+			return err
+		}
+		if tk.State == "" && picked.State != "" {
+			tk.State = picked.State
 		}
 		fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
 	} else {
