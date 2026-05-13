@@ -13,7 +13,7 @@ import (
 func TestLaunch_callsExecWithResolvedPath(t *testing.T) {
 	tmp := t.TempDir()
 	cwdBefore, _ := os.Getwd()
-	defer os.Chdir(cwdBefore)
+	defer func() { _ = os.Chdir(cwdBefore) }()
 
 	var gotArgv0 string
 	var gotArgv []string
@@ -43,7 +43,7 @@ func TestLaunch_callsExecWithResolvedPath(t *testing.T) {
 func TestLaunch_missingBinary_returnsSentinel(t *testing.T) {
 	tmp := t.TempDir()
 	cwdBefore, _ := os.Getwd()
-	defer os.Chdir(cwdBefore)
+	defer func() { _ = os.Chdir(cwdBefore) }()
 
 	l := &Launcher{
 		BinaryName: "claude",

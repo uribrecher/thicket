@@ -38,12 +38,6 @@ func newRootCmd() *cobra.Command {
 	return root
 }
 
-func notImplemented(name string) func(cmd *cobra.Command, args []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("%s: not implemented yet", name)
-	}
-}
-
 func newStartCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "start <ticket>",

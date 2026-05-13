@@ -184,11 +184,11 @@ func (g GHFetcher) List(org string) ([]Repo, error) {
 }
 
 type ghRepoJSON struct {
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	SSHURL            string `json:"sshUrl"`
-	IsArchived        bool   `json:"isArchived"`
-	DefaultBranchRef  struct {
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	SSHURL           string `json:"sshUrl"`
+	IsArchived       bool   `json:"isArchived"`
+	DefaultBranchRef struct {
 		Name string `json:"name"`
 	} `json:"defaultBranchRef"`
 }

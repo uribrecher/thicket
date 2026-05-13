@@ -179,10 +179,10 @@ func TestRemove_noManifest(t *testing.T) {
 
 func TestSlugFromBranch(t *testing.T) {
 	cases := map[string]string{
-		"uri/sc-12345-fix-x":  "sc-12345-fix-x",
-		"feature/x":           "x",
-		"plain":               "plain",
-		"a/b/c":               "c",
+		"uri/sc-12345-fix-x": "sc-12345-fix-x",
+		"feature/x":          "x",
+		"plain":              "plain",
+		"a/b/c":              "c",
 	}
 	for in, want := range cases {
 		if got := SlugFromBranch(in); got != want {

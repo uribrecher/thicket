@@ -105,13 +105,13 @@ func (s *Source) BranchName(t ticket.Ticket) string {
 
 // storyResponse is the subset of the Shortcut story payload thicket consumes.
 type storyResponse struct {
-	ID                       int    `json:"id"`
-	Name                     string `json:"name"`
-	Description              string `json:"description"`
-	AppURL                   string `json:"app_url"`
-	FormattedVCSBranchName   string `json:"formatted_vcs_branch_name"`
-	WorkflowStateID          int    `json:"workflow_state_id"`
-	OwnerIDs                 []string `json:"owner_ids"`
+	ID                     int      `json:"id"`
+	Name                   string   `json:"name"`
+	Description            string   `json:"description"`
+	AppURL                 string   `json:"app_url"`
+	FormattedVCSBranchName string   `json:"formatted_vcs_branch_name"`
+	WorkflowStateID        int      `json:"workflow_state_id"`
+	OwnerIDs               []string `json:"owner_ids"`
 }
 
 // Fetch fetches the story by ID and projects it into a ticket.Ticket.
