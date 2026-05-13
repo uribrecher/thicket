@@ -100,13 +100,21 @@ tasks:
 
   pages:cachebust:
     desc: Recompute the styles.css cache-busting hash in docs/index.html
+    # Pure Python so the in-place rewrite is portable across macOS
+    # (BSD sed) and Linux (GNU sed) without the `-i '' / -i` divergence,
+    # and without depending on `shasum` vs `sha256sum`.
     cmds:
       - |
-        HASH=$(shasum -a 256 docs/styles.css | cut -c1-8)
-        # Rewrite the styles.css?v=<old> link to the freshly-hashed one.
-        # macOS sed needs an empty -i suffix.
-        sed -E -i '' "s#styles\.css\?v=[a-f0-9]{8}#styles.css?v=${HASH}#" docs/index.html
-        echo "docs/index.html → styles.css?v=${HASH}"
+        python3 - <<'PY'
+        import hashlib, re, pathlib
+        css  = pathlib.Path("docs/styles.css")
+        html = pathlib.Path("docs/index.html")
+        h    = hashlib.sha256(css.read_bytes()).hexdigest()[:8]
+        new  = re.sub(r"styles\.css\?v=[a-f0-9]{8}",
+                      f"styles.css?v={h}", html.read_text())
+        html.write_text(new)
+        print(f"docs/index.html → styles.css?v={h}")
+        PY
       - git diff --stat docs/index.html || true
 
   ci:
