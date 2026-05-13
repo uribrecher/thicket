@@ -22,7 +22,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 	entries, err := os.ReadDir(cfg.WorkspaceRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
-			fmt.Println("no workspaces (workspace_root does not exist yet)")
+			fmt.Fprintln(cmd.OutOrStdout(), "no workspaces (workspace_root does not exist yet)")
 			return nil
 		}
 		return fmt.Errorf("read %s: %w", cfg.WorkspaceRoot, err)
@@ -42,8 +42,14 @@ func runList(cmd *cobra.Command, _ []string) error {
 		}
 		ws := filepath.Join(cfg.WorkspaceRoot, e.Name())
 		st, err := workspace.ReadState(ws)
-		if err != nil {
-			// Skip dirs without a manifest — they're not ours.
+		switch {
+		case errors.Is(err, workspace.ErrNoState):
+			// Not a thicket workspace — skip silently.
+			continue
+		case err != nil:
+			// Corrupted/unreadable manifest: surface it as a warning so
+			// users can investigate (instead of quietly hiding the row).
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s: %v\n", e.Name(), err)
 			continue
 		}
 		rows = append(rows, row{
@@ -55,7 +61,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 		})
 	}
 	if len(rows) == 0 {
-		fmt.Println("no workspaces")
+		fmt.Fprintln(cmd.OutOrStdout(), "no workspaces")
 		return nil
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].when > rows[j].when })
