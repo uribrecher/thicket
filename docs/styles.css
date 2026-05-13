@@ -127,38 +127,6 @@ pre .comment { color: var(--code-dim); }
   margin: 0 auto 1.5rem;
   font-size: 1.05rem;
 }
-.hero__install {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--code-bg);
-  color: var(--code-text);
-  border-radius: var(--radius);
-  padding: 0.65rem 0.85rem;
-  font-family: var(--mono);
-  font-size: 0.88rem;
-  max-width: 100%;
-  overflow-x: auto;
-  text-align: left;
-  border: 1px solid transparent;
-}
-.hero__install code {
-  background: transparent;
-  border: 0;
-  color: var(--code-text);
-  white-space: nowrap;
-}
-.copy-btn {
-  background: transparent;
-  color: var(--code-dim);
-  border: 0;
-  cursor: pointer;
-  font-size: 1.1rem;
-  padding: 0 0.2rem;
-  line-height: 1;
-}
-.copy-btn:hover { color: var(--code-text); }
-
 /* "Star me on GitHub" — fixed top-right, GitHub-style pill with
    live stargazer count. The count is set by JS on page load; if the
    API is unreachable the count just stays empty and the button still

@@ -54,17 +54,6 @@
     so you stop ferrying context between Linear, GitHub, and your terminal.
   </p>
 
-  <div class="hero__install">
-    <code id="install-cmd">curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh</code>
-    <button class="copy-btn" type="button"
-            data-copy-target="install-cmd"
-            aria-label="Copy install command to clipboard"
-            title="Copy">
-      <span class="copy-btn__icon" aria-hidden="true">⧉</span>
-    </button>
-    <span id="copy-status" class="visually-hidden" aria-live="polite"></span>
-  </div>
-
   <p class="hero__ctas">
     <button id="install-btn" class="btn btn--primary" type="button"
             aria-haspopup="dialog" aria-controls="install-modal">
@@ -371,35 +360,6 @@ thicket rm sc-12345-fix-inventory</code></pre>
     });
   })();
 
-  document.querySelectorAll('.copy-btn').forEach(function (btn) {
-    var icon = btn.querySelector('.copy-btn__icon') || btn;
-    var status = document.getElementById('copy-status');
-
-    function feedback(symbol, message) {
-      icon.textContent = symbol;
-      if (status) status.textContent = message;
-      setTimeout(function () {
-        icon.textContent = '⧉';
-        if (status) status.textContent = '';
-      }, 1500);
-    }
-
-    btn.addEventListener('click', function () {
-      var t = document.getElementById(btn.dataset.copyTarget);
-      if (!t) return;
-      var text = t.textContent;
-      var done = function (ok) { feedback(ok ? '✓' : '✗', ok ? 'Copied' : 'Copy failed'); };
-
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(
-          function () { done(true); },
-          function () { done(legacyCopy(text)); }
-        );
-      } else {
-        done(legacyCopy(text));
-      }
-    });
-  });
 </script>
 
 </body>
