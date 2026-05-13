@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>thicket — one ticket, many repos, zero ceremony</title>
+<meta name="description" content="thicket is a CLI that spawns a Claude-ready, multi-repo git workspace from a ticket. Pure Go, no telemetry.">
+<meta name="theme-color" content="#3a7a4d">
+
+<!-- Small favicon (~41KB, 256px) instead of the 4.7MB hero splash. -->
+<link rel="icon" type="image/png" sizes="256x256" href="assets/favicon.png">
+<link rel="apple-touch-icon" sizes="256x256" href="assets/favicon.png">
+
+<!-- asciinema player 3.8.0 — pinned via SRI so a compromised CDN
+     can't swap in tampered JS/CSS. Hashes regenerated whenever the
+     pinned version moves. -->
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.css"
+      integrity="sha384-xIgcyJjR+nMz6lgbiCjOoZ68DUmktyZFzr/6rcDx3hjC/9C9ukiujF4nzMB4rWCE"
+      crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.js"
+        integrity="sha384-svQ3ol2I6XJvPsGztCmG9/XctZ37XNsP86aAFDcKciKlaGHNbEmhhedZ7tNu5b9h"
+        crossorigin="anonymous"
+        defer></script>
+
+<link rel="stylesheet" href="styles.css">
+
+<meta property="og:title" content="thicket — one ticket, many repos, zero ceremony">
+<meta property="og:description" content="A CLI that spawns a Claude-ready, multi-repo git workspace from a ticket.">
+<!-- Absolute URLs so social-card scrapers (Slack, Twitter, etc.) can
+     resolve the assets without inheriting the page URL context. -->
+<meta property="og:url" content="https://uribrecher.github.io/thicket/">
+<meta property="og:image" content="https://uribrecher.github.io/thicket/assets/thicket.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://uribrecher.github.io/thicket/assets/thicket.png">
+<meta property="og:type" content="website">
+</head>
+<body>
+
+<!-- "Star me on GitHub" — fixed top-right, opens the repo in a
+     new tab where the user can hit the real Star button (you can't
+     star a repo cross-origin without GitHub auth). Star count is
+     populated on load from the public GitHub API. -->
+<a id="star-btn" class="star-btn"
+   href="https://github.com/uribrecher/thicket"
+   target="_blank" rel="noopener noreferrer"
+   aria-label="Star uribrecher/thicket on GitHub">
+  <svg class="star-btn__icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+    <path fill="currentColor" fill-rule="evenodd"
+          d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/>
+  </svg>
+  <span class="star-btn__label">Star</span>
+  <span class="star-btn__count" id="star-count" aria-hidden="true"></span>
+</a>
+
+<header class="hero">
+  <img class="hero__logo" src="assets/thicket.png" alt="thicket — CLI for Claude &amp; Tickets" width="540">
+  <h1 class="hero__tagline">One ticket. Many repos. Zero ceremony.</h1>
+  <p class="hero__sub">
+    <code>thicket</code> spawns a Claude-ready, multi-repo git worktree workspace from a single ticket —
+    so you stop ferrying context between Linear, GitHub, and your terminal.
+  </p>
+
+  <p class="hero__ctas">
+    <button id="install-btn" class="btn btn--primary" type="button"
+            aria-haspopup="dialog" aria-controls="install-modal">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" class="btn__icon">
+        <path fill="currentColor"
+              d="M11.182.008c.018.616-.236 1.232-.566 1.674a2.16 2.16 0 01-1.792.847C8.806 1.97 9.115 1.36 9.45.926A2.49 2.49 0 0111.182.008zm3.5 11.378a5.46 5.46 0 01-.66 1.18c-.41.585-.745 1-1.005 1.234-.4.367-.83.555-1.29.563-.33 0-.728-.094-1.193-.286-.466-.19-.894-.286-1.286-.286-.41 0-.85.096-1.32.286-.469.192-.847.292-1.135.302-.44.018-.882-.176-1.32-.583-.282-.252-.633-.682-1.05-1.29-.45-.65-.82-1.404-1.108-2.263-.31-.93-.466-1.83-.466-2.7 0-1 .216-1.862.649-2.585a3.81 3.81 0 011.357-1.376 3.65 3.65 0 011.834-.518c.348 0 .81.106 1.388.317.576.21.946.317 1.108.317.122 0 .533-.125 1.232-.376.66-.232 1.218-.328 1.673-.29 1.234.1 2.16.586 2.778 1.462-1.103.668-1.65 1.604-1.638 2.802.01.934.349 1.71 1.014 2.326.301.286.638.507 1.013.664-.081.236-.167.46-.258.673z"/>
+      </svg>
+      Install on macOS
+    </button>
+    <a class="btn btn--ghost" href="https://github.com/uribrecher/thicket">View on GitHub →</a>
+  </p>
+
+  <p class="badges">
+    <a href="https://github.com/uribrecher/thicket/actions/workflows/ci.yaml"><img src="https://github.com/uribrecher/thicket/actions/workflows/ci.yaml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/uribrecher/thicket/releases/latest"><img src="https://img.shields.io/github/v/release/uribrecher/thicket?display_name=tag&amp;sort=semver" alt="Latest release"></a>
+    <a href="https://github.com/uribrecher/thicket/blob/main/LICENSE"><img src="https://img.shields.io/github/license/uribrecher/thicket" alt="License"></a>
+  </p>
+</header>
+
+<main>
+
+<section class="section section--demo">
+  <h2>From ticket to coding in 30 seconds</h2>
+  <p class="section__lead">
+    Type the ticket id. Fuzzy-pick repos. <code>thicket</code> creates worktrees, drops a
+    seeded <code>CLAUDE.local.md</code>, and launches your AI session named after the slug.
+  </p>
+  <div id="asciinema-container" class="asciicast">
+    <noscript>
+      <p class="asciicast__fallback">
+        The terminal demo needs JavaScript to play. View the raw
+        recording: <a href="assets/demo.cast">demo.cast</a> (asciinema
+        v2 format — play with <code>asciinema play demo.cast</code>).
+      </p>
+    </noscript>
+  </div>
+  <p class="section__caption">
+    The whole flow above is one command: <code>thicket start sc-65825</code>.
+    No id? <code>thicket start</code> fuzzy-picks across your assigned tickets.
+  </p>
+</section>
+
+<section class="section">
+  <h2>What you get</h2>
+  <ul class="feature-grid">
+
+    <li class="feature">
+      <h3>Ticket-aware workspaces</h3>
+      <p>
+        Each workspace folder is named <code>&lt;ticket-id&gt;-&lt;title-slug&gt;</code>, with
+        one git worktree per repo on a matching branch. Source clones stay clean on their
+        default branch — worktrees share the <code>.git</code> so storage is cheap and
+        no double-fetch.
+      </p>
+    </li>
+
+    <li class="feature">
+      <h3>LLM picks the repos</h3>
+      <p>
+        <code>thicket</code> asks Claude (Haiku, via API or your local <code>claude</code>
+        binary) which repos in your GitHub orgs the ticket actually touches — then opens a
+        bubbletea picker so you can refine, drop, or add. Pass <code>--only</code> to skip
+        the LLM entirely.
+      </p>
+    </li>
+
+    <li class="feature">
+      <h3>Live fuzzy pickers</h3>
+      <p>
+        Repos, tickets, 1Password items, workspaces — everything interactive runs through a
+        live <code>sahilm/fuzzy</code> filter with type-ahead. <kbd>↑</kbd>/<kbd>↓</kbd> to
+        navigate, <kbd>Enter</kbd> to pick, <kbd>Esc</kbd> to go back a step.
+      </p>
+    </li>
+
+    <li class="feature">
+      <h3>Password-manager-backed secrets</h3>
+      <p>
+        Never asks for a raw token. Point <code>thicket</code> at 1Password, Bitwarden, or
+        <code>pass</code> and it fetches on demand. The config file stores only references.
+        <code>thicket doctor</code> verifies each reference resolves without ever showing
+        the value.
+      </p>
+    </li>
+
+    <li class="feature">
+      <h3>Self-update, opt-out</h3>
+      <p>
+        Most commands run a quick "is there a newer release?" probe (24h cached, 2s timeout).
+        TTY users get a confirm prompt; SHA-256 verified before swap. Set
+        <code>THICKET_NO_UPDATE_CHECK=1</code> to silence entirely. Brew / Nix / <code>go
+        install</code> users get a copy-paste hint instead of an in-place replace.
+      </p>
+    </li>
+
+    <li class="feature">
+      <h3>No telemetry</h3>
+      <p>
+        <code>thicket</code> talks to Anthropic, Shortcut, and GitHub only to do its job.
+        No phone-home, no analytics, no dashboard you didn't ask for.
+      </p>
+    </li>
+
+  </ul>
+</section>
+
+<section id="install" class="section section--install">
+  <h2>Install</h2>
+
+  <div class="install-option">
+    <h3>One-liner (macOS, Linux)</h3>
+    <pre class="code-block"><code>curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh</code></pre>
+    <p>
+      Detects your OS + arch, downloads the matching tarball, verifies SHA-256 against
+      <code>checksums.txt</code>, and drops the binary into <code>$HOME/.local/bin</code>.
+      Pin a version: <code>THICKET_VERSION=v0.1.2 sh</code>. Different path:
+      <code>INSTALL_DIR=/usr/local/bin sh</code>.
+    </p>
+  </div>
+
+  <div class="install-option">
+    <h3>With Go</h3>
+    <pre class="code-block"><code>go install github.com/uribrecher/thicket/cmd/thicket@latest</code></pre>
+    <p>Auto-update skips <code>$GOBIN</code> installs — you stay in charge of your Go toolchain.</p>
+  </div>
+
+  <div class="install-option">
+    <h3>Manual</h3>
+    <p>
+      Grab a tarball from
+      <a href="https://github.com/uribrecher/thicket/releases/latest">the latest release</a>
+      and drop the <code>thicket</code> binary on your <code>$PATH</code>.
+    </p>
+  </div>
+</section>
+
+<section class="section section--quickstart">
+  <h2>Quickstart</h2>
+  <pre class="code-block"><code><span class="comment"># one-time setup wizard: tokens, GitHub orgs, paths</span>
+thicket init
+
+<span class="comment"># sanity check — verifies CLI tools, tokens, env-var overrides</span>
+thicket doctor
+
+<span class="comment"># spawn a workspace for a ticket</span>
+thicket start sc-12345
+
+<span class="comment"># done? wipe the worktrees, keep the source clones clean</span>
+thicket rm sc-12345-fix-inventory</code></pre>
+  <p>
+    Full command reference, secrets setup, and architecture notes:
+    <a href="https://github.com/uribrecher/thicket#readme">README on GitHub</a>.
+  </p>
+</section>
+
+</main>
+
+<footer class="footer">
+  <p>
+    <a href="https://github.com/uribrecher/thicket">github.com/uribrecher/thicket</a>
+    · MIT
+    · <a href="https://github.com/uribrecher/thicket/blob/main/CHANGELOG.md">changelog</a>
+  </p>
+  <p class="footer__disclaimer">
+    Unofficial, community-built. Not affiliated with or endorsed by Anthropic.
+    “Claude” is a trademark of Anthropic, PBC.
+  </p>
+</footer>
+
+<!-- Post-copy modal for the "Install on macOS" button. Browsers
+     can't execute shell commands on a visitor's machine, so the
+     button copies the install one-liner to the clipboard and tells
+     the user exactly how to paste it into Terminal.
+
+     Native <dialog> + showModal() gives us a real focus trap
+     (Tab/Shift+Tab cycle within the dialog), Esc-to-close, and
+     ::backdrop dimming — no manual ARIA juggling needed. -->
+<dialog id="install-modal" class="modal" aria-labelledby="install-modal-title">
+  <div class="modal__panel">
+    <button class="modal__close" type="button" data-modal-close
+            aria-label="Close install instructions">×</button>
+
+    <h2 id="install-modal-title" class="modal__title">
+      <span class="modal__check" aria-hidden="true">✓</span>
+      Install command copied
+    </h2>
+
+    <p class="modal__lead">
+      Paste it into Terminal to install <code>thicket</code>.
+      The script detects your OS + arch and verifies SHA-256 before
+      dropping the binary into <code>$HOME/.local/bin</code>.
+    </p>
+
+    <pre class="modal__cmd"><code id="install-modal-cmd">curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh</code></pre>
+
+    <ol class="modal__steps">
+      <li><kbd>⌘</kbd> + <kbd>Space</kbd> → type “Terminal” → <kbd>Enter</kbd></li>
+      <li><kbd>⌘</kbd> + <kbd>V</kbd> to paste</li>
+      <li><kbd>Enter</kbd></li>
+    </ol>
+
+    <p class="modal__footer">
+      Or copy from your password manager / clipboard manager — the
+      command is just the one-liner above. Other install paths
+      (<code>go install</code>, manual tarball) are
+      <a href="#install">below</a>.
+    </p>
+  </div>
+</dialog>
+
+<script>
+  // Boot the asciinema player once the bundle has loaded.
+  // If AsciinemaPlayer never showed up (CDN blocked, SRI mismatch,
+  // offline), surface the same fallback text the <noscript> block
+  // uses so the container isn't an empty void.
+  window.addEventListener('load', function () {
+    var box = document.getElementById('asciinema-container');
+    if (!box) return;
+    if (window.AsciinemaPlayer) {
+      AsciinemaPlayer.create('assets/demo.cast', box, {
+        cols: 92,
+        rows: 22,
+        autoPlay: true,
+        loop: true,
+        idleTimeLimit: 2,
+        theme: 'monokai',
+        fit: 'width',
+      });
+    } else {
+      box.innerHTML = '<p class="asciicast__fallback">' +
+        'The terminal demo couldn\'t load (asciinema-player bundle blocked or unreachable). ' +
+        'Grab the raw recording: <a href="assets/demo.cast">demo.cast</a> ' +
+        '(play locally with <code>asciinema play demo.cast</code>).' +
+        '</p>';
+    }
+  });
+
+  // Live star count on the "Star me" button. Anonymous GitHub API
+  // is rate-limited to 60/hr per IP, which is fine for a landing
+  // page; on rate-limit / network failure the button just shows
+  // "Star" with no count, which is still a usable CTA.
+  (function () {
+    var el = document.getElementById('star-count');
+    if (!el) return;
+    fetch('https://api.github.com/repos/uribrecher/thicket', {
+      headers: { 'Accept': 'application/vnd.github+json' }
+    }).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (data) {
+      if (!data || typeof data.stargazers_count !== 'number') return;
+      el.textContent = data.stargazers_count;
+    }).catch(function () { /* leave the count blank on failure */ });
+  })();
+
+  // Clipboard copy for the hero install command.
+  //
+  // Tries the modern async API first; on rejection (non-secure
+  // context, denied permission, unsupported API) falls back to a
+  // textarea + execCommand('copy') selection trick that works
+  // wherever rich JS doesn't. Either path gives visual + screen
+  // reader feedback; both paths fall through to '✗' on hard failure
+  // so the user knows to manually select the command instead of
+  // staring at nothing.
+  function legacyCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  // "Install on macOS" button: copy the install command to the
+  // clipboard, then surface a modal that tells the user exactly how
+  // to paste it into Terminal. (A page can't execute shell commands
+  // on a visitor's machine — best a website can do is make the next
+  // step impossible to miss.)
+  //
+  // Uses the native <dialog> + showModal() API, which gives us:
+  //   - focus trap (Tab/Shift+Tab cycle within the dialog)
+  //   - Esc-to-close
+  //   - the rest of the page is implicitly inert
+  //   - ::backdrop pseudo-element for dimming (styled in CSS)
+  (function () {
+    var btn = document.getElementById('install-btn');
+    var modal = document.getElementById('install-modal');
+    var cmdEl = document.getElementById('install-modal-cmd');
+    if (!btn || !modal || !cmdEl) return;
+
+    btn.addEventListener('click', function () {
+      var text = cmdEl.textContent;
+      // Best-effort copy. Open the modal either way — its content
+      // is still useful (the command is shown verbatim inside so
+      // the user can select it manually if the clipboard write
+      // didn't take).
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function () { legacyCopy(text); });
+      } else {
+        legacyCopy(text);
+      }
+      if (typeof modal.showModal === 'function') {
+        modal.showModal();
+      } else {
+        // Very old browsers without <dialog> support. Fall back to
+        // hidden=false; no focus trap but at least the modal renders.
+        modal.removeAttribute('hidden');
+        modal.setAttribute('open', '');
+      }
+      var closeBtn = modal.querySelector('.modal__close');
+      if (closeBtn) closeBtn.focus();
+    });
+
+    function closeModal() {
+      if (typeof modal.close === 'function') {
+        modal.close();
+      } else {
+        modal.setAttribute('hidden', '');
+        modal.removeAttribute('open');
+      }
+    }
+
+    modal.addEventListener('click', function (e) {
+      // Native <dialog> click events bubble from the dialog element
+      // itself when the user clicks the backdrop area (not the
+      // .modal__panel). Detect by checking the target.
+      if (e.target === modal || e.target.hasAttribute('data-modal-close')) {
+        closeModal();
+      }
+    });
+  })();
+
+</script>
+
+</body>
+</html>
