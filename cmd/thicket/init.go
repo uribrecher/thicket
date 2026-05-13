@@ -49,18 +49,33 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Step 3: password manager — choose only; account selection happens
-	// per-secret in step 4 because users may keep secrets in different
-	// 1Password accounts.
-	mgr, err := chooseManager(cfg)
-	if err != nil {
-		return err
-	}
-
-	// Step 4: per-secret references. Skips the Anthropic key when
-	// claude_backend is "cli" — the local `claude` CLI handles auth.
-	if err := collectSecretRefs(ctx, cfg, mgr, out); err != nil {
-		return err
+	// If every secret thicket needs at runtime is already in env, no
+	// password manager is required — fetchSecret's env-override path
+	// will satisfy each lookup. Skip the picker AND ref collection.
+	if allSecretsCoveredByEnv(cfg) {
+		fmt.Fprintln(out, "  ✓ found $SHORTCUT_API_TOKEN in env")
+		if cfg.ClaudeBackend == "api" {
+			fmt.Fprintln(out, "  ✓ found $ANTHROPIC_API_KEY in env")
+		}
+		fmt.Fprintln(out, "  All secrets covered by env vars — no password manager needed.")
+		// Validate() needs a non-empty manager string. "env" is the
+		// natural identity for "secrets come from the environment".
+		cfg.Passwords.Manager = "env"
+	} else {
+		// Step 3: pick a password manager. Account selection happens
+		// per-secret in step 4 because users may keep secrets in
+		// different 1Password accounts.
+		mgr, err := chooseManager(cfg)
+		if err != nil {
+			return err
+		}
+		// Step 4: per-secret references. Skips the Anthropic key when
+		// claude_backend is "cli" — the local `claude` CLI handles auth.
+		// Individual slots whose env vars are already set are also
+		// skipped (their values come from the env at runtime).
+		if err := collectSecretRefs(ctx, cfg, mgr, out); err != nil {
+			return err
+		}
 	}
 
 	// Expand ~ in path fields so MkdirAll doesn't create a literal
@@ -207,6 +222,19 @@ func collectGitHubOrgs(cfg *config.Config, available []string, out io.Writer) er
 	}
 	cfg.GithubOrgs = chosen
 	return nil
+}
+
+// allSecretsCoveredByEnv reports whether every secret thicket would
+// fetch at runtime is already available via an env var. When true,
+// `thicket init` can skip the password-manager picker entirely.
+func allSecretsCoveredByEnv(cfg *config.Config) bool {
+	if os.Getenv("SHORTCUT_API_TOKEN") == "" {
+		return false
+	}
+	if cfg.ClaudeBackend == "api" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+		return false
+	}
+	return true
 }
 
 // warnAboutEmptyOrgs probes each configured org with `gh repo list`. If
