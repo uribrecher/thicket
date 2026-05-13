@@ -406,14 +406,32 @@ thicket rm sc-12345-fix-inventory</code></pre>
     if (copyBtn) {
       var icon = copyBtn.querySelector('.modal__copy-icon');
       var status = document.getElementById('modal-copy-status');
+      // Track the pending "reset to ⧉ / clear status" timer so
+      // rapid successive clicks cancel the previous one instead of
+      // racing to reset the icon mid-feedback.
+      var resetTimer = null;
       copyBtn.addEventListener('click', function () {
         var text = cmdEl.textContent;
         var done = function (ok) {
-          if (icon) icon.textContent = ok ? '✓' : '✗';
-          if (status) status.textContent = ok ? 'Copied' : 'Copy failed';
-          setTimeout(function () {
+          if (resetTimer) {
+            clearTimeout(resetTimer);
+            resetTimer = null;
+          }
+          var symbol = ok ? '✓' : '✗';
+          var message = ok ? 'Copied' : 'Copy failed';
+          if (icon) icon.textContent = symbol;
+          if (status) {
+            // aria-live regions only announce on text-content change.
+            // When the same message would be set twice in a row,
+            // clear it first so the mutation is detected and the
+            // screen reader re-announces.
+            status.textContent = '';
+            status.textContent = message;
+          }
+          resetTimer = setTimeout(function () {
             if (icon) icon.textContent = '⧉';
             if (status) status.textContent = '';
+            resetTimer = null;
           }, 1500);
         };
         if (navigator.clipboard && navigator.clipboard.writeText) {
