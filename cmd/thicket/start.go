@@ -44,17 +44,40 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	id, err := src.Parse(args[0])
-	if err != nil {
-		return err
+
+	var tk ticket.Ticket
+	if len(args) == 0 {
+		// Interactive picker over the user's active assigned tickets.
+		tk, err = pickAssignedTicket(cmd.Context(), src, cfg, errOut)
+		if err != nil {
+			if errors.Is(err, tui.ErrCancelled) {
+				fmt.Fprintln(out, "cancelled.")
+				return nil
+			}
+			return err
+		}
+		fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
+	} else {
+		id, err := src.Parse(args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "fetching ticket %s...\n", id)
+		tk, err = src.Fetch(id)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
+	}
+	// If a workspace already exists for this ticket, skip creation and
+	// open Claude on it directly — this is the "I'm switching back to
+	// in-flight work" path. Lookup is by ticket id (not slug) so a
+	// renamed ticket still resolves to its original workspace.
+	if existing := findWorkspaceForTicket(cfg, tk.SourceID, errOut); existing != nil {
+		fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
+		return launchClaudeIn(out, cfg, tk, existing.Path, flags.noLaunch)
 	}
 
-	fmt.Fprintf(out, "fetching ticket %s...\n", id)
-	tk, err := src.Fetch(id)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
 	if strings.TrimSpace(tk.Body) == "" {
 		fmt.Fprintln(out, "  ⚠ ticket has no description — LLM routing will lack context;\n"+
 			"    consider \"thicket start <ticket> --only repo1,repo2\" instead.")
@@ -112,19 +135,52 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Fprintf(out, "workspace ready at %s\n", plan.WorkspaceDir)
+	return launchClaudeIn(out, cfg, tk, plan.WorkspaceDir, flags.noLaunch)
+}
 
-	if flags.noLaunch {
-		fmt.Fprintf(out, "cd %s\n", plan.WorkspaceDir)
+// findWorkspaceForTicket scans the workspace root for a managed
+// workspace whose manifest's TicketID matches the given id. Returns
+// nil when none exists. Read errors are tolerated silently — the
+// caller will hit the same dir again on the create path.
+func findWorkspaceForTicket(cfg *config.Config, ticketID string, errOut io.Writer) *workspace.ManagedWorkspace {
+	workspaces, warnings, err := workspace.ListManaged(cfg.WorkspaceRoot)
+	if err != nil {
+		// Treat as "no existing workspace" — workspace.Create will hit
+		// the same dir read and surface the underlying error then.
 		return nil
 	}
-	// `--name` labels the Claude session in its prompt box, /resume
-	// picker, and the terminal window title — useful when juggling
-	// several open workspaces.
+	// Surface per-manifest warnings here too: if a corrupt manifest
+	// hides an existing workspace from this lookup, the user is about
+	// to hit a confusing ErrExists from workspace.Create. Telling them
+	// "warning: ws-xyz: parse state: ..." right now is far more useful
+	// than the eventual mkdir-collision error.
+	for _, w := range warnings {
+		fmt.Fprintf(errOut, "warning: %v\n", w)
+	}
+	for i := range workspaces {
+		if workspaces[i].State.TicketID == ticketID {
+			return &workspaces[i]
+		}
+	}
+	return nil
+}
+
+// launchClaudeIn opens the configured Claude binary in workspaceDir,
+// passing `--name <slug>` so the session is distinguishable in
+// Claude's prompt box, /resume picker, and the terminal title.
+// Honors --no-launch by printing the cd line instead.
+func launchClaudeIn(out io.Writer, cfg *config.Config, tk ticket.Ticket,
+	workspaceDir string, noLaunch bool) error {
+
+	if noLaunch {
+		fmt.Fprintf(out, "cd %s\n", workspaceDir)
+		return nil
+	}
 	l := launcher.New(cfg.ClaudeBinary)
 	l.ExtraArgs = []string{"--name", workspace.Slug(tk.SourceID, tk.Title)}
-	if err := l.Launch(plan.WorkspaceDir); err != nil {
+	if err := l.Launch(workspaceDir); err != nil {
 		if errors.Is(err, launcher.ErrMissingBinary) {
-			launcher.PrintFallback(out, plan.WorkspaceDir)
+			launcher.PrintFallback(out, workspaceDir)
 			return nil
 		}
 		return err
@@ -221,6 +277,78 @@ func withProgress(w io.Writer, label string, fn func() error) error {
 		fmt.Fprintf(w, "%s — %.1fs\n", label, time.Since(start).Seconds())
 	}
 	return err
+}
+
+// pickAssignedTicket fetches the user's active assigned tickets from
+// the configured source (if it implements ticket.Lister) and shows a
+// fuzzy-search PickOne over them. Rows are annotated with the
+// existing workspace slug when one already exists on disk — handy for
+// switching back to in-flight work without re-creating the workspace.
+func pickAssignedTicket(ctx context.Context, src ticket.Source, cfg *config.Config,
+	errOut io.Writer) (ticket.Ticket, error) {
+
+	lister, ok := src.(ticket.Lister)
+	if !ok {
+		return ticket.Ticket{}, fmt.Errorf(
+			"ticket source %q does not support listing — pass a ticket id explicitly",
+			src.Name())
+	}
+
+	var tickets []ticket.Ticket
+	err := withProgress(errOut, "fetching your open assigned tickets", func() error {
+		var listErr error
+		tickets, listErr = lister.ListAssigned(ctx)
+		return listErr
+	})
+	if err != nil {
+		return ticket.Ticket{}, err
+	}
+	if len(tickets) == 0 {
+		return ticket.Ticket{}, errors.New("no open assigned tickets found")
+	}
+
+	// Cross-reference with existing managed workspaces so the picker
+	// can surface 'already has a workspace' inline. We tolerate
+	// per-manifest read errors here (the picker still works without
+	// the column) but warn so the user knows their workspace_root is
+	// dodgy before workspace.Create eventually trips on the same issue.
+	workspaces, warnings, listErr := workspace.ListManaged(cfg.WorkspaceRoot)
+	if listErr != nil {
+		// Non-fatal here — the picker can still function without the
+		// cross-reference column. Surface the cause so the user knows
+		// before workspace.Create eventually trips on the same issue.
+		fmt.Fprintf(errOut, "warning: could not enumerate existing workspaces: %v\n", listErr)
+	}
+	for _, w := range warnings {
+		fmt.Fprintf(errOut, "warning: %v\n", w)
+	}
+	slugByTicket := make(map[string]string, len(workspaces))
+	for _, w := range workspaces {
+		slugByTicket[w.State.TicketID] = w.Slug
+	}
+
+	columns := []tui.Column{
+		{Title: "Ticket", Width: 10},
+		{Title: "State", Width: 18},
+		{Title: "Title", Width: 50},
+		{Title: "Workspace", Width: 36},
+	}
+	rows := make([]tui.Row, len(tickets))
+	byID := make(map[string]ticket.Ticket, len(tickets))
+	for i, tk := range tickets {
+		ws := slugByTicket[tk.SourceID]
+		rows[i] = tui.Row{
+			Key:    tk.SourceID,
+			Cells:  []string{tk.SourceID, tk.State, tk.Title, ws},
+			Filter: tk.SourceID + " " + tk.State + " " + tk.Title + " " + ws,
+		}
+		byID[tk.SourceID] = tk
+	}
+	key, err := tui.PickOne("Pick a ticket to start a workspace for", columns, rows)
+	if err != nil {
+		return ticket.Ticket{}, err
+	}
+	return byID[key], nil
 }
 
 // isDir reports whether path exists and is a directory.

@@ -27,51 +27,70 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	firstRun := false
 	cfg, err := config.Load(cfgPath)
 	if errors.Is(err, config.ErrNoConfig) || cfg == nil {
 		d := config.Default()
 		cfg = &d
+		firstRun = true
 	} else if err != nil {
 		fmt.Fprintf(errOut, "warning: existing config at %s is invalid (%v); starting fresh.\n",
 			cfgPath, err)
 		d := config.Default()
 		cfg = &d
+		firstRun = true
 	}
 
-	// Step 1: paths, orgs (no secrets here — trust gained gradually).
-	if err := runBaseConfigForm(cfg, errOut); err != nil {
-		return err
+	// The welcome note lives outside the step machine — otherwise
+	// pressing Esc to back up to step 0 would re-display it each time,
+	// which gets annoying fast on a first-run flow.
+	if firstRun {
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewNote().
+				Title("Welcome to thicket").
+				Description("First time here — let's configure your workflow."),
+		)).Run(); err != nil {
+			if errors.Is(err, huh.ErrUserAborted) {
+				fmt.Fprintln(out, "cancelled.")
+				return nil
+			}
+			return err
+		}
 	}
 
-	// Step 2: pick the Claude backend (CLI vs API) so we know whether
-	// to ask for an Anthropic API key at all.
-	if err := chooseClaudeBackend(cfg); err != nil {
-		return err
+	// Sequential step machine so the user can press Esc at any prompt
+	// to back up to the previous step. Any huh.ErrUserAborted from a
+	// step is interpreted as "go back"; on step 0 it means cancel
+	// (there's nothing earlier to return to).
+	steps := []func() error{
+		func() error { return runBaseConfigForm(cfg, out, errOut) },
+		func() error {
+			announceEnvSecrets(out)
+			return chooseClaudeBackend(cfg)
+		},
+		func() error { return collectSecretsStep(ctx, cfg, out) },
+	}
+	i := 0
+	for i < len(steps) {
+		err := steps[i]()
+		switch {
+		case errors.Is(err, huh.ErrUserAborted):
+			if i == 0 {
+				fmt.Fprintln(out, "cancelled.")
+				return nil
+			}
+			i--
+			fmt.Fprintln(out, "  ← back to previous step")
+		case err != nil:
+			return err
+		default:
+			i++
+		}
 	}
 
-	// Step 3: password manager — choose only; account selection happens
-	// per-secret in step 4 because users may keep secrets in different
-	// 1Password accounts.
-	mgr, err := chooseManager(cfg)
-	if err != nil {
-		return err
-	}
-
-	// Step 4: per-secret references. Skips the Anthropic key when
-	// claude_backend is "cli" — the local `claude` CLI handles auth.
-	if err := collectSecretRefs(ctx, cfg, mgr, out); err != nil {
-		return err
-	}
-
-	// Expand ~ in path fields so MkdirAll doesn't create a literal
-	// ./~/tasks folder when the user accepts the default. The saved
-	// config then carries absolute paths, which round-trip cleanly
-	// through Load.
 	if err := cfg.ExpandPaths(); err != nil {
 		return err
 	}
-
-	// Persist.
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -88,22 +107,29 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// ----- Step 1 -----
-
-func runBaseConfigForm(cfg *config.Config, errOut io.Writer) error {
-	available := availableGitHubOrgs()
-
-	// Welcome note runs in its own form so the orgs widget can switch
-	// shape (multiselect vs typed input) based on what gh tells us.
-	if err := huh.NewForm(huh.NewGroup(
-		huh.NewNote().
-			Title("Welcome to thicket").
-			Description("Walk through the prerequisites once. You can re-run `thicket init` any time to change values.\n\nThicket never asks you to paste a raw API token — point it at your password manager and we fetch on demand."),
-	)).Run(); err != nil {
+// collectSecretsStep is the third init step: either announce env-only
+// coverage and skip, or run the manager picker + per-secret collection.
+func collectSecretsStep(ctx context.Context, cfg *config.Config, out io.Writer) error {
+	if allSecretsCoveredByEnv(cfg) {
+		// Env-var detection was already announced before the backend
+		// picker; here we just confirm the conclusion.
+		fmt.Fprintln(out, "  All required secrets covered by env vars — no password manager needed.")
+		cfg.Passwords.Manager = "env"
+		return nil
+	}
+	mgr, err := chooseManager(cfg)
+	if err != nil {
 		return err
 	}
+	return collectSecretRefs(ctx, cfg, mgr, out)
+}
 
-	if err := collectGitHubOrgs(cfg, available); err != nil {
+// ----- Step 1 -----
+
+func runBaseConfigForm(cfg *config.Config, out, errOut io.Writer) error {
+	available := availableGitHubOrgs()
+
+	if err := collectGitHubOrgs(cfg, available, out); err != nil {
 		return err
 	}
 
@@ -144,7 +170,9 @@ func availableGitHubOrgs() []string {
 // collectGitHubOrgs shows a multiselect over the user's actual gh
 // memberships when available. Falls back to free-text input if gh
 // returned nothing useful (not auth'd, offline, no org memberships).
-func collectGitHubOrgs(cfg *config.Config, available []string) error {
+// When the user belongs to exactly one org we skip the picker
+// entirely (same pattern as the 1Password account picker).
+func collectGitHubOrgs(cfg *config.Config, available []string, out io.Writer) error {
 	if len(available) == 0 {
 		var orgs string
 		err := huh.NewForm(huh.NewGroup(
@@ -163,6 +191,12 @@ func collectGitHubOrgs(cfg *config.Config, available []string) error {
 			return err
 		}
 		cfg.GithubOrgs = splitCSV(orgs)
+		return nil
+	}
+
+	if len(available) == 1 {
+		cfg.GithubOrgs = []string{available[0]}
+		fmt.Fprintf(out, "  ✓ GitHub org: %s\n", available[0])
 		return nil
 	}
 
@@ -199,6 +233,30 @@ func collectGitHubOrgs(cfg *config.Config, available []string) error {
 	}
 	cfg.GithubOrgs = chosen
 	return nil
+}
+
+// announceEnvSecrets prints which credential env vars are currently
+// set so the user sees that detection happened *before* the backend
+// picker — useful context for choosing cli vs api.
+func announceEnvSecrets(out io.Writer) {
+	for _, v := range []string{"SHORTCUT_API_TOKEN", "ANTHROPIC_API_KEY"} {
+		if os.Getenv(v) != "" {
+			fmt.Fprintf(out, "  ✓ found $%s in env\n", v)
+		}
+	}
+}
+
+// allSecretsCoveredByEnv reports whether every secret thicket would
+// fetch at runtime is already available via an env var. When true,
+// `thicket init` can skip the password-manager picker entirely.
+func allSecretsCoveredByEnv(cfg *config.Config) bool {
+	if os.Getenv("SHORTCUT_API_TOKEN") == "" {
+		return false
+	}
+	if cfg.ClaudeBackend == "api" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+		return false
+	}
+	return true
 }
 
 // warnAboutEmptyOrgs probes each configured org with `gh repo list`. If

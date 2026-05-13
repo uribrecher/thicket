@@ -3,14 +3,14 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
-	"github.com/uribrecher/thicket/internal/config"
 	"github.com/uribrecher/thicket/internal/git"
 	"github.com/uribrecher/thicket/internal/tui"
 	"github.com/uribrecher/thicket/internal/workspace"
@@ -24,52 +24,72 @@ func runRm(cmd *cobra.Command, args []string) error {
 	force, _ := cmd.Flags().GetBool("force")
 	skipConfirm, _ := cmd.Flags().GetBool("yes")
 
-	// Exact-slug short-circuit preserves the muscle-memory of
-	// `thicket rm <full-slug>` for scripts. Confirmation still applies
-	// unless --yes is set.
+	workspaces, warnings, err := workspace.ListManaged(cfg.WorkspaceRoot)
+	if err != nil {
+		return err
+	}
+	for _, w := range warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", w)
+	}
+
 	if len(args) == 1 {
 		if err := validateSlug(args[0]); err != nil {
 			return err
 		}
-		dir := filepath.Join(cfg.WorkspaceRoot, args[0])
-		if _, err := os.Stat(dir); err == nil {
-			return doRemove(cmd, dir, force, skipConfirm)
+		slug := args[0]
+		// Exact-slug short-circuit preserves the muscle-memory of
+		// `thicket rm <full-slug>` for scripts. Falls through to the
+		// picker (with the slug as prefilter) when the slug doesn't
+		// match a managed workspace.
+		for i := range workspaces {
+			if workspaces[i].Slug == slug {
+				return doRemove(cmd, workspaces[i].Path, &workspaces[i].State, force, skipConfirm)
+			}
 		}
+		// Slug isn't in the managed list, but the directory might
+		// still exist as an orphan (manifest deleted, partial create,
+		// etc.). Honor `thicket rm <orphan-slug> --force` for those.
+		// validateSlug above already locked the slug to a single
+		// directory name under workspace_root.
+		orphan := filepath.Join(cfg.WorkspaceRoot, slug)
+		if info, statErr := os.Stat(orphan); statErr == nil && info.IsDir() {
+			return doRemove(cmd, orphan, nil, force, skipConfirm)
+		} else if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+			return fmt.Errorf("stat %s: %w", orphan, statErr)
+		}
+		if len(workspaces) == 0 {
+			return fmt.Errorf("no workspaces to remove (looked under %s)", cfg.WorkspaceRoot)
+		}
+		picked, err := pickWorkspaceForRm(workspaces, slug)
+		if err != nil {
+			return err
+		}
+		if picked == nil {
+			return nil
+		}
+		return doRemove(cmd, picked.Path, &picked.State, force, skipConfirm)
 	}
 
-	workspaces, err := listManagedWorkspaces(cfg)
-	if err != nil {
-		return err
-	}
 	if len(workspaces) == 0 {
 		return errors.New("no workspaces to remove")
 	}
-
-	prefilter := ""
-	if len(args) == 1 {
-		// validateSlug above already short-circuits absolute paths and
-		// path-traversal attempts; here we just preserve whatever the
-		// user typed as a search query.
-		prefilter = args[0]
-	}
-	picked, err := pickWorkspaceForRm(workspaces, prefilter)
+	picked, err := pickWorkspaceForRm(workspaces, "")
 	if err != nil {
 		return err
 	}
 	if picked == nil {
 		return nil
 	}
-	return doRemove(cmd, picked.path, force, skipConfirm)
+	return doRemove(cmd, picked.Path, &picked.State, force, skipConfirm)
 }
 
 // doRemove prints a summary of what's about to be deleted, asks for
-// confirmation (unless --yes), then runs workspace.Remove.
-func doRemove(cmd *cobra.Command, dir string, force, skipConfirm bool) error {
+// confirmation (unless --yes), then runs workspace.RemoveWithState.
+// st may be nil — that's the "no manifest" path (legacy/orphaned dir).
+func doRemove(cmd *cobra.Command, dir string, st *workspace.State, force, skipConfirm bool) error {
 	out := cmd.OutOrStdout()
-	st, stateErr := workspace.ReadState(dir)
-
 	if !skipConfirm {
-		printRemovePreview(out, dir, st, stateErr, force)
+		printRemovePreview(out, dir, st, force)
 		confirmed := false
 		err := huh.NewConfirm().
 			Title("Remove this workspace?").
@@ -88,7 +108,7 @@ func doRemove(cmd *cobra.Command, dir string, force, skipConfirm bool) error {
 	}
 
 	w := workspace.New(git.New())
-	if err := w.Remove(dir, force); err != nil {
+	if err := w.RemoveWithState(dir, st, force); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "removed %s\n", dir)
@@ -98,13 +118,13 @@ func doRemove(cmd *cobra.Command, dir string, force, skipConfirm bool) error {
 // printRemovePreview lays out exactly what `rm` is about to do so the
 // user can review before saying yes — workspace dir, the worktrees
 // inside it, and the cleanup semantics (force vs. preserve-on-dirty).
-func printRemovePreview(out interface{ Write([]byte) (int, error) },
-	dir string, st workspace.State, stateErr error, force bool) {
-
+// st == nil signals "no manifest" so the user understands why no
+// worktree details are shown.
+func printRemovePreview(out io.Writer, dir string, st *workspace.State, force bool) {
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "About to remove this workspace:")
 	fmt.Fprintf(out, "  path:    %s\n", dir)
-	if stateErr == nil {
+	if st != nil {
 		fmt.Fprintf(out, "  ticket:  %s\n", st.TicketID)
 		fmt.Fprintf(out, "  branch:  %s\n", st.Branch)
 		fmt.Fprintf(out, "  repos:   %d worktree(s)\n", len(st.Repos))
@@ -155,51 +175,7 @@ func validateSlug(s string) error {
 	return nil
 }
 
-// managedWorkspace is the slim projection rm + list need: the slug
-// (folder name) plus enough metadata to render a useful picker row.
-type managedWorkspace struct {
-	slug   string
-	path   string
-	ticket string
-	branch string
-	when   string
-	repos  int
-}
-
-func listManagedWorkspaces(cfg *config.Config) ([]managedWorkspace, error) {
-	entries, err := os.ReadDir(cfg.WorkspaceRoot)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read %s: %w", cfg.WorkspaceRoot, err)
-	}
-	var out []managedWorkspace
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		ws := filepath.Join(cfg.WorkspaceRoot, e.Name())
-		st, err := workspace.ReadState(ws)
-		if err != nil {
-			// Not a thicket-managed workspace — ignore silently.
-			continue
-		}
-		out = append(out, managedWorkspace{
-			slug:   e.Name(),
-			path:   ws,
-			ticket: st.TicketID,
-			branch: st.Branch,
-			when:   st.CreatedAt.Local().Format("2006-01-02 15:04"),
-			repos:  len(st.Repos),
-		})
-	}
-	// Newest first — the most likely target for `thicket rm`.
-	sort.Slice(out, func(i, j int) bool { return out[i].when > out[j].when })
-	return out, nil
-}
-
-func pickWorkspaceForRm(workspaces []managedWorkspace, prefilter string) (*managedWorkspace, error) {
+func pickWorkspaceForRm(workspaces []workspace.ManagedWorkspace, prefilter string) (*workspace.ManagedWorkspace, error) {
 	columns := []tui.Column{
 		{Title: "Slug", Width: 50},
 		{Title: "Ticket", Width: 10},
@@ -208,10 +184,11 @@ func pickWorkspaceForRm(workspaces []managedWorkspace, prefilter string) (*manag
 	}
 	rows := make([]tui.Row, len(workspaces))
 	for i, w := range workspaces {
+		when := w.State.CreatedAt.Local().Format("2006-01-02 15:04")
 		rows[i] = tui.Row{
-			Key:    w.slug,
-			Cells:  []string{w.slug, w.ticket, w.when, fmt.Sprintf("%d", w.repos)},
-			Filter: w.slug + " " + w.ticket + " " + w.branch,
+			Key:    w.Slug,
+			Cells:  []string{w.Slug, w.State.TicketID, when, fmt.Sprintf("%d", len(w.State.Repos))},
+			Filter: w.Slug + " " + w.State.TicketID + " " + w.State.Branch,
 		}
 	}
 	key, err := tui.PickOne("Select a workspace to remove", columns, rows,
@@ -223,7 +200,7 @@ func pickWorkspaceForRm(workspaces []managedWorkspace, prefilter string) (*manag
 		return nil, err
 	}
 	for i := range workspaces {
-		if workspaces[i].slug == key {
+		if workspaces[i].Slug == key {
 			return &workspaces[i], nil
 		}
 	}
