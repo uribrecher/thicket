@@ -121,23 +121,36 @@ Supported managers (pick one in `thicket init`):
 | pass | [`pass`](https://www.passwordstore.org/) | store-relative path (e.g. `work/shortcut`) |
 | env | (none) | environment variable name (for CI / headless) |
 
-The config looks like:
+Two top-level toggles drive the Claude-side cost/auth story:
+
+```toml
+# How thicket talks to Claude for repo detection:
+#   "cli" — shell out to the local `claude` binary; reuses Claude
+#           Code / Enterprise auth, no API key needed.
+#   "api" — call the Anthropic API directly; requires anthropic_key_ref.
+claude_backend = "cli"
+```
+
+The secrets block is per-secret — each can live in a different
+1Password account:
 
 ```toml
 [passwords]
-manager             = "1password"
-shortcut_token_ref  = "op://Private/Shortcut/credential"
-anthropic_key_ref   = "op://Private/Anthropic/credential"
+manager = "1password"
 
-# 1Password-only — selects which signed-in account to use when more than one
-# is active. Optional; `op`'s default is used when omitted.
-[passwords.onepassword]
-account = "576UUGKY6NCYTDLB42Z2C3XNH4"
+shortcut_token_ref     = "op://Employee/Shortcut/credential"
+shortcut_token_account = "576UUGKY6NCYTDLB42Z2C3XNH4"   # 1password only
+
+# Only needed when claude_backend = "api"
+anthropic_key_ref     = "op://Personal/Anthropic/credential"
+anthropic_key_account = "CUFCNCRFFVCXLBZ2BJCBZGVFOY"
 ```
 
-If `op account list` shows more than one account, `thicket init` prompts
-you to pick one and stores the account UUID. Every subsequent `op` call
-is scoped via `--account <uuid>`.
+When `claude_backend = "cli"`, `thicket init` skips the Anthropic key
+slot entirely. For 1Password, init walks each secret one at a time:
+account picker → item autocomplete → field picker. The previous slot's
+account is offered as the default for the next, so single-account users
+just press Enter and multi-account users can switch per secret.
 
 `thicket doctor` verifies the CLI is installed, the vault is unlocked, and
 each reference resolves to a value — without ever showing the value.
