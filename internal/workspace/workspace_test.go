@@ -116,16 +116,26 @@ func TestCreate_writesProgressLines(t *testing.T) {
 	}
 
 	got := buf.String()
-	// One ✓ per worktree + memory file + state manifest.
-	for _, want := range []string{
+	// One ✓ per worktree + memory file + state manifest. The
+	// ordering matters — it matches the user-visible sequence
+	// and the rollback contract (worktrees first, then memory,
+	// then manifest). Walk through with strings.Index so each
+	// expected line MUST appear after the previous one.
+	wantOrdered := []string{
 		"✓ worktree: " + p.Repos[0].Name,
 		"✓ worktree: " + p.Repos[1].Name,
 		"✓ wrote " + memory.FileName,
 		"✓ wrote .thicket/state.json",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("progress output missing %q\nfull output:\n%s", want, got)
+	}
+	cursor := 0
+	for _, want := range wantOrdered {
+		idx := strings.Index(got[cursor:], want)
+		if idx < 0 {
+			t.Errorf("progress output missing (or out of order) %q after cursor %d\nfull output:\n%s",
+				want, cursor, got)
+			return
 		}
+		cursor += idx + len(want)
 	}
 }
 

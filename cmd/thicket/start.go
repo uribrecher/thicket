@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/uribrecher/thicket/internal/catalog"
 	"github.com/uribrecher/thicket/internal/config"
@@ -162,25 +163,44 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// confirm wraps the same huh widget as `thicket rm` so the
 	// muscle memory carries over.
 	if !flags.noInteractive {
-		// Default to Yes (Enter accepts) — the user already typed
-		// through ticket pick → repo pick → clone gate to get here;
-		// requiring an extra explicit click on Yes is friction.
-		// `huh.NewConfirm` uses the bound variable's initial value
-		// as the highlighted option.
-		confirmed := true
-		err := huh.NewConfirm().
-			Title("Create this workspace?").
-			Description("Creates the worktrees and seeds CLAUDE.local.md.").
-			Affirmative("Yes, create").
-			Negative("No, cancel").
-			Value(&confirmed).
-			Run()
-		if err != nil {
-			return err
-		}
-		if !confirmed {
-			fmt.Fprintln(out, "cancelled.")
-			return nil
+		// Non-TTY stdin (CI, piped input) → huh's bubbletea program
+		// can't open the alt-screen and would fail with a confusing
+		// error. Skip the prompt with a clear notice and proceed —
+		// the user already passed every preceding interactive gate,
+		// so we know they intend to create. `--no-interactive` is
+		// the explicit way to silence this notice.
+		if !term.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Fprintln(errOut, "stdin is not a TTY — skipping the create-workspace prompt "+
+				"(pass --no-interactive to silence this notice).")
+		} else {
+			// Default to Yes (Enter accepts) — the user already typed
+			// through ticket pick → repo pick → clone gate to get here;
+			// requiring an extra explicit click on Yes is friction.
+			// `huh.NewConfirm` uses the bound variable's initial value
+			// as the highlighted option.
+			confirmed := true
+			err := huh.NewConfirm().
+				Title("Create this workspace?").
+				Description("Creates the worktrees and seeds CLAUDE.local.md.").
+				Affirmative("Yes, create").
+				Negative("No, cancel").
+				Value(&confirmed).
+				Run()
+			// Ctrl+C / Esc through huh returns ErrUserAborted; treat
+			// the same as "No, cancel" — friendly exit, not a hard
+			// error. Mirrors the picker / repo-selector cancellation
+			// paths above.
+			if errors.Is(err, huh.ErrUserAborted) {
+				fmt.Fprintln(out, "cancelled.")
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				fmt.Fprintln(out, "cancelled.")
+				return nil
+			}
 		}
 	}
 

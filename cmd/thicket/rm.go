@@ -98,6 +98,13 @@ func doRemove(cmd *cobra.Command, dir string, st *workspace.State, force, skipCo
 			Negative("No, keep it").
 			Value(&confirmed).
 			Run()
+		// Ctrl+C / Esc through huh returns ErrUserAborted; treat
+		// the same as "No, keep it" — friendly exit, not a hard
+		// error. Mirrors the picker cancellation path.
+		if errors.Is(err, huh.ErrUserAborted) {
+			fmt.Fprintln(out, "cancelled.")
+			return nil
+		}
 		if err != nil {
 			return err
 		}
