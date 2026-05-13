@@ -79,6 +79,7 @@ func newRmCmd() *cobra.Command {
 		RunE:  runRm,
 	}
 	c.Flags().Bool("force", false, "remove even if worktrees have local changes")
+	c.Flags().Bool("yes", false, "skip the confirmation prompt (for scripts)")
 	return c
 }
 

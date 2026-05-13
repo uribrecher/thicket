@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
 	"github.com/uribrecher/thicket/internal/config"
@@ -21,13 +22,15 @@ func runRm(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	force, _ := cmd.Flags().GetBool("force")
+	skipConfirm, _ := cmd.Flags().GetBool("yes")
 
-	// 1. Exact-slug short-circuit: preserves the old `thicket rm <slug>`
-	//    behavior for muscle-memory + scripts.
+	// 1. Exact-slug short-circuit: preserves the muscle-memory of
+	//    `thicket rm <full-slug>` for scripts. Confirmation still
+	//    applies unless --yes is set.
 	if len(args) == 1 {
 		dir := filepath.Join(cfg.WorkspaceRoot, args[0])
 		if _, err := os.Stat(dir); err == nil {
-			return doRemove(cmd, dir, force)
+			return doRemove(cmd, dir, force, skipConfirm)
 		}
 	}
 
@@ -51,16 +54,77 @@ func runRm(cmd *cobra.Command, args []string) error {
 	if picked == nil {
 		return nil
 	}
-	return doRemove(cmd, picked.path, force)
+	return doRemove(cmd, picked.path, force, skipConfirm)
 }
 
-func doRemove(cmd *cobra.Command, dir string, force bool) error {
+// doRemove prints a summary of what's about to be deleted, asks for
+// confirmation (unless --yes), then runs workspace.Remove.
+func doRemove(cmd *cobra.Command, dir string, force, skipConfirm bool) error {
+	out := cmd.OutOrStdout()
+	st, stateErr := workspace.ReadState(dir)
+
+	if !skipConfirm {
+		printRemovePreview(out, dir, st, stateErr, force)
+		confirmed := false
+		err := huh.NewConfirm().
+			Title("Remove this workspace?").
+			Description("This cannot be undone.").
+			Affirmative("Yes, remove").
+			Negative("No, keep it").
+			Value(&confirmed).
+			Run()
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			fmt.Fprintln(out, "cancelled.")
+			return nil
+		}
+	}
+
 	w := workspace.New(git.New())
 	if err := w.Remove(dir, force); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "removed %s\n", dir)
+	fmt.Fprintf(out, "removed %s\n", dir)
 	return nil
+}
+
+// printRemovePreview lays out exactly what `rm` is about to do so the
+// user can review before saying yes — workspace dir, the worktrees
+// inside it, and the cleanup semantics (force vs. preserve-on-dirty).
+func printRemovePreview(out interface{ Write([]byte) (int, error) },
+	dir string, st workspace.State, stateErr error, force bool) {
+
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "About to remove this workspace:")
+	fmt.Fprintf(out, "  path:    %s\n", dir)
+	if stateErr == nil {
+		fmt.Fprintf(out, "  ticket:  %s\n", st.TicketID)
+		fmt.Fprintf(out, "  branch:  %s\n", st.Branch)
+		fmt.Fprintf(out, "  repos:   %d worktree(s)\n", len(st.Repos))
+		for _, r := range st.Repos {
+			fmt.Fprintf(out, "    • %s\n        worktree → %s\n        source   → %s\n",
+				r.Name, r.WorktreePath, r.SourcePath)
+		}
+	} else {
+		fmt.Fprintln(out, "  (no manifest — only the directory will be deleted)")
+	}
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Removal steps:")
+	fmt.Fprintln(out, "  1. `git worktree remove` each worktree from its source repo")
+	fmt.Fprintln(out, "     (the branch ref stays in the source repo — your work is")
+	fmt.Fprintln(out, "      not lost as long as you've committed and/or pushed it).")
+	fmt.Fprintln(out, "  2. Delete the workspace directory.")
+	fmt.Fprintln(out)
+	if force {
+		fmt.Fprintln(out, "  ⚠ --force is set: dirty worktrees will be removed and their")
+		fmt.Fprintln(out, "    uncommitted changes will be discarded.")
+	} else {
+		fmt.Fprintln(out, "  Without --force: any dirty worktree refuses removal and the")
+		fmt.Fprintln(out, "  workspace directory is preserved (uncommitted work survives).")
+	}
+	fmt.Fprintln(out)
 }
 
 // managedWorkspace is the slim projection rm + list need: the slug
