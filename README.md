@@ -43,7 +43,7 @@ cd thicket
 go install ./cmd/thicket
 ```
 
-Requires Go 1.22+, `git`, and [`gh`](https://cli.github.com/) on `$PATH`.
+Requires Go 1.23+, `git`, and [`gh`](https://cli.github.com/) on `$PATH`.
 
 ## Quickstart
 

@@ -38,9 +38,13 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	report = append(report, checkSecrets(cmd.Context(), cfg)...)
 
 	// External tools
-	report = append(report, checkBinary("git"))
-	report = append(report, checkBinary("gh"))
-	report = append(report, checkBinary("claude"))
+	report = append(report, checkBinary("git", "git"))
+	report = append(report, checkBinary("gh", "gh"))
+	claudeBin := cfg.ClaudeBinary
+	if claudeBin == "" {
+		claudeBin = "claude"
+	}
+	report = append(report, checkBinary(claudeBin, "claude"))
 
 	printReport(report)
 	for _, c := range report {
@@ -145,18 +149,21 @@ func checkSecrets(ctx context.Context, c *config.Config) []check {
 	return out
 }
 
-func checkBinary(name string) check {
+// checkBinary looks up `name` on PATH. The `kind` argument is the logical
+// role ("git", "gh", "claude") — it determines whether a missing binary is
+// fatal (git, gh) or merely a warning (claude, since launch is optional)
+// and is also used as the report label.
+func checkBinary(name, kind string) check {
 	path, err := exec.LookPath(name)
 	if err != nil {
-		level := statusFail
-		hint := "not found on PATH"
-		// Claude is the only optional binary — without it we just print
-		// the cd hint instead of auto-launching.
-		if name == "claude" {
-			level = statusWarn
-			hint = "not found on PATH (auto-launch disabled; everything else works)"
+		if kind == "claude" {
+			return check{
+				name:   "claude binary",
+				detail: fmt.Sprintf("%s not found on PATH (auto-launch disabled; everything else works)", name),
+				status: statusWarn,
+			}
 		}
-		return check{name: name + " binary", detail: hint, status: level}
+		return check{name: kind + " binary", detail: name + " not found on PATH", status: statusFail}
 	}
-	return ok(name+" binary", path)
+	return ok(kind+" binary", path)
 }

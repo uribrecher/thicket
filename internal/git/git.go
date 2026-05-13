@@ -80,7 +80,17 @@ func (g *Git) RemoveWorktree(source, target string, force bool) error {
 
 // BranchExists reports whether <branch> exists in <source> (local OR
 // origin/<branch>). Used to decide whether to pass -b on AddWorktree.
+//
+// A non-nil error means the source isn't a usable git repository or some
+// other unexpected failure happened — distinct from "the ref simply isn't
+// there", which is reported as (false, nil).
 func (g *Git) BranchExists(source, branch string) (bool, error) {
+	// Probe whether the source is a git repo at all. This separates
+	// "this repo doesn't have the branch" (false, nil) from "this isn't
+	// a git repo / permission denied / git missing" (return error).
+	if err := g.run("", "git", []string{"-C", source, "rev-parse", "--git-dir"}); err != nil {
+		return false, fmt.Errorf("not a git repo at %s: %w", source, err)
+	}
 	// Local branch check first.
 	if err := g.run("", "git", []string{"-C", source, "show-ref", "--verify",
 		"--quiet", "refs/heads/" + branch}); err == nil {

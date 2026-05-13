@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,12 +28,8 @@ func runRm(cmd *cobra.Command, args []string) error {
 
 	w := workspace.New(git.New())
 	if err := w.Remove(dir, force); err != nil {
-		if errors.Is(err, workspace.ErrNoState) {
-			fmt.Printf("warning: no manifest, removed dir only\n")
-			return nil
-		}
 		return err
 	}
-	fmt.Printf("removed %s\n", dir)
+	fmt.Fprintf(cmd.OutOrStdout(), "removed %s\n", dir)
 	return nil
 }

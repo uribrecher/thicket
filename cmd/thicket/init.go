@@ -63,7 +63,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}
 
 	fmt.Printf("\nconfig written to %s\n", cfgPath)
-	verifyExternalTools()
+	verifyExternalTools(cfg)
 	return nil
 }
 
@@ -274,17 +274,26 @@ func splitCSV(s string) []string {
 	return out
 }
 
-func verifyExternalTools() {
-	for _, bin := range []string{"git", "gh", "claude"} {
-		path, err := exec.LookPath(bin)
+func verifyExternalTools(cfg *config.Config) {
+	claudeBin := cfg.ClaudeBinary
+	if claudeBin == "" {
+		claudeBin = "claude"
+	}
+	type tool struct {
+		name     string
+		optional bool
+	}
+	tools := []tool{{"git", false}, {"gh", false}, {claudeBin, true}}
+	for _, t := range tools {
+		path, err := exec.LookPath(t.name)
 		if err != nil {
 			marker := "✗"
-			if bin == "claude" {
+			if t.optional {
 				marker = "?"
 			}
-			fmt.Printf("  %s %s — not found on PATH\n", marker, bin)
+			fmt.Printf("  %s %s — not found on PATH\n", marker, t.name)
 		} else {
-			fmt.Printf("  ✓ %s — %s\n", bin, path)
+			fmt.Printf("  ✓ %s — %s\n", t.name, path)
 		}
 	}
 }

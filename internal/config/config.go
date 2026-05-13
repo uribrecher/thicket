@@ -1,9 +1,10 @@
 // Package config loads, validates, and persists thicket's user configuration.
 //
 // The configuration lives at $XDG_CONFIG_HOME/thicket/config.toml (typically
-// ~/.config/thicket/config.toml on Linux and macOS). Secrets are NOT stored
-// in this file by default — they belong in the OS keychain (see secrets.go),
-// with env vars and an explicit [secrets] table as fallbacks.
+// ~/.config/thicket/config.toml on Linux and macOS). Raw secrets are never
+// stored here: the [passwords] section records the user's chosen password
+// manager (1Password / Bitwarden / pass / env) plus one item reference per
+// secret. Values are fetched on demand by internal/secrets at runtime.
 package config
 
 import (

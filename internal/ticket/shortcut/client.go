@@ -138,7 +138,7 @@ func (s *Source) Fetch(id ticket.ID) (ticket.Ticket, error) {
 		return ticket.Ticket{}, fmt.Errorf("shortcut story %s not found", scID)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		return ticket.Ticket{}, errors.New("shortcut: 401 unauthorized — check SHORTCUT_API_TOKEN")
+		return ticket.Ticket{}, errors.New("shortcut: 401 unauthorized — verify your Shortcut token reference (run `thicket doctor` to re-test the fetch from your password manager)")
 	}
 	if resp.StatusCode/100 != 2 {
 		return ticket.Ticket{}, fmt.Errorf("shortcut: HTTP %d for %s", resp.StatusCode, u)
