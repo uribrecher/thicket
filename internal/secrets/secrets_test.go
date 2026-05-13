@@ -172,6 +172,16 @@ func TestBitwarden_Check_locked(t *testing.T) {
 	}
 }
 
+// Make sure whitespace/pretty-printed JSON parses correctly — `bw status`
+// formatting varies across versions and the previous substring-matching
+// implementation tripped on the pretty-printed form.
+func TestBitwarden_Check_prettyPrintedJSON(t *testing.T) {
+	fr := &fakeRunner{stdout: []byte("{\n  \"status\": \"unlocked\",\n  \"userEmail\": \"u@e.com\"\n}")}
+	if err := (Bitwarden{Runner: fr, LookPath: alwaysFound}).Check(context.Background()); err != nil {
+		t.Errorf("pretty-printed check: %v", err)
+	}
+}
+
 func TestCheck_returnsCLIMissingWhenBinaryAbsent(t *testing.T) {
 	notFound := func(string) (string, error) { return "", errors.New("not found") }
 	cases := []Manager{

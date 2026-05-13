@@ -248,9 +248,13 @@ func (b Bitwarden) Check(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("bw status: %w", err)
 	}
-	// stdout is JSON; we just look for `"status":"unlocked"` to avoid
-	// pulling a JSON dep for one field.
-	if !bytes.Contains(stdout, []byte(`"status":"unlocked"`)) {
+	var st struct {
+		Status string `json:"status"`
+	}
+	if err := jsonUnmarshal(stdout, &st); err != nil {
+		return fmt.Errorf("decode bw status: %w", err)
+	}
+	if st.Status != "unlocked" {
 		return ErrNotAuthenticated
 	}
 	return nil

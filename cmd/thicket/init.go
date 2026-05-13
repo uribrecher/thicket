@@ -226,6 +226,11 @@ func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Mana
 	fmt.Println("For each secret below, enter the item reference in your password manager.")
 	fmt.Printf("  Reference format: %s\n\n", mgr.Describe())
 
+	// env mode records env-var *names* — the variables themselves may not
+	// be set at init time (they'll be set in CI / the shell config), so we
+	// only validate the name shape and skip the live fetch.
+	envMode := mgr.Name() == "env"
+
 	type slot struct {
 		label   string
 		current *string
@@ -245,6 +250,12 @@ func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Mana
 				if in == "" {
 					return errors.New("reference is required")
 				}
+				if envMode {
+					if !looksLikeEnvVarName(in) {
+						return errors.New("env-var name must match [A-Z_][A-Z0-9_]* (uppercase, underscores)")
+					}
+					return nil
+				}
 				_, err := mgr.Get(ctx, in)
 				if err != nil {
 					return fmt.Errorf("test fetch failed: %w", err)
@@ -256,9 +267,34 @@ func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Mana
 			return err
 		}
 		*s.current = strings.TrimSpace(val)
-		fmt.Printf("  ✓ %s — fetched OK\n", s.label)
+		if envMode {
+			fmt.Printf("  ✓ %s — recorded (will read $%s at runtime)\n", s.label, *s.current)
+		} else {
+			fmt.Printf("  ✓ %s — fetched OK\n", s.label)
+		}
 	}
 	return nil
+}
+
+// looksLikeEnvVarName accepts conventional uppercase-underscore env var
+// names. Cases like `Path` or `my-var` are rejected since they wouldn't
+// survive cross-shell handling reliably.
+func looksLikeEnvVarName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if i == 0 {
+			if !((r >= 'A' && r <= 'Z') || r == '_') {
+				return false
+			}
+			continue
+		}
+		if !((r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // ----- helpers shared with other subcommands -----

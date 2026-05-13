@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 
 	"github.com/spf13/cobra"
@@ -13,24 +14,25 @@ import (
 )
 
 func runDoctor(cmd *cobra.Command, _ []string) error {
+	out := cmd.OutOrStdout()
 	report := []check{}
 
 	// Config
 	cfgPath, err := config.Path()
 	if err != nil {
 		report = append(report, fail("config dir", err.Error()))
-		printReport(report)
+		printReport(out, report)
 		return err
 	}
 	cfg, err := config.Load(cfgPath)
 	switch {
 	case errors.Is(err, config.ErrNoConfig):
 		report = append(report, fail("config file", "missing — run `thicket init`"))
-		printReport(report)
+		printReport(out, report)
 		return errors.New("doctor: setup required")
 	case err != nil:
 		report = append(report, fail("config file", err.Error()))
-		printReport(report)
+		printReport(out, report)
 		return err
 	}
 	report = append(report, ok("config file", cfgPath))
@@ -46,7 +48,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	}
 	report = append(report, checkBinary(claudeBin, "claude"))
 
-	printReport(report)
+	printReport(out, report)
 	for _, c := range report {
 		if c.status == statusFail {
 			return errors.New("doctor: some checks failed")
@@ -72,7 +74,7 @@ type check struct {
 func ok(name, detail string) check   { return check{name, detail, statusOK} }
 func fail(name, detail string) check { return check{name, detail, statusFail} }
 
-func printReport(report []check) {
+func printReport(w io.Writer, report []check) {
 	for _, c := range report {
 		var prefix string
 		switch c.status {
@@ -83,7 +85,7 @@ func printReport(report []check) {
 		case statusFail:
 			prefix = "[fail]"
 		}
-		fmt.Printf("%-7s %-22s %s\n", prefix, c.name, c.detail)
+		fmt.Fprintf(w, "%-7s %-22s %s\n", prefix, c.name, c.detail)
 	}
 }
 
