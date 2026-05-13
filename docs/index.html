@@ -66,8 +66,15 @@
   </div>
 
   <p class="hero__ctas">
-    <a class="btn btn--primary" href="https://github.com/uribrecher/thicket">View on GitHub →</a>
-    <a class="btn btn--ghost" href="https://github.com/uribrecher/thicket/releases/latest">Latest release</a>
+    <button id="install-btn" class="btn btn--primary" type="button"
+            aria-haspopup="dialog" aria-controls="install-modal">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" class="btn__icon">
+        <path fill="currentColor"
+              d="M11.182.008c.018.616-.236 1.232-.566 1.674a2.16 2.16 0 01-1.792.847C8.806 1.97 9.115 1.36 9.45.926A2.49 2.49 0 0111.182.008zm3.5 11.378a5.46 5.46 0 01-.66 1.18c-.41.585-.745 1-1.005 1.234-.4.367-.83.555-1.29.563-.33 0-.728-.094-1.193-.286-.466-.19-.894-.286-1.286-.286-.41 0-.85.096-1.32.286-.469.192-.847.292-1.135.302-.44.018-.882-.176-1.32-.583-.282-.252-.633-.682-1.05-1.29-.45-.65-.82-1.404-1.108-2.263-.31-.93-.466-1.83-.466-2.7 0-1 .216-1.862.649-2.585a3.81 3.81 0 011.357-1.376 3.65 3.65 0 011.834-.518c.348 0 .81.106 1.388.317.576.21.946.317 1.108.317.122 0 .533-.125 1.232-.376.66-.232 1.218-.328 1.673-.29 1.234.1 2.16.586 2.778 1.462-1.103.668-1.65 1.604-1.638 2.802.01.934.349 1.71 1.014 2.326.301.286.638.507 1.013.664-.081.236-.167.46-.258.673z"/>
+      </svg>
+      Install on macOS
+    </button>
+    <a class="btn btn--ghost" href="https://github.com/uribrecher/thicket">View on GitHub →</a>
   </p>
 
   <p class="badges">
@@ -156,7 +163,7 @@
   </ul>
 </section>
 
-<section class="section section--install">
+<section id="install" class="section section--install">
   <h2>Install</h2>
 
   <div class="install-option">
@@ -219,6 +226,45 @@ thicket rm sc-12345-fix-inventory</code></pre>
   </p>
 </footer>
 
+<!-- Post-copy modal for the "Install on macOS" button. Browsers
+     can't execute shell commands on a visitor's machine, so the
+     button copies the install one-liner to the clipboard and tells
+     the user exactly how to paste it into Terminal. -->
+<div id="install-modal" class="modal" role="dialog" aria-modal="true"
+     aria-labelledby="install-modal-title" hidden>
+  <div class="modal__backdrop" data-modal-close></div>
+  <div class="modal__panel">
+    <button class="modal__close" type="button" data-modal-close
+            aria-label="Close install instructions">×</button>
+
+    <h2 id="install-modal-title" class="modal__title">
+      <span class="modal__check" aria-hidden="true">✓</span>
+      Install command copied
+    </h2>
+
+    <p class="modal__lead">
+      Paste it into Terminal to install <code>thicket</code>.
+      The script detects your OS + arch and verifies SHA-256 before
+      dropping the binary into <code>$HOME/.local/bin</code>.
+    </p>
+
+    <pre class="modal__cmd"><code id="install-modal-cmd">curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh</code></pre>
+
+    <ol class="modal__steps">
+      <li><kbd>⌘</kbd> + <kbd>Space</kbd> → type “Terminal” → <kbd>Enter</kbd></li>
+      <li><kbd>⌘</kbd> + <kbd>V</kbd> to paste</li>
+      <li><kbd>Enter</kbd></li>
+    </ol>
+
+    <p class="modal__footer">
+      Or copy from your password manager / clipboard manager — the
+      command is just the one-liner above. Other install paths
+      (<code>go install</code>, manual tarball) are
+      <a href="#install">below</a>.
+    </p>
+  </div>
+</div>
+
 <script>
   // Boot the asciinema player once the bundle has loaded.
   window.addEventListener('load', function () {
@@ -275,6 +321,55 @@ thicket rm sc-12345-fix-inventory</code></pre>
     document.body.removeChild(ta);
     return ok;
   }
+
+  // "Install on macOS" button: copy the install command to the
+  // clipboard, then surface a modal that tells the user exactly how
+  // to paste it into Terminal. (A page can't execute shell commands
+  // on a visitor's machine — best a website can do is make the next
+  // step impossible to miss.)
+  (function () {
+    var btn = document.getElementById('install-btn');
+    var modal = document.getElementById('install-modal');
+    var cmdEl = document.getElementById('install-modal-cmd');
+    if (!btn || !modal || !cmdEl) return;
+
+    var lastFocused = null;
+
+    function openModal() {
+      lastFocused = document.activeElement;
+      modal.hidden = false;
+      document.body.classList.add('modal-open');
+      var closeBtn = modal.querySelector('.modal__close');
+      if (closeBtn) closeBtn.focus();
+    }
+
+    function closeModal() {
+      modal.hidden = true;
+      document.body.classList.remove('modal-open');
+      if (lastFocused && lastFocused.focus) lastFocused.focus();
+    }
+
+    btn.addEventListener('click', function () {
+      var text = cmdEl.textContent;
+      // Best-effort copy. Open the modal either way — its content
+      // is still useful (the command is shown verbatim inside so
+      // the user can select it manually if the clipboard write
+      // didn't take).
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function () { legacyCopy(text); });
+      } else {
+        legacyCopy(text);
+      }
+      openModal();
+    });
+
+    modal.addEventListener('click', function (e) {
+      if (e.target.hasAttribute('data-modal-close')) closeModal();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (!modal.hidden && e.key === 'Escape') closeModal();
+    });
+  })();
 
   document.querySelectorAll('.copy-btn').forEach(function (btn) {
     var icon = btn.querySelector('.copy-btn__icon') || btn;
