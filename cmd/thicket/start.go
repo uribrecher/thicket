@@ -55,6 +55,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 		// ticket. Without this the "ticket has no description"
 		// warning fires for stories that DO have descriptions —
 		// because Shortcut's /stories/search response is slim.
+		//
+		// Fetch + ListAssigned have asymmetric coverage: the search
+		// path resolves the workflow-state NAME (via
+		// /api/v3/workflows) and the fetch path doesn't, while the
+		// fetch path carries the full description and the search
+		// path doesn't. We need both, so preserve whatever the
+		// picker resolved on top of the fetch result.
 		picked, err := pickAssignedTicket(cmd.Context(), src, cfg, errOut)
 		if err != nil {
 			if errors.Is(err, tui.ErrCancelled) {
@@ -70,6 +77,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 		tk, err = src.Fetch(id)
 		if err != nil {
 			return err
+		}
+		if tk.State == "" && picked.State != "" {
+			tk.State = picked.State
 		}
 		fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
 	} else {
