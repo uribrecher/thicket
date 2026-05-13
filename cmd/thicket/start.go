@@ -1,0 +1,364 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/spf13/cobra"
+
+	"github.com/uribrecher/thicket/internal/catalog"
+	"github.com/uribrecher/thicket/internal/config"
+	"github.com/uribrecher/thicket/internal/detector"
+	gitops "github.com/uribrecher/thicket/internal/git"
+	"github.com/uribrecher/thicket/internal/launcher"
+	"github.com/uribrecher/thicket/internal/memory"
+	"github.com/uribrecher/thicket/internal/ticket"
+	"github.com/uribrecher/thicket/internal/ticket/shortcut"
+	"github.com/uribrecher/thicket/internal/tui"
+	"github.com/uribrecher/thicket/internal/workspace"
+)
+
+func runStart(cmd *cobra.Command, args []string) error {
+	cfg, err := loadConfigOrPointAtInit()
+	if err != nil {
+		return err
+	}
+	flags, err := readStartFlags(cmd)
+	if err != nil {
+		return err
+	}
+
+	out := cmd.OutOrStdout()
+
+	// 1. Ticket source + ID parsing
+	src, err := buildTicketSource(cfg)
+	if err != nil {
+		return err
+	}
+	id, err := src.Parse(args[0])
+	if err != nil {
+		return err
+	}
+
+	// 2. Fetch ticket
+	fmt.Fprintf(out, "fetching ticket %s...\n", id)
+	tk, err := src.Fetch(id)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
+
+	// 3. Catalog
+	repos, err := loadCatalog(cfg)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "catalog: %d active repos across %v\n", len(repos), cfg.GithubOrgs)
+
+	// 4. Detect involved repos
+	picks, err := detectRepos(cmd.Context(), cfg, flags, tk, repos)
+	if err != nil {
+		return err
+	}
+
+	// 5. Interactive selection (or accept LLM picks)
+	selector := pickSelector(flags.noInteractive)
+	chosenNames, err := selector.SelectRepos(repos, picks)
+	if err != nil {
+		if errors.Is(err, tui.ErrCancelled) {
+			fmt.Fprintln(out, "cancelled.")
+			return nil
+		}
+		return err
+	}
+	if len(chosenNames) == 0 {
+		return errors.New("no repos selected — nothing to do")
+	}
+
+	// 6. Missing-clone gate
+	chosen, err := resolveOrClone(cmd.Context(), cfg, repos, chosenNames, selector, flags.dryRun)
+	if err != nil {
+		return err
+	}
+	if len(chosen) == 0 {
+		return errors.New("no repos remain after the clone gate")
+	}
+
+	// 7. Plan
+	plan, err := buildPlan(cfg, flags, src, tk, chosen)
+	if err != nil {
+		return err
+	}
+
+	if flags.dryRun {
+		printPlan(out, plan)
+		return nil
+	}
+
+	// 8. Create workspace
+	w := workspace.New(gitops.New())
+	if err := w.Create(plan); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "workspace ready at %s\n", plan.WorkspaceDir)
+
+	// 9. Launch claude (or print fallback)
+	if flags.noLaunch {
+		fmt.Fprintf(out, "cd %s\n", plan.WorkspaceDir)
+		return nil
+	}
+	l := launcher.New(cfg.ClaudeBinary)
+	if err := l.Launch(plan.WorkspaceDir); err != nil {
+		if errors.Is(err, launcher.ErrMissingBinary) {
+			launcher.PrintFallback(out, plan.WorkspaceDir)
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// ----- helpers below -----
+
+type startFlags struct {
+	only          []string
+	branch        string
+	noInteractive bool
+	noLaunch      bool
+	dryRun        bool
+}
+
+func readStartFlags(cmd *cobra.Command) (startFlags, error) {
+	f := cmd.Flags()
+	only, _ := f.GetStringSlice("only")
+	branch, _ := f.GetString("branch")
+	noInteractive, _ := f.GetBool("no-interactive")
+	noLaunch, _ := f.GetBool("no-launch")
+	dryRun, _ := f.GetBool("dry-run")
+	return startFlags{
+		only:          only,
+		branch:        branch,
+		noInteractive: noInteractive,
+		noLaunch:      noLaunch,
+		dryRun:        dryRun,
+	}, nil
+}
+
+func buildTicketSource(cfg *config.Config) (ticket.Source, error) {
+	store := config.DefaultStore(cfg)
+	switch cfg.TicketSource {
+	case "shortcut":
+		token, err := store.Get(config.SecretShortcutAPIToken)
+		if err != nil {
+			return nil, fmt.Errorf("no Shortcut token in keychain/env — run `thicket init`")
+		}
+		return shortcut.New(token, ""), nil
+	default:
+		return nil, fmt.Errorf("unknown ticket_source %q (only \"shortcut\" is implemented)", cfg.TicketSource)
+	}
+}
+
+func loadCatalog(cfg *config.Config) ([]catalog.Repo, error) {
+	cachePath, err := catalog.Path()
+	if err != nil {
+		return nil, err
+	}
+	repos, age, err := catalog.Load(cachePath)
+	if errors.Is(err, catalog.ErrNoCache) || age >= catalog.DefaultCacheTTL {
+		fmt.Fprintln(os.Stderr, "fetching repo catalog via gh...")
+		repos, err = catalog.Build(cfg.GithubOrgs, catalog.GHFetcher{})
+		if err != nil {
+			return nil, err
+		}
+		if err := catalog.Save(cachePath, repos); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not cache catalog: %v\n", err)
+		}
+	} else if err != nil {
+		return nil, err
+	}
+	return catalog.WithLocalPaths(repos, cfg.ReposRoot), nil
+}
+
+func detectRepos(ctx context.Context, cfg *config.Config, flags startFlags,
+	tk ticket.Ticket, repos []catalog.Repo) ([]detector.RepoMatch, error) {
+
+	catRepos := make([]detector.CatalogRepo, len(repos))
+	for i, r := range repos {
+		catRepos[i] = detector.CatalogRepo{Name: r.Name, Description: r.Description}
+	}
+
+	// --only short-circuit: deterministic resolution against the catalog.
+	if len(flags.only) > 0 {
+		aliases := make(map[string]string)
+		for _, a := range cfg.RepoAliases {
+			for _, alias := range a.Aliases {
+				aliases[strings.ToLower(alias)] = a.Name
+			}
+		}
+		d := &detector.RuleDetector{Catalog: catRepos, Aliases: aliases}
+		return d.Detect(ctx, detector.Input{
+			TicketBody: strings.Join(flags.only, ","),
+		})
+	}
+
+	store := config.DefaultStore(cfg)
+	key, err := store.Get(config.SecretAnthropicAPIKey)
+	if err != nil {
+		return nil, fmt.Errorf("no Anthropic key in keychain/env — run `thicket init`")
+	}
+	model := anthropic.Model(cfg.ClaudeModel)
+	d := detector.NewAnthropic(key, "", model)
+	picks, err := d.Detect(ctx, detector.Input{
+		TicketTitle: tk.Title,
+		TicketBody:  tk.Body,
+		Repos:       catRepos,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return picks, nil
+}
+
+func pickSelector(noInteractive bool) tui.Selector {
+	if noInteractive {
+		return tui.AutoSelector{AutoClone: true}
+	}
+	return tui.HuhSelector{}
+}
+
+func resolveOrClone(_ context.Context, cfg *config.Config, repos []catalog.Repo,
+	chosen []string, selector tui.Selector, dryRun bool) ([]catalog.Repo, error) {
+
+	byName := make(map[string]catalog.Repo, len(repos))
+	for _, r := range repos {
+		byName[r.Name] = r
+	}
+	g := gitops.New()
+	var out []catalog.Repo
+	for _, name := range chosen {
+		r, ok := byName[name]
+		if !ok {
+			return nil, fmt.Errorf("internal: %q not in catalog", name)
+		}
+		if r.Cloned() {
+			out = append(out, r)
+			continue
+		}
+		target := filepath.Join(cfg.ReposRoot, r.Name)
+		yes, err := selector.ConfirmClone(r.Name, target)
+		if err != nil {
+			return nil, err
+		}
+		if !yes {
+			fmt.Fprintf(os.Stderr, "skipping %s (no local clone)\n", r.Name)
+			continue
+		}
+		if dryRun {
+			fmt.Fprintf(os.Stderr, "(dry-run) would clone %s → %s\n", r.CloneURL, target)
+			r.LocalPath = target
+			out = append(out, r)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "cloning %s → %s\n", r.CloneURL, target)
+		if err := g.Clone(r.CloneURL, target, os.Stderr, os.Stderr); err != nil {
+			return nil, fmt.Errorf("clone %s: %w", r.Name, err)
+		}
+		r.LocalPath = target
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func buildPlan(cfg *config.Config, flags startFlags, src ticket.Source, tk ticket.Ticket,
+	chosen []catalog.Repo) (workspace.Plan, error) {
+
+	branch := flags.branch
+	if branch == "" {
+		branch = src.BranchName(tk)
+	}
+	if branch == "" {
+		// Last-resort default if the source has no opinion.
+		branch = fmt.Sprintf("%s-%s", strings.ToLower(strings.ReplaceAll(tk.SourceID, " ", "-")),
+			slugify(tk.Title))
+	}
+	slug := workspace.SlugFromBranch(branch)
+	wsDir := filepath.Join(cfg.WorkspaceRoot, slug)
+
+	g := gitops.New()
+	planRepos := make([]workspace.PlanRepo, 0, len(chosen))
+	memRepos := make([]memory.RepoEntry, 0, len(chosen))
+	for _, r := range chosen {
+		exists, _ := g.BranchExists(r.LocalPath, branch)
+		wt := filepath.Join(wsDir, r.Name)
+		planRepos = append(planRepos, workspace.PlanRepo{
+			Name:         r.Name,
+			SourcePath:   r.LocalPath,
+			WorktreePath: wt,
+			BranchExists: exists,
+		})
+		memRepos = append(memRepos, memory.RepoEntry{
+			Name:          r.Name,
+			Branch:        branch,
+			WorktreePath:  wt,
+			DefaultBranch: r.DefaultBranch,
+		})
+	}
+	return workspace.Plan{
+		WorkspaceDir: wsDir,
+		Branch:       branch,
+		Repos:        planRepos,
+		Memory: memory.Input{
+			TicketID:     tk.SourceID,
+			Title:        tk.Title,
+			URL:          tk.URL,
+			State:        tk.State,
+			Owner:        tk.Owner,
+			Body:         tk.Body,
+			Branch:       branch,
+			WorkspaceDir: wsDir,
+			Repos:        memRepos,
+			CreatedAt:    time.Now(),
+		},
+	}, nil
+}
+
+func printPlan(w io.Writer, p workspace.Plan) {
+	fmt.Fprintf(w, "\n(dry-run) plan:\n")
+	fmt.Fprintf(w, "  workspace: %s\n", p.WorkspaceDir)
+	fmt.Fprintf(w, "  branch:    %s\n", p.Branch)
+	fmt.Fprintf(w, "  repos:\n")
+	for _, r := range p.Repos {
+		mode := "create branch"
+		if r.BranchExists {
+			mode = "checkout existing"
+		}
+		fmt.Fprintf(w, "    - %s (%s) src=%s\n", r.Name, mode, r.SourcePath)
+	}
+}
+
+// slugify is a last-resort branch-naming helper used only when the ticket
+// source returns no opinion of its own.
+func slugify(s string) string {
+	var b strings.Builder
+	prev := '-'
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prev = r
+		case r == ' ' || r == '-' || r == '_' || r == '/':
+			if prev != '-' {
+				b.WriteRune('-')
+				prev = '-'
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
