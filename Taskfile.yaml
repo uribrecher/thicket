@@ -100,21 +100,10 @@ tasks:
 
   pages:cachebust:
     desc: Recompute the styles.css cache-busting hash in docs/index.html
-    # Pure Python so the in-place rewrite is portable across macOS
-    # (BSD sed) and Linux (GNU sed) without the `-i '' / -i` divergence,
-    # and without depending on `shasum` vs `sha256sum`.
+    # Shared with the cachebust-check CI workflow, so both paths
+    # (local + CI) compute the same stamp from the same source.
     cmds:
-      - |
-        python3 - <<'PY'
-        import hashlib, re, pathlib
-        css  = pathlib.Path("docs/styles.css")
-        html = pathlib.Path("docs/index.html")
-        h    = hashlib.sha256(css.read_bytes()).hexdigest()[:8]
-        new  = re.sub(r"styles\.css\?v=[a-f0-9]{8}",
-                      f"styles.css?v={h}", html.read_text())
-        html.write_text(new)
-        print(f"docs/index.html → styles.css?v={h}")
-        PY
+      - python3 scripts/cachebust.py
       - git diff --stat docs/index.html || true
 
   ci:
