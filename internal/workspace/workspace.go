@@ -107,7 +107,7 @@ func (w *Workspace) Create(p Plan) error {
 			return fmt.Errorf("add worktree for %s: %w", r.Name, err)
 		}
 		created = append(created, r)
-		progressf(p.Progress, "  %s worktree: %s\n", checkMark, r.Name)
+		progressf(p.Progress, "%s worktree: %s\n", checkMark, r.Name)
 	}
 
 	// Render and write CLAUDE.local.md
@@ -124,7 +124,7 @@ func (w *Workspace) Create(p Plan) error {
 		rollback()
 		return fmt.Errorf("write %s: %w", memory.FileName, err)
 	}
-	progressf(p.Progress, "  %s wrote %s (ticket context, %s)\n",
+	progressf(p.Progress, "%s wrote %s (ticket context, %s)\n",
 		checkMark, memory.FileName, p.Memory.TicketID)
 
 	// Write the state manifest
@@ -132,30 +132,27 @@ func (w *Workspace) Create(p Plan) error {
 		rollback()
 		return fmt.Errorf("write state: %w", err)
 	}
-	progressf(p.Progress, "  %s wrote .thicket/state.json (manifest for `thicket rm`)\n",
+	progressf(p.Progress, "%s wrote .thicket/state.json (manifest for `thicket rm`)\n",
 		checkMark)
 	return nil
-}
-
-// checkMark is the inline progress glyph. Kept as a package-level
-// const so a future "ascii-only" mode (no Unicode) is a one-line
-// switch.
-const checkMark = "✓"
-
-// progressf is a nil-safe Fprintf — drops silently when Plan.Progress
-// is unset (the package's default; tests + scripts get no chatter).
-func progressf(w io.Writer, format string, args ...any) {
-	if w == nil {
-		return
-	}
-	fmt.Fprintf(w, format, args...)
 }
 
 // Remove tears down the workspace at workspaceDir by removing every
 // worktree listed in its state manifest, then the directory itself.
 // force=true tolerates dirty worktrees AND lets the caller delete a
 // directory that has no state manifest (i.e. wasn't created by thicket
-// or had its manifest deleted) — see safety note below.
+// or had its manifest deleted) — see safety note below. progress, if
+// non-nil, receives human-readable status lines as the teardown
+// proceeds:
+//
+//   - per worktree: a ✓-prefixed line on success (followed by a
+//     continuation line listing the source repo), or a ✗-prefixed
+//     line on failure;
+//   - a final ✓ for the workspace directory delete, OR a
+//     "(workspace directory preserved — re-run with --force …)"
+//     note if any worktree removal failed.
+//
+// Pass nil for silent operation (tests, scripts).
 //
 // Safety:
 //   - If any worktree refuses to be removed (e.g. dirty changes with
@@ -166,29 +163,30 @@ func progressf(w io.Writer, format string, args ...any) {
 //     directory unless force=true. This stops `thicket rm` from
 //     becoming a blind `rm -rf` against any folder that happens to
 //     live under workspace_root.
-func (w *Workspace) Remove(workspaceDir string, force bool) error {
+func (w *Workspace) Remove(workspaceDir string, force bool, progress io.Writer) error {
 	st, err := ReadState(workspaceDir)
 	if err != nil {
 		if errors.Is(err, ErrNoState) {
-			return w.removeNoManifest(workspaceDir, force)
+			return w.removeNoManifest(workspaceDir, force, progress)
 		}
 		return err
 	}
-	return w.removeWithState(workspaceDir, st, force)
+	return w.removeWithState(workspaceDir, st, force, progress)
 }
 
 // RemoveWithState is the optimized entry point for callers that already
 // loaded the manifest (e.g. via ListManaged) and want to avoid a second
-// ReadState. Pass nil to indicate "no manifest" — Remove's safety
-// semantics still apply (refuses unless force=true).
-func (w *Workspace) RemoveWithState(workspaceDir string, st *State, force bool) error {
+// ReadState. Pass nil for st to indicate "no manifest" — Remove's
+// safety semantics still apply (refuses unless force=true). progress
+// has the same meaning as in Remove.
+func (w *Workspace) RemoveWithState(workspaceDir string, st *State, force bool, progress io.Writer) error {
 	if st == nil {
-		return w.removeNoManifest(workspaceDir, force)
+		return w.removeNoManifest(workspaceDir, force, progress)
 	}
-	return w.removeWithState(workspaceDir, *st, force)
+	return w.removeWithState(workspaceDir, *st, force, progress)
 }
 
-func (w *Workspace) removeNoManifest(workspaceDir string, force bool) error {
+func (w *Workspace) removeNoManifest(workspaceDir string, force bool, progress io.Writer) error {
 	if !force {
 		return fmt.Errorf(
 			"%w at %s — refusing to delete (use --force to override)",
@@ -196,25 +194,55 @@ func (w *Workspace) removeNoManifest(workspaceDir string, force bool) error {
 	}
 	// force=true: explicit operator opt-in for legacy / orphaned
 	// directories. Just nuke the directory.
-	return os.RemoveAll(workspaceDir)
+	if err := os.RemoveAll(workspaceDir); err != nil {
+		return err
+	}
+	progressf(progress, "%s deleted workspace directory: %s (no manifest, --force)\n",
+		checkMark, workspaceDir)
+	return nil
 }
 
-func (w *Workspace) removeWithState(workspaceDir string, st State, force bool) error {
+func (w *Workspace) removeWithState(workspaceDir string, st State, force bool, progress io.Writer) error {
 	var firstErr error
 	for _, r := range st.Repos {
 		if err := w.Git.RemoveWorktree(r.SourcePath, r.WorktreePath, force); err != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("remove worktree %s: %w", r.Name, err)
 			}
+			progressf(progress, "%s could not remove worktree %s: %v\n", crossMark, r.Name, err)
 			// keep going — best effort
+			continue
 		}
+		progressf(progress, "%s removed worktree %s\n    from source repo %s\n",
+			checkMark, r.Name, r.SourcePath)
 	}
 	if firstErr != nil {
 		// Preserve the workspace dir so the user's uncommitted changes
 		// survive. Re-run with --force after triaging.
+		progressf(progress, "(workspace directory preserved — re-run with --force after fixing the worktrees above)\n")
 		return firstErr
 	}
-	return os.RemoveAll(workspaceDir)
+	if err := os.RemoveAll(workspaceDir); err != nil {
+		return err
+	}
+	progressf(progress, "%s deleted workspace directory: %s\n", checkMark, workspaceDir)
+	return nil
+}
+
+// Progress glyphs. Inline constants so a future "ascii-only" mode
+// is a one-line flip.
+const (
+	checkMark = "✓"
+	crossMark = "✗"
+)
+
+// progressf is a nil-safe Fprintf — drops silently when the caller
+// passes nil (tests + scripts get no chatter).
+func progressf(w io.Writer, format string, args ...any) {
+	if w == nil {
+		return
+	}
+	fmt.Fprintf(w, format, args...)
 }
 
 // ManagedWorkspace is a directory under workspace_root that has a

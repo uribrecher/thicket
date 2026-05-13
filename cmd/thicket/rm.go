@@ -115,8 +115,21 @@ func doRemove(cmd *cobra.Command, dir string, st *workspace.State, force, skipCo
 	}
 
 	w := workspace.New(git.New())
-	if err := w.RemoveWithState(dir, st, force); err != nil {
+	// Visual separators around the progress stream — but ONLY when
+	// there was an interactive preview + prompt above us. With
+	// --yes (skipConfirm) we drop the leading/trailing blank lines
+	// so the stream stays compact: progress lines (✓ / ✗ /
+	// continuation / preservation notes — see workspace.Remove
+	// docstring for the exact set) followed by the final
+	// `removed <dir>`.
+	if !skipConfirm {
+		fmt.Fprintln(out)
+	}
+	if err := w.RemoveWithState(dir, st, force, out); err != nil {
 		return err
+	}
+	if !skipConfirm {
+		fmt.Fprintln(out)
 	}
 	fmt.Fprintf(out, "removed %s\n", dir)
 	return nil

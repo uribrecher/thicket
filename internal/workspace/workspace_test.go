@@ -194,7 +194,7 @@ func TestRemove_cleansWorktreesAndDir(t *testing.T) {
 	if err := w.Create(p); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.Remove(p.WorkspaceDir, true); err != nil {
+	if err := w.Remove(p.WorkspaceDir, true, nil); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 	if _, err := os.Stat(p.WorkspaceDir); !os.IsNotExist(err) {
@@ -226,7 +226,7 @@ func TestRemove_preservesWorkspaceWhenWorktreeRemovalFails(t *testing.T) {
 		[]byte("uncommitted"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.Remove(p.WorkspaceDir, false); err == nil {
+	if err := w.Remove(p.WorkspaceDir, false, nil); err == nil {
 		t.Fatal("expected error when worktree removal fails")
 	}
 	// Critically: the workspace dir must still exist with the user's file.
@@ -238,13 +238,75 @@ func TestRemove_preservesWorkspaceWhenWorktreeRemovalFails(t *testing.T) {
 	}
 }
 
+func TestRemove_writesProgressLines(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	initRepo(t, p.Repos[1].SourcePath)
+	w := New(git.New())
+	if err := w.Create(p); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := w.Remove(p.WorkspaceDir, true, &buf); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+
+	got := buf.String()
+	for _, want := range []string{
+		"✓ removed worktree " + p.Repos[0].Name,
+		"✓ removed worktree " + p.Repos[1].Name,
+		"✓ deleted workspace directory: " + p.WorkspaceDir,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("progress output missing %q\nfull output:\n%s", want, got)
+		}
+	}
+}
+
+func TestRemove_writesFailureProgress(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	initRepo(t, p.Repos[1].SourcePath)
+	w := New(git.New())
+	if err := w.Create(p); err != nil {
+		t.Fatal(err)
+	}
+	// Dirty the first worktree so a non-force remove will refuse it.
+	if err := os.WriteFile(filepath.Join(p.Repos[0].WorktreePath, "dirty.txt"),
+		[]byte("uncommitted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := w.Remove(p.WorkspaceDir, false, &buf); err == nil {
+		t.Fatal("expected error when worktree removal fails")
+	}
+
+	got := buf.String()
+	for _, want := range []string{
+		"✗ could not remove worktree " + p.Repos[0].Name,
+		"workspace directory preserved",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("failure-progress output missing %q\nfull output:\n%s", want, got)
+		}
+	}
+	// The final-delete ✓ must NOT appear — the workspace was preserved.
+	if strings.Contains(got, "deleted workspace directory") {
+		t.Errorf("output should not announce delete on failure path:\n%s", got)
+	}
+}
+
 func TestRemove_noManifest_refusesWithoutForce(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "ws")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	err := New(git.New()).Remove(dir, false)
+	err := New(git.New()).Remove(dir, false, nil)
 	if !errors.Is(err, ErrNoState) {
 		t.Fatalf("want ErrNoState, got %v", err)
 	}
@@ -259,7 +321,7 @@ func TestRemove_noManifest_forceDeletes(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := New(git.New()).Remove(dir, true); err != nil {
+	if err := New(git.New()).Remove(dir, true, nil); err != nil {
 		t.Fatalf("force remove: %v", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {

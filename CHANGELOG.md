@@ -9,12 +9,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **GitHub Pages landing site.** Single-page docs/index.html with
-  hero splash, an asciinema-player demo of the `thicket start`
-  flow, six-card feature grid, install + quickstart sections. Pure
-  HTML/CSS + a single CDN-loaded player script; no build step.
-  Served at https://uribrecher.github.io/thicket/ once Pages is
-  enabled (Settings → Pages → Source: main / /docs).
+- **`thicket start`: plan preview + confirm + per-step progress.**
+  Before touching disk, `thicket start` now prints the workspace
+  plan (workspace dir, branch, worktrees count + per-repo branch
+  mode) with a yellow-bold `plan:` header. A confirm prompt
+  follows (defaults to Yes — Enter accepts; Esc/Ctrl+C exits with
+  a friendly `cancelled.`). `--no-interactive` skips the prompt;
+  non-TTY stdin auto-skips with a clear notice. During the actual
+  create, ✓ lines stream per worktree + memory file + state
+  manifest so the user sees exactly what landed when.
+- **`thicket rm`: per-step ✓ progress.** Removal now streams one
+  ✓ per worktree (with its source-repo path) and a final
+  `✓ deleted workspace directory: <dir>` instead of jumping
+  straight from the confirm to a one-line `removed`. Failure
+  paths surface live too: `✗ could not remove worktree foo: …`
+  followed by `(workspace directory preserved — re-run with
+  --force …)`. Ctrl+C / Esc on the confirm prints `cancelled.`
+  (was a hard error).
+- **Required-check enforcement for the cachebust workflow.**
+  `.github/workflows/cachebust-check.yaml` dropped its path
+  filter and now runs on every PR, so it can be registered as a
+  Required status check in branch protection. Idempotent and
+  ~5s end-to-end. (Repo-settings step still has to be flipped
+  once by an admin: Settings → Branches → Branch protection
+  rules → `main` → Require status checks → add
+  `cachebust-check / check`.)
+
+## [0.1.3] - 2026-05-13
+
+### Added
+
+- **GitHub Pages landing site.** Single-page `docs/index.html`
+  with hero splash, asciinema-player demo of the `thicket start`
+  flow, six-card feature grid, install + quickstart sections.
+  Pure HTML/CSS + a single CDN-loaded player script (pinned + SRI),
+  no build step. Served at https://uribrecher.github.io/thicket/.
+  Includes a `cachebust-check` GitHub Action that fails PRs which
+  forget to bump the `styles.css?v=…` content-hash stamp.
+  "Install on macOS" CTA copies the install one-liner + opens a
+  modal walking the user through pasting it into Terminal.
+  Live GitHub-star pill in the top-right with stargazer count
+  fetched anonymously from the API.
+
+### Fixed
+
+- **`thicket start` interactive picker: Enter no longer silently
+  finishes when you meant to deselect.** Previously, Enter with an
+  empty search query unconditionally finished the picker — even
+  when the cursor was sitting on a selected repo, so users moving
+  the cursor onto a row and pressing Enter expecting "drop this
+  row" instead silently finished with that repo still in the
+  workspace. Now: Enter ALWAYS toggles the cursor row (search
+  view and selection view alike); `Tab` finishes (with a guard
+  against finishing an empty selection). Help text updated:
+  `↑/↓ navigate · enter toggle · tab finish · esc cancel`.
+- **Spurious "ticket has no description" warning after the
+  interactive ticket picker.** Tickets that DO have a description
+  in Shortcut were triggering the warning because
+  `/api/v3/stories/search` returns a slim `StorySearchResult` that
+  doesn't reliably carry the Markdown body. `thicket start` now
+  re-fetches the full story by id after the picker returns,
+  preserving the picker-resolved workflow-state name on top of
+  the fetched ticket.
 
 ## [0.1.2] - 2026-05-13
 
