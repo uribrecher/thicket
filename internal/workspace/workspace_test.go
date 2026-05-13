@@ -1,0 +1,192 @@
+package workspace
+
+import (
+	"bytes"
+	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/uribrecher/thicket/internal/git"
+	"github.com/uribrecher/thicket/internal/memory"
+)
+
+func sh(t *testing.T, dir, name string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Stdout = io.Discard
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("%s %v: %v\n%s", name, args, err, stderr.String())
+	}
+}
+
+func initRepo(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sh(t, dir, "git", "init", "-q", "-b", "main")
+	sh(t, dir, "git", "config", "user.email", "t@example.com")
+	sh(t, dir, "git", "config", "user.name", "T")
+	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sh(t, dir, "git", "add", ".")
+	sh(t, dir, "git", "commit", "-q", "-m", "init")
+}
+
+func basePlan(root string) Plan {
+	srcA := filepath.Join(root, "src", "alpha")
+	srcB := filepath.Join(root, "src", "beta")
+	wsDir := filepath.Join(root, "tasks", "sc-1-x")
+	return Plan{
+		WorkspaceDir: wsDir,
+		Branch:       "u/sc-1-x",
+		Repos: []PlanRepo{
+			{Name: "alpha", SourcePath: srcA, WorktreePath: filepath.Join(wsDir, "alpha"), BranchExists: false},
+			{Name: "beta", SourcePath: srcB, WorktreePath: filepath.Join(wsDir, "beta"), BranchExists: false},
+		},
+		Memory: memory.Input{
+			TicketID: "sc-1", Title: "X", Body: "body",
+			Branch: "u/sc-1-x", WorkspaceDir: wsDir,
+			Repos: []memory.RepoEntry{
+				{Name: "alpha", Branch: "u/sc-1-x", WorktreePath: filepath.Join(wsDir, "alpha"), DefaultBranch: "main"},
+				{Name: "beta", Branch: "u/sc-1-x", WorktreePath: filepath.Join(wsDir, "beta"), DefaultBranch: "main"},
+			},
+			CreatedAt: time.Date(2026, 5, 13, 12, 30, 0, 0, time.UTC),
+		},
+	}
+}
+
+func TestCreate_happyPath(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	initRepo(t, p.Repos[1].SourcePath)
+
+	w := New(git.New())
+	if err := w.Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Worktrees exist and are on the branch
+	g := git.New()
+	for _, r := range p.Repos {
+		got, err := g.CurrentBranch(r.WorktreePath)
+		if err != nil {
+			t.Errorf("current branch %s: %v", r.Name, err)
+		}
+		if got != p.Branch {
+			t.Errorf("%s branch = %q, want %q", r.Name, got, p.Branch)
+		}
+	}
+	// CLAUDE.local.md exists
+	if _, err := os.Stat(filepath.Join(p.WorkspaceDir, memory.FileName)); err != nil {
+		t.Errorf("memory file missing: %v", err)
+	}
+	// State manifest written
+	st, err := ReadState(p.WorkspaceDir)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if st.TicketID != "sc-1" || st.Branch != "u/sc-1-x" || len(st.Repos) != 2 {
+		t.Errorf("state mismatch: %+v", st)
+	}
+}
+
+func TestCreate_collisionReturnsErrExists(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	if err := os.MkdirAll(p.WorkspaceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := New(git.New()).Create(p)
+	if !errors.Is(err, ErrExists) {
+		t.Fatalf("want ErrExists, got %v", err)
+	}
+}
+
+func TestCreate_rollbackOnFailure(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	// beta's source intentionally not initialised → second AddWorktree
+	// fails → rollback should clean alpha + workspace dir.
+	if err := os.MkdirAll(p.Repos[1].SourcePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := New(git.New()).Create(p)
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if _, err := os.Stat(p.WorkspaceDir); !os.IsNotExist(err) {
+		t.Errorf("workspace dir should be removed after rollback, stat=%v", err)
+	}
+	// alpha's worktree should also be gone
+	if _, err := os.Stat(p.Repos[0].WorktreePath); !os.IsNotExist(err) {
+		t.Errorf("alpha worktree should be gone, stat=%v", err)
+	}
+}
+
+func TestRemove_cleansWorktreesAndDir(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	initRepo(t, p.Repos[1].SourcePath)
+	w := New(git.New())
+	if err := w.Create(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Remove(p.WorkspaceDir, true); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if _, err := os.Stat(p.WorkspaceDir); !os.IsNotExist(err) {
+		t.Errorf("workspace dir should be gone, stat=%v", err)
+	}
+	// Source repos should NOT list the worktrees anymore
+	for _, r := range p.Repos {
+		out, err := exec.Command("git", "-C", r.SourcePath, "worktree", "list").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(out), r.WorktreePath) {
+			t.Errorf("%s still lists worktree: %s", r.Name, out)
+		}
+	}
+}
+
+func TestRemove_noManifest(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "ws")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := New(git.New()).Remove(dir, false); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("dir should be removed even without manifest")
+	}
+}
+
+func TestSlugFromBranch(t *testing.T) {
+	cases := map[string]string{
+		"uri/sc-12345-fix-x":  "sc-12345-fix-x",
+		"feature/x":           "x",
+		"plain":               "plain",
+		"a/b/c":               "c",
+	}
+	for in, want := range cases {
+		if got := SlugFromBranch(in); got != want {
+			t.Errorf("slug(%q)=%q, want %q", in, got, want)
+		}
+	}
+}
