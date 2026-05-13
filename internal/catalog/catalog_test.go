@@ -62,6 +62,24 @@ func TestBuild_fetcherError(t *testing.T) {
 	}
 }
 
+func TestBuild_emptyResultReturnsSentinel(t *testing.T) {
+	// gh returned []; user probably typed the wrong org name.
+	_, err := Build([]string{"acme"}, fakeFetcher{repos: map[string][]Repo{"acme": nil}})
+	if !errors.Is(err, ErrEmptyCatalog) {
+		t.Fatalf("want ErrEmptyCatalog, got %v", err)
+	}
+}
+
+func TestBuild_allArchivedReturnsSentinel(t *testing.T) {
+	f := fakeFetcher{repos: map[string][]Repo{
+		"acme": {{Name: "old", Archived: true}},
+	}}
+	_, err := Build([]string{"acme"}, f)
+	if !errors.Is(err, ErrEmptyCatalog) {
+		t.Fatalf("want ErrEmptyCatalog, got %v", err)
+	}
+}
+
 func TestWithLocalPaths_marksExistingClones(t *testing.T) {
 	root := t.TempDir()
 	// Create a fake git repo at root/alpha

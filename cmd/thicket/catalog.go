@@ -25,15 +25,16 @@ func runCatalog(cmd *cobra.Command, _ []string) error {
 
 	var repos []catalog.Repo
 	if !refresh {
-		repos, age, err := catalog.Load(cachePath)
-		if err != nil && !errors.Is(err, catalog.ErrNoCache) {
-			return err
-		}
-		if !errors.Is(err, catalog.ErrNoCache) && age < catalog.DefaultCacheTTL {
-			repos = catalog.WithLocalPaths(repos, cfg.ReposRoot)
-			printCatalog(cmd, repos, age)
+		cached, age, loadErr := catalog.Load(cachePath)
+		switch {
+		case loadErr != nil && !errors.Is(loadErr, catalog.ErrNoCache):
+			return loadErr
+		case loadErr == nil && len(cached) > 0 && age < catalog.DefaultCacheTTL:
+			cached = catalog.WithLocalPaths(cached, cfg.ReposRoot)
+			printCatalog(cmd, cached, age)
 			return nil
 		}
+		// Otherwise fall through to refresh.
 	}
 
 	fmt.Fprintln(cmd.ErrOrStderr(), "fetching catalog via gh...")

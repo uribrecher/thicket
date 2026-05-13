@@ -44,6 +44,14 @@ type Fetcher interface {
 // DefaultCacheTTL is how long Load considers a cache file fresh.
 const DefaultCacheTTL = 7 * 24 * time.Hour
 
+// ErrEmptyCatalog is returned by Build when every configured org came
+// back with zero non-archived repos. Cached empty results are usually a
+// symptom of a typo in `github_orgs` (e.g. "sentrasec" vs "sentraio")
+// or missing `gh` access to the org — refusing to return them lets
+// callers prompt the user to re-check config instead of silently
+// caching an empty list.
+var ErrEmptyCatalog = errors.New("no repos visible — check github_orgs and `gh auth status`")
+
 // Build collects repos from all orgs via the fetcher and filters archived.
 // Order: orgs in the order given; within each org, the order from the
 // fetcher (typically alphabetical from `gh`).
@@ -71,6 +79,9 @@ func Build(orgs []string, f Fetcher) ([]Repo, error) {
 			seen[r.Name] = true
 			out = append(out, r)
 		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%w (queried %v)", ErrEmptyCatalog, orgs)
 	}
 	return out, nil
 }

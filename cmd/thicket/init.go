@@ -119,7 +119,34 @@ func runBaseConfigForm(cfg *config.Config) error {
 	}
 	cfg.GithubOrgs = splitCSV(orgs)
 	fillDefaults(cfg)
+	warnAboutEmptyOrgs(cfg.GithubOrgs)
 	return nil
+}
+
+// warnAboutEmptyOrgs probes each configured org with `gh repo list`. If
+// any return zero repos, prints a warning along with the list of orgs
+// the current `gh` user is actually a member of — saving the next 5
+// minutes of "why are no repos showing up?" debugging.
+func warnAboutEmptyOrgs(orgs []string) {
+	var empties []string
+	for _, org := range orgs {
+		out, err := exec.Command("gh", "repo", "list", org, "--limit", "1", "--json", "name").Output()
+		if err != nil || strings.TrimSpace(string(out)) == "" || strings.TrimSpace(string(out)) == "[]" {
+			empties = append(empties, org)
+		}
+	}
+	if len(empties) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\nwarning: no visible repos in %v\n", empties)
+	if memberships, err := exec.Command("gh", "api", "user/orgs", "--jq", ".[].login").Output(); err == nil {
+		got := strings.TrimSpace(string(memberships))
+		if got != "" {
+			fmt.Fprintf(os.Stderr, "  orgs your gh user belongs to: %s\n",
+				strings.Join(strings.Split(got, "\n"), ", "))
+		}
+	}
+	fmt.Fprintln(os.Stderr, "  edit ~/.config/thicket/config.toml or re-run `thicket init` to fix.")
 }
 
 func fillDefaults(cfg *config.Config) {

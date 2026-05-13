@@ -224,7 +224,11 @@ func loadCatalog(cfg *config.Config) ([]catalog.Repo, error) {
 		return nil, err
 	}
 	repos, age, err := catalog.Load(cachePath)
-	if errors.Is(err, catalog.ErrNoCache) || age >= catalog.DefaultCacheTTL {
+	// Refresh if cache is missing, expired, or — defensively — empty
+	// (an earlier version of thicket could cache `repos: null`).
+	needsRefresh := errors.Is(err, catalog.ErrNoCache) ||
+		age >= catalog.DefaultCacheTTL || len(repos) == 0
+	if needsRefresh {
 		fmt.Fprintln(os.Stderr, "fetching repo catalog via gh...")
 		repos, err = catalog.Build(cfg.GithubOrgs, catalog.GHFetcher{})
 		if err != nil {
