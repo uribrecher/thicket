@@ -252,11 +252,35 @@ pre .comment { color: var(--code-dim); }
   margin: 0 0 1rem;
   font-size: 0.95rem;
 }
-.modal__cmd {
+.modal__cmd-wrap {
+  position: relative;
   margin: 0 0 1rem;
+}
+.modal__cmd {
+  margin: 0;
+  padding-right: 2.6rem;       /* leave room for the copy button */
   font-size: 0.85rem;
   white-space: pre-wrap;
   word-break: break-all;
+}
+.modal__copy {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.5rem;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--code-dim);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.25rem 0.4rem;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.modal__copy:hover { color: var(--code-text); background: rgba(255, 255, 255, 0.06); }
+.modal__copy:focus-visible {
+  outline: 2px solid var(--green-1);
+  outline-offset: 1px;
 }
 .modal__steps {
   margin: 0 0 0.75rem;
@@ -267,11 +291,6 @@ pre .comment { color: var(--code-dim); }
 .modal__steps kbd {
   font-size: 0.75rem;
   padding: 0.05em 0.4em;
-}
-.modal__footer {
-  margin: 0;
-  color: var(--text-dim);
-  font-size: 0.85rem;
 }
 
 /* Screen-reader-only — content is announced via aria-live but
