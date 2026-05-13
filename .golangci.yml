@@ -21,6 +21,8 @@ linters-settings:
     excludes:
       # We shell out to git/gh with arguments we control.
       - G204
+      # WriteFile 0o644 is intentional for caches and test fixtures.
+      - G306
   gocritic:
     disabled-checks:
       - ifElseChain

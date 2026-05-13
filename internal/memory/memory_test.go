@@ -23,10 +23,10 @@ func TestRender_golden(t *testing.T) {
 		WorkspaceDir: "/Users/uri/tasks/sc-12345-fix-inventory-grouping",
 		Repos: []RepoEntry{
 			{Name: "sentra-scan-state-manager", Branch: "uri/sc-12345-fix-inventory-grouping",
-				WorktreePath: "/Users/uri/tasks/sc-12345-fix-inventory-grouping/sentra-scan-state-manager",
+				WorktreePath:  "/Users/uri/tasks/sc-12345-fix-inventory-grouping/sentra-scan-state-manager",
 				DefaultBranch: "main"},
 			{Name: "sentra-discovery", Branch: "uri/sc-12345-fix-inventory-grouping",
-				WorktreePath: "/Users/uri/tasks/sc-12345-fix-inventory-grouping/sentra-discovery",
+				WorktreePath:  "/Users/uri/tasks/sc-12345-fix-inventory-grouping/sentra-discovery",
 				DefaultBranch: "main"},
 		},
 		CreatedAt: time.Date(2026, 5, 13, 12, 30, 0, 0, time.UTC),

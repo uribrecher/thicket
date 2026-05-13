@@ -25,16 +25,16 @@ type RepoEntry struct {
 
 // Input is the data the template consumes.
 type Input struct {
-	TicketID    string // e.g. "sc-12345"
-	Title       string
-	URL         string
-	State       string // optional
-	Owner       string // optional
-	Body        string // markdown
-	Branch      string
+	TicketID     string // e.g. "sc-12345"
+	Title        string
+	URL          string
+	State        string // optional
+	Owner        string // optional
+	Body         string // markdown
+	Branch       string
 	WorkspaceDir string
-	Repos       []RepoEntry
-	CreatedAt   time.Time
+	Repos        []RepoEntry
+	CreatedAt    time.Time
 }
 
 // FileName is the file thicket writes inside every workspace.

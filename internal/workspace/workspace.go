@@ -38,10 +38,10 @@ type Plan struct {
 // State is the persisted manifest written into <workspace>/.thicket/state.json.
 // It lets `thicket rm` clean up worktrees without scanning every repo.
 type State struct {
-	TicketID     string             `json:"ticket_id"`
-	Branch       string             `json:"branch"`
-	CreatedAt    time.Time          `json:"created_at"`
-	Repos        []StateRepo        `json:"repos"`
+	TicketID  string      `json:"ticket_id"`
+	Branch    string      `json:"branch"`
+	CreatedAt time.Time   `json:"created_at"`
+	Repos     []StateRepo `json:"repos"`
 }
 
 type StateRepo struct {

@@ -26,7 +26,7 @@ func TestBuild_filtersArchivedAndDedups(t *testing.T) {
 	f := fakeFetcher{repos: map[string][]Repo{
 		"acme": {
 			{Name: "alpha", Archived: false},
-			{Name: "beta", Archived: true},  // dropped
+			{Name: "beta", Archived: true}, // dropped
 			{Name: "gamma", Archived: false},
 		},
 		"acme-tools": {

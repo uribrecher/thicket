@@ -12,11 +12,11 @@ import (
 
 func TestParse_acceptsAllFormats(t *testing.T) {
 	cases := map[string]int{
-		"12345":      12345,
-		"sc-12345":   12345,
-		"SC-12345":   12345,
-		"sc_12345":   12345,
-		"https://app.shortcut.com/acme/story/12345":             12345,
+		"12345":    12345,
+		"sc-12345": 12345,
+		"SC-12345": 12345,
+		"sc_12345": 12345,
+		"https://app.shortcut.com/acme/story/12345":            12345,
 		"https://app.shortcut.com/acme/story/12345/some-title": 12345,
 	}
 	s := New("tok", "")

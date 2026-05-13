@@ -280,8 +280,8 @@ type Cached struct {
 
 func NewCached(m Manager) *Cached { return &Cached{Inner: m, cache: map[string]string{}} }
 
-func (c *Cached) Name() string         { return c.Inner.Name() }
-func (c *Cached) Describe() string     { return c.Inner.Describe() }
+func (c *Cached) Name() string                    { return c.Inner.Name() }
+func (c *Cached) Describe() string                { return c.Inner.Describe() }
 func (c *Cached) Check(ctx context.Context) error { return c.Inner.Check(ctx) }
 
 func (c *Cached) Get(ctx context.Context, ref string) (string, error) {

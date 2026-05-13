@@ -66,7 +66,6 @@ type check struct {
 }
 
 func ok(name, detail string) check   { return check{name, detail, statusOK} }
-func warn(name, detail string) check { return check{name, detail, statusWarn} }
 func fail(name, detail string) check { return check{name, detail, statusFail} }
 
 func printReport(report []check) {

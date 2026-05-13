@@ -42,7 +42,7 @@ func (HuhSelector) SelectRepos(cat []catalog.Repo, picks []detector.RepoMatch) (
 	}
 
 	type entry struct {
-		name string
+		name      string
 		isLLMPick bool
 	}
 	// Sort: LLM picks first (by descending confidence), then the rest of
