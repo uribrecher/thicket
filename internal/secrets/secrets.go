@@ -13,6 +13,7 @@ package secrets
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,10 @@ import (
 	"os/exec"
 	"strings"
 )
+
+// jsonUnmarshal is a tiny indirection used to keep the import list clean
+// (the package needs json only for OnePassword account listing).
+var jsonUnmarshal = json.Unmarshal
 
 // ErrNotFound means the manager couldn't resolve the given reference.
 var ErrNotFound = errors.New("secret not found")
@@ -78,12 +83,24 @@ func alwaysFound(name string) (string, error) { return "/usr/local/bin/" + name,
 // from in `thicket init`. Order is the display order.
 var Supported = []string{"1password", "bitwarden", "pass", "env"}
 
+// Options carries manager-specific construction parameters.
+// Unset fields fall back to each manager's defaults.
+type Options struct {
+	// OnePasswordAccount selects which 1Password account to use (account
+	// UUID or sign-in email). Ignored by other managers.
+	OnePasswordAccount string
+}
+
 // New returns a Manager by identifier. Unknown identifiers return an error.
-func New(id string) (Manager, error) {
+func New(id string, opts ...Options) (Manager, error) {
+	var o Options
+	if len(opts) > 0 {
+		o = opts[0]
+	}
 	r := DefaultRunner{}
 	switch id {
 	case "1password":
-		return &OnePassword{Runner: r}, nil
+		return &OnePassword{Runner: r, Account: o.OnePasswordAccount}, nil
 	case "bitwarden":
 		return &Bitwarden{Runner: r}, nil
 	case "pass":
@@ -101,9 +118,14 @@ func New(id string) (Manager, error) {
 // OnePassword reads secrets via `op read "op://<vault>/<item>/<field>"`.
 // The op CLI handles Touch ID / biometric prompts itself; this code never
 // sees the raw secret in transit.
+//
+// Account, when non-empty, is prepended as `--account <id>` to every op
+// invocation so users with multiple signed-in 1Password accounts can pick
+// the one that holds the items in question.
 type OnePassword struct {
 	Runner   Runner
 	LookPath LookPathFn // defaults to exec.LookPath
+	Account  string     // account UUID or sign-in email; empty = op default
 }
 
 func (OnePassword) Name() string { return "1password" }
@@ -117,13 +139,25 @@ func (p OnePassword) lookPath() LookPathFn {
 	return exec.LookPath
 }
 
+// opArgs prepends --account <id> when an account is set; otherwise returns
+// the args unchanged.
+func (p OnePassword) opArgs(subArgs ...string) []string {
+	if p.Account == "" {
+		return subArgs
+	}
+	out := make([]string, 0, len(subArgs)+2)
+	out = append(out, "--account", p.Account)
+	out = append(out, subArgs...)
+	return out
+}
+
 func (p OnePassword) Check(ctx context.Context) error {
 	if _, err := p.lookPath()("op"); err != nil {
 		return ErrCLIMissing
 	}
 	// `op vault list` exits non-zero with a recognizable stderr if not
 	// signed in. We don't actually care about the output.
-	_, stderr, err := p.Runner.Run(ctx, "op", []string{"vault", "list"}, nil)
+	_, stderr, err := p.Runner.Run(ctx, "op", p.opArgs("vault", "list"), nil)
 	if err != nil {
 		s := strings.ToLower(string(stderr))
 		if strings.Contains(s, "not signed in") || strings.Contains(s, "sign in") ||
@@ -139,7 +173,7 @@ func (p OnePassword) Get(ctx context.Context, ref string) (string, error) {
 	if !strings.HasPrefix(ref, "op://") {
 		return "", fmt.Errorf("1password ref must start with op:// — got %q", ref)
 	}
-	stdout, stderr, err := p.Runner.Run(ctx, "op", []string{"read", ref, "--no-newline"}, nil)
+	stdout, stderr, err := p.Runner.Run(ctx, "op", p.opArgs("read", ref, "--no-newline"), nil)
 	if err != nil {
 		s := strings.ToLower(string(stderr))
 		if strings.Contains(s, "not signed in") || strings.Contains(s, "session") {
@@ -151,6 +185,39 @@ func (p OnePassword) Get(ctx context.Context, ref string) (string, error) {
 		return "", fmt.Errorf("op read %s: %w (%s)", ref, err, strings.TrimSpace(string(stderr)))
 	}
 	return string(stdout), nil
+}
+
+// ----- 1Password account discovery -----
+
+// OnePasswordAccount is one row of `op account list --format json`.
+type OnePasswordAccount struct {
+	URL         string `json:"url"`
+	Email       string `json:"email"`
+	UserUUID    string `json:"user_uuid"`
+	AccountUUID string `json:"account_uuid"`
+}
+
+// ListOnePasswordAccounts enumerates every 1Password account the local op
+// CLI knows about. Used by `thicket init` to let the user pick one when
+// more than one account is signed in.
+func ListOnePasswordAccounts(ctx context.Context) ([]OnePasswordAccount, error) {
+	return listOnePasswordAccounts(ctx, DefaultRunner{}, exec.LookPath)
+}
+
+// listOnePasswordAccounts is the testable inner of ListOnePasswordAccounts.
+func listOnePasswordAccounts(ctx context.Context, r Runner, lookPath LookPathFn) ([]OnePasswordAccount, error) {
+	if _, err := lookPath("op"); err != nil {
+		return nil, ErrCLIMissing
+	}
+	stdout, stderr, err := r.Run(ctx, "op", []string{"account", "list", "--format", "json"}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("op account list: %w (%s)", err, strings.TrimSpace(string(stderr)))
+	}
+	var accs []OnePasswordAccount
+	if err := jsonUnmarshal(stdout, &accs); err != nil {
+		return nil, fmt.Errorf("decode op accounts: %w", err)
+	}
+	return accs, nil
 }
 
 // ----- Bitwarden (bw CLI) -----

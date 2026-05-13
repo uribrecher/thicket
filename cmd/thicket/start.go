@@ -162,7 +162,9 @@ func buildSecretManager(ctx context.Context, cfg *config.Config) (secrets.Manage
 	if cfg.Passwords.Manager == "" {
 		return nil, errors.New("no password manager configured — run `thicket init`")
 	}
-	m, err := secrets.New(cfg.Passwords.Manager)
+	m, err := secrets.New(cfg.Passwords.Manager, secrets.Options{
+		OnePasswordAccount: cfg.Passwords.OnePassword.Account,
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -58,6 +58,18 @@ type PasswordsConfig struct {
 	ShortcutTokenRef string `toml:"shortcut_token_ref,omitempty"`
 	// AnthropicKeyRef is the PM ref for the Anthropic API key.
 	AnthropicKeyRef string `toml:"anthropic_key_ref,omitempty"`
+
+	// OnePassword carries manager-specific settings used only when
+	// Manager == "1password". Other managers ignore this block.
+	OnePassword OnePasswordConfig `toml:"onepassword,omitempty"`
+}
+
+// OnePasswordConfig is the 1Password-specific portion of PasswordsConfig.
+type OnePasswordConfig struct {
+	// Account selects which 1Password account to use when more than one
+	// is signed into the local `op` CLI. May be the account UUID (stable)
+	// or the sign-in email (human-friendly). Empty = `op`'s default.
+	Account string `toml:"account,omitempty"`
 }
 
 // Default returns a Config pre-filled with the defaults the init wizard

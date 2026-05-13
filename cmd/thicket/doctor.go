@@ -102,9 +102,14 @@ func checkSecrets(ctx context.Context, c *config.Config) []check {
 	if c.Passwords.Manager == "" {
 		return append(out, fail("password manager", "not configured — run `thicket init`"))
 	}
-	mgr, err := secrets.New(c.Passwords.Manager)
+	mgr, err := secrets.New(c.Passwords.Manager, secrets.Options{
+		OnePasswordAccount: c.Passwords.OnePassword.Account,
+	})
 	if err != nil {
 		return append(out, fail("password manager", err.Error()))
+	}
+	if c.Passwords.Manager == "1password" && c.Passwords.OnePassword.Account != "" {
+		out = append(out, ok("1password account", c.Passwords.OnePassword.Account))
 	}
 	if err := mgr.Check(ctx); err != nil {
 		switch {
