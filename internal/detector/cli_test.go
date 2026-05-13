@@ -13,12 +13,17 @@ type fakeCLIRunner struct {
 	stderr []byte
 	err    error
 
-	gotName string
-	gotArgs []string
+	gotName  string
+	gotArgs  []string
+	gotStdin string
 }
 
-func (f *fakeCLIRunner) Run(_ context.Context, name string, args []string, _ io.Reader) ([]byte, []byte, error) {
+func (f *fakeCLIRunner) Run(_ context.Context, name string, args []string, stdin io.Reader) ([]byte, []byte, error) {
 	f.gotName, f.gotArgs = name, args
+	if stdin != nil {
+		b, _ := io.ReadAll(stdin)
+		f.gotStdin = string(b)
+	}
 	return f.stdout, f.stderr, f.err
 }
 
@@ -39,12 +44,17 @@ func TestClaudeCLI_parsesBareJSON(t *testing.T) {
 	if fr.gotName != "claude" {
 		t.Errorf("binary = %q", fr.gotName)
 	}
-	if len(fr.gotArgs) < 4 || fr.gotArgs[0] != "-p" || fr.gotArgs[1] != "--model" ||
+	// Prompt goes on stdin now (to avoid argv leakage / length limits);
+	// argv carries only the flags.
+	if len(fr.gotArgs) != 3 || fr.gotArgs[0] != "-p" || fr.gotArgs[1] != "--model" ||
 		fr.gotArgs[2] != "claude-haiku-4-5" {
-		t.Errorf("args[:3] = %v", fr.gotArgs[:3])
+		t.Errorf("argv = %v, want [-p --model claude-haiku-4-5]", fr.gotArgs)
 	}
-	if !strings.Contains(fr.gotArgs[3], "JSON array") {
-		t.Errorf("prompt missing JSON instruction: %s", fr.gotArgs[3])
+	if !strings.Contains(fr.gotStdin, "JSON array") {
+		t.Errorf("prompt missing JSON instruction on stdin: %s", fr.gotStdin)
+	}
+	if !strings.Contains(fr.gotStdin, "KNOWN REPOS") {
+		t.Errorf("prompt missing catalog on stdin")
 	}
 }
 

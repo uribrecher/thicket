@@ -39,11 +39,12 @@ else
 fi
 
 # ---- resolve VERSION → tag ----
+# Use the GitHub REST API (works with both curl and wget; same path
+# whether DL is curl -fsSL or wget -qO-).
 if [ "$VERSION" = "latest" ]; then
-	# Follow the redirect on /releases/latest to discover the resolved tag.
-	resolved_url="$($DL -o /dev/null -w '%{url_effective}' \
-		"https://github.com/$REPO/releases/latest" 2>/dev/null || true)"
-	VERSION="${resolved_url##*/}"
+	api_json="$($DL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null || true)"
+	# Parse "tag_name": "vX.Y.Z" without depending on jq.
+	VERSION="$(printf '%s' "$api_json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
 fi
 if [ -z "$VERSION" ] || ! echo "$VERSION" | grep -Eq '^v[0-9]'; then
 	echo "thicket: could not resolve latest release (try setting THICKET_VERSION=vX.Y.Z)" >&2

@@ -68,13 +68,15 @@ func (d *ClaudeCLIDetector) Detect(ctx context.Context, in Input) ([]RepoMatch, 
 	prompt += "\n\nReturn ONLY a JSON array. No prose, no markdown fences, no explanations.\n" +
 		"Schema: [{\"name\":string,\"confidence\":number 0-1,\"reason\":string}]"
 
+	// Pass the prompt on stdin rather than argv. Prompts include the
+	// full ticket body and a long repo catalog; argv would be visible
+	// in `ps` to other local users and can blow past OS argv-length
+	// limits with big catalogs.
 	args := []string{"-p"}
 	if d.Model != "" {
 		args = append(args, "--model", d.Model)
 	}
-	args = append(args, prompt)
-
-	stdout, stderr, err := d.Runner.Run(ctx, d.BinaryPath, args, nil)
+	stdout, stderr, err := d.Runner.Run(ctx, d.BinaryPath, args, strings.NewReader(prompt))
 	if err != nil {
 		return nil, fmt.Errorf("claude -p: %w (%s)", err, strings.TrimSpace(string(stderr)))
 	}

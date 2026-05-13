@@ -112,8 +112,11 @@ func printRemovePreview(out interface{ Write([]byte) (int, error) },
 			fmt.Fprintf(out, "    • %s\n        worktree → %s\n        source   → %s\n",
 				r.Name, r.WorktreePath, r.SourcePath)
 		}
-	} else {
+	} else if force {
 		fmt.Fprintln(out, "  (no manifest — only the directory will be deleted)")
+	} else {
+		fmt.Fprintln(out, "  (no manifest — workspace.Remove will REFUSE this delete")
+		fmt.Fprintln(out, "   without --force; current run will fail before doing any damage.)")
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Removal steps:")
