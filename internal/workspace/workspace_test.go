@@ -102,6 +102,54 @@ func TestCreate_happyPath(t *testing.T) {
 	}
 }
 
+func TestCreate_writesProgressLines(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	initRepo(t, p.Repos[1].SourcePath)
+
+	var buf bytes.Buffer
+	p.Progress = &buf
+
+	if err := New(git.New()).Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got := buf.String()
+	// One ✓ per worktree + memory file + state manifest. The
+	// ordering matters — it matches the user-visible sequence
+	// and the rollback contract (worktrees first, then memory,
+	// then manifest). Walk through with strings.Index so each
+	// expected line MUST appear after the previous one.
+	wantOrdered := []string{
+		"✓ worktree: " + p.Repos[0].Name,
+		"✓ worktree: " + p.Repos[1].Name,
+		"✓ wrote " + memory.FileName,
+		"✓ wrote .thicket/state.json",
+	}
+	cursor := 0
+	for _, want := range wantOrdered {
+		idx := strings.Index(got[cursor:], want)
+		if idx < 0 {
+			t.Errorf("progress output missing (or out of order) %q after cursor %d\nfull output:\n%s",
+				want, cursor, got)
+			return
+		}
+		cursor += idx + len(want)
+	}
+}
+
+func TestCreate_nilProgressIsSilent(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	initRepo(t, p.Repos[1].SourcePath)
+	// Plan.Progress left nil — must not panic.
+	if err := New(git.New()).Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+}
+
 func TestCreate_collisionReturnsErrExists(t *testing.T) {
 	root := t.TempDir()
 	p := basePlan(root)
