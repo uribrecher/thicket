@@ -109,17 +109,30 @@ aliases = ["short", "alias"]
 
 ### Secrets
 
-Tokens live in the OS keychain (`thicket` service):
+Thicket **never asks you to paste raw tokens**. Instead, you point it at
+your password manager and we fetch on demand. The config records only a
+*reference* per secret — the live value never touches `config.toml`.
 
-- `shortcut-api-token`
-- `anthropic-api-key`
+Supported managers (pick one in `thicket init`):
 
-Fallbacks (in order):
+| Manager | CLI | Reference format |
+| ------- | --- | ---------------- |
+| 1Password | [`op`](https://developer.1password.com/docs/cli/) | `op://<vault>/<item>/<field>` |
+| Bitwarden | [`bw`](https://bitwarden.com/help/cli/) | item id or name (after `bw unlock`) |
+| pass | [`pass`](https://www.passwordstore.org/) | store-relative path (e.g. `work/shortcut`) |
+| env | (none) | environment variable name (for CI / headless) |
 
-1. `SHORTCUT_API_TOKEN` / `ANTHROPIC_API_KEY` env vars
-2. A `[secrets]` table in `config.toml` (chmod 0600; emits a warning)
+The config looks like:
 
-`thicket init` puts them in the keychain by default.
+```toml
+[passwords]
+manager             = "1password"
+shortcut_token_ref  = "op://Private/Shortcut/credential"
+anthropic_key_ref   = "op://Private/Anthropic/credential"
+```
+
+`thicket doctor` verifies the CLI is installed, the vault is unlocked, and
+each reference resolves to a value — without ever showing the value.
 
 ## Command reference
 

@@ -19,6 +19,7 @@ func TestValidate_requiresKeyFields(t *testing.T) {
 		{"missing ticket_source", func(c *Config) { c.TicketSource = "" }, "ticket_source"},
 		{"missing github_orgs", func(c *Config) { c.GithubOrgs = nil }, "github_orgs"},
 		{"missing claude_model", func(c *Config) { c.ClaudeModel = "" }, "claude_model"},
+		{"missing passwords.manager", func(c *Config) { c.Passwords.Manager = "" }, "passwords.manager"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -83,6 +84,8 @@ claude_model    = "claude-haiku-4-5"
 claude_binary   = "claude"
 ticket_source   = "shortcut"
 github_orgs     = ["sentrasec"]
+[passwords]
+manager = "env"
 `
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -125,5 +128,6 @@ func validConfig() Config {
 		ClaudeBinary:  "claude",
 		TicketSource:  "shortcut",
 		GithubOrgs:    []string{"sentrasec"},
+		Passwords:     PasswordsConfig{Manager: "env"},
 	}
 }
