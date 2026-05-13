@@ -15,7 +15,6 @@ import (
 	"github.com/uribrecher/thicket/internal/memory"
 )
 
-
 func sh(t *testing.T, dir, name string, args ...string) {
 	t.Helper()
 	cmd := exec.Command(name, args...)
@@ -245,11 +244,11 @@ func TestSlug_alwaysPrefixesTicketID(t *testing.T) {
 
 func TestSlugify_basic(t *testing.T) {
 	cases := map[string]string{
-		"Fix Inventory Grouping": "fix-inventory-grouping",
-		"  spaces  everywhere ":  "spaces-everywhere",
+		"Fix Inventory Grouping":   "fix-inventory-grouping",
+		"  spaces  everywhere ":    "spaces-everywhere",
 		"under_scores/and/slashes": "under-scores-and-slashes",
-		"keep_123_digits":         "keep-123-digits",
-		"!!!":                     "",
+		"keep_123_digits":          "keep-123-digits",
+		"!!!":                      "",
 	}
 	for in, want := range cases {
 		if got := Slugify(in); got != want {

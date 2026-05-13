@@ -497,4 +497,3 @@ func printPlan(w io.Writer, p workspace.Plan) {
 		fmt.Fprintf(w, "    - %s (%s) src=%s\n", r.Name, mode, r.SourcePath)
 	}
 }
-

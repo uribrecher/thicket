@@ -13,7 +13,6 @@ import (
 	"syscall"
 )
 
-
 // ErrMissingBinary is returned when the configured Claude binary can't be
 // resolved on PATH. The caller should fall back to printing a cd hint.
 var ErrMissingBinary = errors.New("claude binary not found on PATH")
