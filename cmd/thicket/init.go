@@ -14,6 +14,7 @@ import (
 
 	"github.com/uribrecher/thicket/internal/config"
 	"github.com/uribrecher/thicket/internal/secrets"
+	"github.com/uribrecher/thicket/internal/tui"
 )
 
 func runInit(cmd *cobra.Command, _ []string) error {
@@ -447,7 +448,7 @@ func collectSecretRefs1Password(ctx context.Context, slots []secretSlot) error {
 			return err
 		}
 		op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
-		ref, err := pick1PasswordRef(ctx, op, itemOptions(items), s.label)
+		ref, err := pick1PasswordRef(ctx, op, items, s.label)
 		if err != nil {
 			return err
 		}
@@ -516,9 +517,11 @@ func loadItemsForAccount(ctx context.Context, cache map[string][]secrets.OnePass
 	return items, nil
 }
 
-// itemOptions renders a sorted, formatted huh option list for an item
-// listing. API-credential-like items rise to the top.
-func itemOptions(items []secrets.OnePasswordItem) []huh.Option[string] {
+// sortedItems returns items with API-credential-like categories first,
+// then alphabetically by vault and title — same ordering rules as
+// before, just without the huh.Option wrapping (the new tableized
+// picker consumes the items directly).
+func sortedItems(items []secrets.OnePasswordItem) []secrets.OnePasswordItem {
 	sorted := make([]secrets.OnePasswordItem, len(items))
 	copy(sorted, items)
 	sort.SliceStable(sorted, func(i, j int) bool {
@@ -532,12 +535,7 @@ func itemOptions(items []secrets.OnePasswordItem) []huh.Option[string] {
 		}
 		return sorted[i].Title < sorted[j].Title
 	})
-	out := make([]huh.Option[string], 0, len(sorted))
-	for _, it := range sorted {
-		label := fmt.Sprintf("%s  ·  %s  ·  %s", it.Title, it.Vault.Name, friendlyCategory(it.Category))
-		out = append(out, huh.NewOption(label, it.ID))
-	}
-	return out
+	return sorted
 }
 
 // accountLabel returns the friendly "<email> (<url>)" form for a UUID.
@@ -550,20 +548,29 @@ func accountLabel(uuid string, accs []secrets.OnePasswordAccount) string {
 	return uuid
 }
 
-// pick1PasswordRef shows the item picker, then the field picker, then
-// returns the canonical op:// reference.
+// pick1PasswordRef shows the item picker (tableized via tui.PickOne),
+// then the field picker, then returns the canonical op:// reference.
 func pick1PasswordRef(ctx context.Context, op *secrets.OnePassword,
-	itemOptions []huh.Option[string], label string) (string, error) {
+	items []secrets.OnePasswordItem, label string) (string, error) {
 
-	var itemID string
-	if err := huh.NewSelect[string]().
-		Title(fmt.Sprintf("Pick the 1Password item for %s", label)).
-		Description("type to filter  ·  ↑/↓ to move  ·  enter to select").
-		Options(itemOptions...).
-		Filtering(true).
-		Height(15).
-		Value(&itemID).
-		Run(); err != nil {
+	sorted := sortedItems(items)
+	columns := []tui.Column{
+		{Title: "Item", Width: 38},
+		{Title: "Vault", Width: 16},
+		{Title: "Type", Width: 18},
+	}
+	rows := make([]tui.Row, len(sorted))
+	for i, it := range sorted {
+		rows[i] = tui.Row{
+			Key:    it.ID,
+			Cells:  []string{it.Title, it.Vault.Name, friendlyCategory(it.Category)},
+			Filter: it.Title + " " + it.Vault.Name,
+		}
+	}
+	itemID, err := tui.PickOne(
+		fmt.Sprintf("Pick the 1Password item for %s", label),
+		columns, rows)
+	if err != nil {
 		return "", err
 	}
 
