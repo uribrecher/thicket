@@ -61,8 +61,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 			"    consider \"thicket start <ticket> --only repo1,repo2\" instead.")
 	}
 
+	errOut := cmd.ErrOrStderr()
+
 	// 3. Catalog
-	repos, err := loadCatalog(cfg)
+	repos, err := loadCatalog(cfg, errOut)
 	if err != nil {
 		return err
 	}
@@ -70,9 +72,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	// 4. Detect involved repos
 	var picks []detector.RepoMatch
-	err = withProgress(cmd.OutOrStderr(), "looking for relevant repos", func() error {
+	err = withProgress(errOut, "looking for relevant repos", func() error {
 		var detErr error
-		picks, detErr = detectRepos(cmd.Context(), cfg, flags, tk, repos)
+		picks, detErr = detectRepos(cmd.Context(), cfg, errOut, flags, tk, repos)
 		return detErr
 	})
 	if err != nil {
@@ -94,7 +96,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// 6. Missing-clone gate
-	chosen, err := resolveOrClone(cmd.Context(), cfg, repos, chosenNames, selector, flags.dryRun)
+	chosen, err := resolveOrClone(cmd.Context(), cfg, errOut, repos, chosenNames, selector, flags.dryRun)
 	if err != nil {
 		return err
 	}
@@ -189,17 +191,22 @@ func envVarFor(k secretKind) string {
 }
 
 // withProgress runs fn while printing a single-line, in-place "label …
-// Ns" elapsed-time spinner. Both keeps the user from thinking the CLI
-// is stuck and gives them a sense of how long the underlying call took
+// Ns" elapsed-time spinner. Keeps the user from thinking the CLI is
+// stuck and gives them a sense of how long the underlying call took
 // (the LLM in particular can take 5–30s). Clears the line on completion
 // so subsequent output starts on a clean row.
+//
+// The spinner goroutine acks shutdown via `stopped` so the final clear
+// line can't race with one last in-flight tick frame.
 func withProgress(w io.Writer, label string, fn func() error) error {
 	start := time.Now()
 	done := make(chan struct{})
+	stopped := make(chan struct{})
 	// Print the initial frame immediately so the user sees something
 	// even if fn returns in <1s.
 	fmt.Fprintf(w, "%s… 0s", label)
 	go func() {
+		defer close(stopped)
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -217,6 +224,7 @@ func withProgress(w io.Writer, label string, fn func() error) error {
 	}()
 	err := fn()
 	close(done)
+	<-stopped // ensure the goroutine is done before we finalize the line
 	// Wipe the spinner line so the next print starts clean.
 	fmt.Fprint(w, "\r\033[K")
 	if err == nil {
@@ -269,7 +277,7 @@ func buildTicketSource(ctx context.Context, cfg *config.Config) (ticket.Source, 
 	}
 }
 
-func loadCatalog(cfg *config.Config) ([]catalog.Repo, error) {
+func loadCatalog(cfg *config.Config, errOut io.Writer) ([]catalog.Repo, error) {
 	cachePath, err := catalog.Path()
 	if err != nil {
 		return nil, err
@@ -280,7 +288,7 @@ func loadCatalog(cfg *config.Config) ([]catalog.Repo, error) {
 	needsRefresh := errors.Is(err, catalog.ErrNoCache) ||
 		age >= catalog.DefaultCacheTTL || len(repos) == 0
 	if needsRefresh {
-		err = withProgress(os.Stderr,
+		err = withProgress(errOut,
 			fmt.Sprintf("fetching repo catalog from GitHub (%v)", cfg.GithubOrgs),
 			func() error {
 				var buildErr error
@@ -291,7 +299,7 @@ func loadCatalog(cfg *config.Config) ([]catalog.Repo, error) {
 			return nil, err
 		}
 		if err := catalog.Save(cachePath, repos); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not cache catalog: %v\n", err)
+			fmt.Fprintf(errOut, "warning: could not cache catalog: %v\n", err)
 		}
 	} else if err != nil {
 		return nil, err
@@ -299,7 +307,7 @@ func loadCatalog(cfg *config.Config) ([]catalog.Repo, error) {
 	return catalog.WithLocalPaths(repos, cfg.ReposRoot), nil
 }
 
-func detectRepos(ctx context.Context, cfg *config.Config, flags startFlags,
+func detectRepos(ctx context.Context, cfg *config.Config, _ io.Writer, flags startFlags,
 	tk ticket.Ticket, repos []catalog.Repo) ([]detector.RepoMatch, error) {
 
 	catRepos := make([]detector.CatalogRepo, len(repos))
@@ -367,8 +375,8 @@ func pickSelector(noInteractive bool) tui.Selector {
 	return tui.HuhSelector{}
 }
 
-func resolveOrClone(_ context.Context, cfg *config.Config, repos []catalog.Repo,
-	chosen []string, selector tui.Selector, dryRun bool) ([]catalog.Repo, error) {
+func resolveOrClone(_ context.Context, cfg *config.Config, errOut io.Writer,
+	repos []catalog.Repo, chosen []string, selector tui.Selector, dryRun bool) ([]catalog.Repo, error) {
 
 	byName := make(map[string]catalog.Repo, len(repos))
 	for _, r := range repos {
@@ -391,11 +399,11 @@ func resolveOrClone(_ context.Context, cfg *config.Config, repos []catalog.Repo,
 			return nil, err
 		}
 		if !yes {
-			fmt.Fprintf(os.Stderr, "skipping %s (no local clone)\n", r.Name)
+			fmt.Fprintf(errOut, "skipping %s (no local clone)\n", r.Name)
 			continue
 		}
 		if dryRun {
-			fmt.Fprintf(os.Stderr, "(dry-run) would clone %s → %s\n", r.CloneURL, target)
+			fmt.Fprintf(errOut, "(dry-run) would clone %s → %s\n", r.CloneURL, target)
 			r.LocalPath = target
 			out = append(out, r)
 			continue
@@ -404,12 +412,12 @@ func resolveOrClone(_ context.Context, cfg *config.Config, repos []catalog.Repo,
 		// then dump the buffered output only on error so failed clones
 		// stay diagnosable.
 		var gitOut bytes.Buffer
-		err = withProgress(os.Stderr, fmt.Sprintf("cloning %s → %s", r.CloneURL, target),
+		err = withProgress(errOut, fmt.Sprintf("cloning %s → %s", r.CloneURL, target),
 			func() error {
 				return g.Clone(r.CloneURL, target, &gitOut, &gitOut)
 			})
 		if err != nil {
-			fmt.Fprintln(os.Stderr, strings.TrimSpace(gitOut.String()))
+			fmt.Fprintln(errOut, strings.TrimSpace(gitOut.String()))
 			return nil, fmt.Errorf("clone %s: %w", r.Name, err)
 		}
 		r.LocalPath = target

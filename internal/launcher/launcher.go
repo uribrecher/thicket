@@ -13,6 +13,7 @@ import (
 	"syscall"
 )
 
+
 // ErrMissingBinary is returned when the configured Claude binary can't be
 // resolved on PATH. The caller should fall back to printing a cd hint.
 var ErrMissingBinary = errors.New("claude binary not found on PATH")
@@ -36,7 +37,6 @@ type Launcher struct {
 	ExtraArgs []string
 	LookPath  LookPathFn
 	Exec      ExecFn
-	Stderr    io.Writer
 }
 
 // New returns a Launcher with production defaults.
@@ -48,7 +48,6 @@ func New(binaryName string) *Launcher {
 		BinaryName: binaryName,
 		LookPath:   exec.LookPath,
 		Exec:       syscall.Exec,
-		Stderr:     os.Stderr,
 	}
 }
 

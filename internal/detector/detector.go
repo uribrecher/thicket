@@ -85,6 +85,10 @@ func (a *AnthropicDetector) Detect(ctx context.Context, in Input) ([]RepoMatch, 
 	if err != nil {
 		return nil, err
 	}
+	// API mode: the tool's input_schema is the source of truth. Tell
+	// Claude to use that schema explicitly so the model returns the
+	// expected {"repos": [...]} shape.
+	prompt += "\n\nCall the submit_repos tool. Its input must be {\"repos\": [{\"name\", \"confidence\" 0..1, \"reason\"}, ...]}."
 
 	tool := anthropic.ToolParam{
 		Name:        toolName,
@@ -148,9 +152,16 @@ func submitReposInputSchema() anthropic.ToolInputSchemaParam {
 
 // ----- prompt -----
 
+// promptTmpl is the SHARED ticket + repo-catalog prompt body. Backend-
+// specific output instructions are appended by the caller:
+//   - API mode forces a `submit_repos` tool with {"repos":[...]} schema;
+//     the prompt suffix asks for that exact shape.
+//   - CLI mode can't force tools, so the suffix asks for a bare JSON
+//     array which extractJSONArray pulls out of whatever prose Claude
+//     wraps it in.
 const promptTmpl = `You are routing a ticket to the GitHub repos that will need code changes.
 Be conservative — prefer fewer repos. Do not include repos that are merely mentioned but not modified.
-If the ticket has too little information to route confidently, return an empty array.
+If the ticket has too little information to route confidently, return an empty list.
 
 TICKET:
   Title: {{.TicketTitle}}
@@ -159,10 +170,7 @@ TICKET:
 
 KNOWN REPOS:
 {{range .Repos}}  - {{.Name}}{{if .Description}}: {{.Description}}{{end}}
-{{end}}
-
-Return a JSON array of repos that need code changes, in this exact shape:
-[{"name": "<repo-name>", "confidence": 0.0-1.0, "reason": "<one short sentence>"}]`
+{{end}}`
 
 type promptData struct {
 	TicketTitle  string

@@ -103,10 +103,25 @@ type AutoSelector struct {
 	AutoClone bool
 }
 
-func (a AutoSelector) SelectRepos(_ []catalog.Repo, picks []detector.RepoMatch) ([]string, error) {
-	out := make([]string, 0, len(picks))
+// SelectRepos filters the LLM picks against the actual catalog
+// (skipping hallucinations), dedupes them, and returns the survivors
+// in catalog order — matching the interface docstring.
+func (a AutoSelector) SelectRepos(cat []catalog.Repo, picks []detector.RepoMatch) ([]string, error) {
+	keep := make(map[string]bool, len(picks))
+	inCat := make(map[string]bool, len(cat))
+	for _, r := range cat {
+		inCat[r.Name] = true
+	}
 	for _, p := range picks {
-		out = append(out, p.Name)
+		if inCat[p.Name] {
+			keep[p.Name] = true
+		}
+	}
+	out := make([]string, 0, len(keep))
+	for _, r := range cat {
+		if keep[r.Name] {
+			out = append(out, r.Name)
+		}
 	}
 	return out, nil
 }

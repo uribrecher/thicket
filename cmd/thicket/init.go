@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -19,6 +20,8 @@ import (
 
 func runInit(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
+	out := cmd.OutOrStdout()
+	errOut := cmd.ErrOrStderr()
 	cfgPath, err := config.Path()
 	if err != nil {
 		return err
@@ -29,7 +32,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		d := config.Default()
 		cfg = &d
 	} else if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: existing config at %s is invalid (%v); starting fresh.\n",
+		fmt.Fprintf(errOut, "warning: existing config at %s is invalid (%v); starting fresh.\n",
 			cfgPath, err)
 		d := config.Default()
 		cfg = &d
@@ -80,8 +83,8 @@ func runInit(cmd *cobra.Command, _ []string) error {
 			cfg.WorkspaceRoot, err)
 	}
 
-	fmt.Printf("\nconfig written to %s\n", cfgPath)
-	verifyExternalTools(cfg)
+	fmt.Fprintf(out, "\nconfig written to %s\n", cfgPath)
+	verifyExternalTools(out, cfg)
 	return nil
 }
 
@@ -199,14 +202,21 @@ func collectGitHubOrgs(cfg *config.Config, available []string) error {
 }
 
 // warnAboutEmptyOrgs probes each configured org with `gh repo list`. If
-// any return zero repos, prints a warning along with the list of orgs
-// the current `gh` user is actually a member of — saving the next 5
-// minutes of "why are no repos showing up?" debugging.
+// gh succeeds but returns zero repos for some, names those (and lists
+// the orgs the gh user actually belongs to). If gh itself errors, we
+// say so honestly instead of pretending every org is empty — a missing
+// `gh auth login` is a different problem than a typo'd org name.
 func warnAboutEmptyOrgs(orgs []string) {
 	var empties []string
 	for _, org := range orgs {
 		out, err := exec.Command("gh", "repo", "list", org, "--limit", "1", "--json", "name").Output()
-		if err != nil || strings.TrimSpace(string(out)) == "" || strings.TrimSpace(string(out)) == "[]" {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "\nwarning: could not query org %q via gh: %v\n", org, err)
+			fmt.Fprintln(os.Stderr, "  (run `gh auth status` to check; thicket won't be able to list repos until this is fixed)")
+			return
+		}
+		trimmed := strings.TrimSpace(string(out))
+		if trimmed == "" || trimmed == "[]" {
 			empties = append(empties, org)
 		}
 	}
@@ -708,7 +718,7 @@ func splitCSV(s string) []string {
 	return out
 }
 
-func verifyExternalTools(cfg *config.Config) {
+func verifyExternalTools(out io.Writer, cfg *config.Config) {
 	claudeBin := cfg.ClaudeBinary
 	if claudeBin == "" {
 		claudeBin = "claude"
@@ -725,9 +735,9 @@ func verifyExternalTools(cfg *config.Config) {
 			if t.optional {
 				marker = "?"
 			}
-			fmt.Printf("  %s %s — not found on PATH\n", marker, t.name)
+			fmt.Fprintf(out, "  %s %s — not found on PATH\n", marker, t.name)
 		} else {
-			fmt.Printf("  ✓ %s — %s\n", t.name, path)
+			fmt.Fprintf(out, "  ✓ %s — %s\n", t.name, path)
 		}
 	}
 }

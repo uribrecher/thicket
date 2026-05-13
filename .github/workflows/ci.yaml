@@ -39,4 +39,6 @@ jobs:
           cache: true
       - uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.61
+          # v1.64 is the first v1 release built with go 1.24, which is
+          # what go.mod targets.
+          version: v1.64

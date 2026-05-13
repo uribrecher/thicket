@@ -125,17 +125,30 @@ func (w *Workspace) Create(p Plan) error {
 
 // Remove tears down the workspace at workspaceDir by removing every
 // worktree listed in its state manifest, then the directory itself.
-// force=true tolerates dirty worktrees.
+// force=true tolerates dirty worktrees AND lets the caller delete a
+// directory that has no state manifest (i.e. wasn't created by thicket
+// or had its manifest deleted) — see safety note below.
 //
-// Safety: if any worktree refuses to be removed (e.g. dirty changes with
-// force=false), the workspace directory is NOT deleted. Otherwise we'd
-// silently destroy uncommitted work while leaving stale worktree
-// metadata in the source repos.
+// Safety:
+//   - If any worktree refuses to be removed (e.g. dirty changes with
+//     force=false), the workspace directory is NOT deleted. Otherwise
+//     we'd silently destroy uncommitted work while leaving stale
+//     worktree metadata in the source repos.
+//   - If the state manifest is missing, Remove refuses to delete the
+//     directory unless force=true. This stops `thicket rm` from
+//     becoming a blind `rm -rf` against any folder that happens to
+//     live under workspace_root.
 func (w *Workspace) Remove(workspaceDir string, force bool) error {
 	st, err := ReadState(workspaceDir)
 	if err != nil {
 		if errors.Is(err, ErrNoState) {
-			// No manifest — assume nothing to clean up except the dir.
+			if !force {
+				return fmt.Errorf(
+					"%w at %s — refusing to delete (use --force to override)",
+					ErrNoState, workspaceDir)
+			}
+			// force=true: explicit operator opt-in for legacy / orphaned
+			// directories. Just nuke the directory.
 			return os.RemoveAll(workspaceDir)
 		}
 		return err

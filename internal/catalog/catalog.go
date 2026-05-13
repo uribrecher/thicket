@@ -8,6 +8,7 @@
 package catalog
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/adrg/xdg"
@@ -182,14 +184,14 @@ func (g GHFetcher) List(org string) ([]Repo, error) {
 		"--limit", fmt.Sprintf("%d", limit),
 		"--json", "name,description,defaultBranchRef,sshUrl,isArchived",
 	)
+	// Capture stderr explicitly — exec.ExitError.Stderr is only set
+	// when stdout is captured separately (i.e. when cmd.Stderr is set).
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()
 	if err != nil {
-		stderr := ""
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			stderr = string(exitErr.Stderr)
-		}
-		return nil, fmt.Errorf("gh repo list %s: %w (stderr: %s)", org, err, stderr)
+		return nil, fmt.Errorf("gh repo list %s: %w (stderr: %s)", org, err,
+			strings.TrimSpace(stderr.String()))
 	}
 	return parseGHJSON(stdout)
 }

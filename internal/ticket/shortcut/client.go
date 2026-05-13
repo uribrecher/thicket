@@ -80,7 +80,10 @@ func (s *Source) Parse(raw string) (ticket.ID, error) {
 	// URL form
 	if u, err := url.Parse(in); err == nil && u.Scheme != "" && u.Host != "" {
 		if m := urlRegexp.FindStringSubmatch(u.Path); m != nil {
-			n, _ := strconv.Atoi(m[1])
+			n, atoiErr := strconv.Atoi(m[1])
+			if atoiErr != nil {
+				return nil, ticket.ErrUnparseable{Input: raw, Source: sourceName}
+			}
 			return ID(n), nil
 		}
 		// URL but doesn't look like a Shortcut story URL.
@@ -89,7 +92,10 @@ func (s *Source) Parse(raw string) (ticket.ID, error) {
 
 	// id / sc-id form
 	if m := numRegexp.FindStringSubmatch(in); m != nil {
-		n, _ := strconv.Atoi(m[1])
+		n, atoiErr := strconv.Atoi(m[1])
+		if atoiErr != nil {
+			return nil, ticket.ErrUnparseable{Input: raw, Source: sourceName}
+		}
 		return ID(n), nil
 	}
 

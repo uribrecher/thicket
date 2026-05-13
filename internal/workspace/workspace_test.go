@@ -15,6 +15,7 @@ import (
 	"github.com/uribrecher/thicket/internal/memory"
 )
 
+
 func sh(t *testing.T, dir, name string, args ...string) {
 	t.Helper()
 	cmd := exec.Command(name, args...)
@@ -189,17 +190,32 @@ func TestRemove_preservesWorkspaceWhenWorktreeRemovalFails(t *testing.T) {
 	}
 }
 
-func TestRemove_noManifest(t *testing.T) {
+func TestRemove_noManifest_refusesWithoutForce(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "ws")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := New(git.New()).Remove(dir, false); err != nil {
-		t.Fatalf("remove: %v", err)
+	err := New(git.New()).Remove(dir, false)
+	if !errors.Is(err, ErrNoState) {
+		t.Fatalf("want ErrNoState, got %v", err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("dir should be preserved when refused, stat=%v", err)
+	}
+}
+
+func TestRemove_noManifest_forceDeletes(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "ws")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := New(git.New()).Remove(dir, true); err != nil {
+		t.Fatalf("force remove: %v", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
-		t.Errorf("dir should be removed even without manifest")
+		t.Errorf("dir should be removed under force")
 	}
 }
 

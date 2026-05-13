@@ -28,6 +28,9 @@ func runRm(cmd *cobra.Command, args []string) error {
 	//    `thicket rm <full-slug>` for scripts. Confirmation still
 	//    applies unless --yes is set.
 	if len(args) == 1 {
+		if err := validateSlug(args[0]); err != nil {
+			return err
+		}
 		dir := filepath.Join(cfg.WorkspaceRoot, args[0])
 		if _, err := os.Stat(dir); err == nil {
 			return doRemove(cmd, dir, force, skipConfirm)
@@ -45,6 +48,9 @@ func runRm(cmd *cobra.Command, args []string) error {
 
 	prefilter := ""
 	if len(args) == 1 {
+		// validateSlug above already short-circuits absolute paths and
+		// path-traversal attempts; here we just preserve whatever the
+		// user typed as a search query.
 		prefilter = args[0]
 	}
 	picked, err := pickWorkspaceForRm(workspaces, prefilter)
@@ -125,6 +131,26 @@ func printRemovePreview(out interface{ Write([]byte) (int, error) },
 		fmt.Fprintln(out, "  workspace directory is preserved (uncommitted work survives).")
 	}
 	fmt.Fprintln(out)
+}
+
+// validateSlug refuses values that would let filepath.Join escape
+// workspace_root or land on something other than a simple directory
+// name under it. Without this, `thicket rm /tmp` or `thicket rm ../..`
+// could delete arbitrary directories.
+func validateSlug(s string) error {
+	if s == "" || s == "." || s == ".." {
+		return fmt.Errorf("invalid slug %q", s)
+	}
+	if filepath.IsAbs(s) {
+		return fmt.Errorf("invalid slug %q: must not be an absolute path", s)
+	}
+	if filepath.Clean(s) != s {
+		return fmt.Errorf("invalid slug %q: contains path traversal or redundant separators", s)
+	}
+	if filepath.Base(s) != s {
+		return fmt.Errorf("invalid slug %q: must be a single directory name with no separators", s)
+	}
+	return nil
 }
 
 // managedWorkspace is the slim projection rm + list need: the slug

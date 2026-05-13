@@ -62,8 +62,9 @@ func (d *ClaudeCLIDetector) Detect(ctx context.Context, in Input) ([]RepoMatch, 
 	if err != nil {
 		return nil, err
 	}
-	// Force structured output: ask for JSON ONLY, no prose, no fences.
-	// We still defend against fences in extractJSONArray.
+	// CLI mode: there's no tool-use channel; force a bare JSON array
+	// in the response and rely on extractJSONArray to fish it out of
+	// any prose / markdown fences Claude wraps it in.
 	prompt += "\n\nReturn ONLY a JSON array. No prose, no markdown fences, no explanations.\n" +
 		"Schema: [{\"name\":string,\"confidence\":number 0-1,\"reason\":string}]"
 
