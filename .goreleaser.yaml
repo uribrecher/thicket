@@ -1,0 +1,90 @@
+version: 2
+
+project_name: thicket
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: thicket
+    main: ./cmd/thicket
+    binary: thicket
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: thicket
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^chore:"
+      - "^docs:"
+      - "^test:"
+      - Merge pull request
+  groups:
+    - title: Features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: Fixes
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  draft: false
+  prerelease: auto
+  footer: |
+    ---
+    Install with Homebrew:
+    ```
+    brew install uribrecher/thicket/thicket
+    ```
+    Or download a binary above and drop it on your `$PATH`.
+
+brews:
+  - name: thicket
+    repository:
+      owner: uribrecher
+      name: homebrew-thicket
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/uribrecher/thicket"
+    description: "Ticket-driven multi-repo workspace bootstrapper"
+    license: "MIT"
+    test: |
+      system "#{bin}/thicket version"
+    install: |
+      bin.install "thicket"
+    dependencies:
+      - name: git
+      - name: gh
+        type: optional
