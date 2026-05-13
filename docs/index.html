@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>thicket — one ticket, many repos, zero ceremony</title>
+<meta name="description" content="thicket is a CLI that spawns a Claude-ready, multi-repo git workspace from a ticket. Pure Go, no telemetry.">
+<meta name="theme-color" content="#3a7a4d">
+
+<link rel="icon" type="image/png" href="assets/thicket.png">
+
+<!-- asciinema player (3.x) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.css">
+<script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.js" defer></script>
+
+<link rel="stylesheet" href="styles.css">
+
+<meta property="og:title" content="thicket — one ticket, many repos, zero ceremony">
+<meta property="og:description" content="A CLI that spawns a Claude-ready, multi-repo git workspace from a ticket.">
+<meta property="og:image" content="assets/thicket.png">
+<meta property="og:type" content="website">
+</head>
+<body>
+
+<header class="hero">
+  <img class="hero__logo" src="assets/thicket.png" alt="thicket — CLI for Claude &amp; Tickets" width="540">
+  <h1 class="hero__tagline">One ticket. Many repos. Zero ceremony.</h1>
+  <p class="hero__sub">
+    <code>thicket</code> spawns a Claude-ready, multi-repo git worktree workspace from a single ticket —
+    so you stop ferrying context between Linear, GitHub, and your terminal.
+  </p>
+
+  <div class="hero__install">
+    <code id="install-cmd">curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh</code>
+    <button class="copy-btn" type="button" data-copy-target="install-cmd" title="Copy">⧉</button>
+  </div>
+
+  <p class="hero__ctas">
+    <a class="btn btn--primary" href="https://github.com/uribrecher/thicket">View on GitHub →</a>
+    <a class="btn btn--ghost" href="https://github.com/uribrecher/thicket/releases/latest">Latest release</a>
+  </p>
+
+  <p class="badges">
+    <a href="https://github.com/uribrecher/thicket/actions/workflows/ci.yaml"><img src="https://github.com/uribrecher/thicket/actions/workflows/ci.yaml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/uribrecher/thicket/releases/latest"><img src="https://img.shields.io/github/v/release/uribrecher/thicket?display_name=tag&amp;sort=semver" alt="Latest release"></a>
+    <a href="https://github.com/uribrecher/thicket/blob/main/LICENSE"><img src="https://img.shields.io/github/license/uribrecher/thicket" alt="License"></a>
+  </p>
+</header>
+
+<main>
+
+<section class="section section--demo">
+  <h2>From ticket to coding in 30 seconds</h2>
+  <p class="section__lead">
+    Type the ticket id. Fuzzy-pick repos. <code>thicket</code> creates worktrees, drops a
+    seeded <code>CLAUDE.local.md</code>, and launches your AI session named after the slug.
+  </p>
+  <div id="asciinema-container" class="asciicast"></div>
+  <p class="section__caption">
+    The whole flow above is one command: <code>thicket start sc-65825</code>.
+    No id? <code>thicket start</code> fuzzy-picks across your assigned tickets.
+  </p>
+</section>
+
+<section class="section">
+  <h2>What you get</h2>
+  <ul class="feature-grid">
+
+    <li class="feature">
+      <h3>Ticket-aware workspaces</h3>
+      <p>
+        Each workspace folder is named <code>&lt;ticket-id&gt;-&lt;title-slug&gt;</code>, with
+        one git worktree per repo on a matching branch. Source clones stay clean on their
+        default branch — worktrees share the <code>.git</code> so storage is cheap and
+        no double-fetch.
+      </p>
+    </li>
+
+    <li class="feature">
+      <h3>LLM picks the repos</h3>
+      <p>
+        <code>thicket</code> asks Claude (Haiku, via API or your local <code>claude</code>
+        binary) which repos in your GitHub orgs the ticket actually touches — then opens a
+        bubbletea picker so you can refine, drop, or add. Pass <code>--only</code> to skip
+        the LLM entirely.
+      </p>
+    </li>
+
+    <li class="feature">
+      <h3>Live fuzzy pickers</h3>
+      <p>
+        Repos, tickets, 1Password items, workspaces — everything interactive runs through a
+        live <code>sahilm/fuzzy</code> filter with type-ahead. <kbd>↑</kbd>/<kbd>↓</kbd> to
+        navigate, <kbd>Enter</kbd> to pick, <kbd>Esc</kbd> to go back a step.
+      </p>
+    </li>
+
+    <li class="feature">
+      <h3>Password-manager-backed secrets</h3>
+      <p>
+        Never asks for a raw token. Point <code>thicket</code> at 1Password, Bitwarden, or
+        <code>pass</code> and it fetches on demand. The config file stores only references.
+        <code>thicket doctor</code> verifies each reference resolves without ever showing
+        the value.
+      </p>
+    </li>
+
+    <li class="feature">
+      <h3>Self-update, opt-out</h3>
+      <p>
+        Most commands run a quick "is there a newer release?" probe (24h cached, 2s timeout).
+        TTY users get a confirm prompt; SHA-256 verified before swap. Set
+        <code>THICKET_NO_UPDATE_CHECK=1</code> to silence entirely. Brew / Nix / <code>go
+        install</code> users get a copy-paste hint instead of an in-place replace.
+      </p>
+    </li>
+
+    <li class="feature">
+      <h3>No telemetry</h3>
+      <p>
+        <code>thicket</code> talks to Anthropic, Shortcut, and GitHub only to do its job.
+        No phone-home, no analytics, no dashboard you didn't ask for.
+      </p>
+    </li>
+
+  </ul>
+</section>
+
+<section class="section section--install">
+  <h2>Install</h2>
+
+  <div class="install-option">
+    <h3>One-liner (macOS, Linux)</h3>
+    <pre class="code-block"><code>curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh</code></pre>
+    <p>
+      Detects your OS + arch, downloads the matching tarball, verifies SHA-256 against
+      <code>checksums.txt</code>, and drops the binary into <code>$HOME/.local/bin</code>.
+      Pin a version: <code>THICKET_VERSION=v0.1.2 sh</code>. Different path:
+      <code>INSTALL_DIR=/usr/local/bin sh</code>.
+    </p>
+  </div>
+
+  <div class="install-option">
+    <h3>With Go</h3>
+    <pre class="code-block"><code>go install github.com/uribrecher/thicket/cmd/thicket@latest</code></pre>
+    <p>Auto-update skips <code>$GOBIN</code> installs — you stay in charge of your Go toolchain.</p>
+  </div>
+
+  <div class="install-option">
+    <h3>Manual</h3>
+    <p>
+      Grab a tarball from
+      <a href="https://github.com/uribrecher/thicket/releases/latest">the latest release</a>
+      and drop the <code>thicket</code> binary on your <code>$PATH</code>.
+    </p>
+  </div>
+</section>
+
+<section class="section section--quickstart">
+  <h2>Quickstart</h2>
+  <pre class="code-block"><code><span class="comment"># one-time setup wizard: tokens, GitHub orgs, paths</span>
+thicket init
+
+<span class="comment"># sanity check — verifies CLI tools, tokens, env-var overrides</span>
+thicket doctor
+
+<span class="comment"># spawn a workspace for a ticket</span>
+thicket start sc-12345
+
+<span class="comment"># done? wipe the worktrees, keep the source clones clean</span>
+thicket rm sc-12345-fix-inventory</code></pre>
+  <p>
+    Full command reference, secrets setup, and architecture notes:
+    <a href="https://github.com/uribrecher/thicket#readme">README on GitHub</a>.
+  </p>
+</section>
+
+</main>
+
+<footer class="footer">
+  <p>
+    <a href="https://github.com/uribrecher/thicket">github.com/uribrecher/thicket</a>
+    · MIT
+    · <a href="https://github.com/uribrecher/thicket/blob/main/CHANGELOG.md">changelog</a>
+  </p>
+  <p class="footer__disclaimer">
+    Unofficial, community-built. Not affiliated with or endorsed by Anthropic.
+    “Claude” is a trademark of Anthropic, PBC.
+  </p>
+</footer>
+
+<script>
+  // Boot the asciinema player once the bundle has loaded.
+  window.addEventListener('load', function () {
+    if (window.AsciinemaPlayer) {
+      AsciinemaPlayer.create('assets/demo.cast',
+        document.getElementById('asciinema-container'), {
+          cols: 92,
+          rows: 22,
+          autoPlay: true,
+          loop: true,
+          idleTimeLimit: 2,
+          theme: 'monokai',
+          fit: 'width',
+        });
+    }
+  });
+
+  // Clipboard copy for the hero install command.
+  document.querySelectorAll('.copy-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var t = document.getElementById(btn.dataset.copyTarget);
+      if (!t) return;
+      navigator.clipboard.writeText(t.textContent).then(function () {
+        var prev = btn.textContent;
+        btn.textContent = '✓';
+        setTimeout(function () { btn.textContent = prev; }, 1200);
+      });
+    });
+  });
+</script>
+
+</body>
+</html>

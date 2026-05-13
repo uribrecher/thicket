@@ -1,0 +1,289 @@
+/* Palette pulled from the splash: forest greens + a stripe of navy
+   blue, on a soft cream background. Typography is a clean system
+   sans with a mono-space terminal accent. */
+:root {
+  --bg:        #faf7f0;
+  --bg-soft:   #f1ecdd;
+  --text:      #1c2733;
+  --text-dim:  #5e6b78;
+  --green-1:   #3a7a4d;
+  --green-2:   #6ba276;
+  --blue:      #3f5f8f;
+  --border:    #e3dec9;
+  --code-bg:   #1c2733;
+  --code-text: #d7d2c4;
+  --code-dim:  #7a8896;
+
+  --max-w:     760px;
+  --wide:      960px;
+  --radius:    8px;
+
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:       #14181d;
+    --bg-soft:  #1c2733;
+    --text:     #e7e3d6;
+    --text-dim: #98a2ad;
+    --border:   #2a3540;
+    --green-1:  #6ba276;
+    --green-2:  #9fcc9f;
+    --blue:     #7d99c8;
+    --code-bg:  #0d1117;
+    --code-text:#d7d2c4;
+  }
+}
+
+* { box-sizing: border-box; }
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--blue);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+a:hover { color: var(--green-1); }
+
+code, kbd, pre {
+  font-family: var(--mono);
+  font-size: 0.92em;
+}
+code {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05em 0.4em;
+}
+kbd {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.05em 0.45em;
+  font-size: 0.85em;
+}
+pre {
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: var(--radius);
+  padding: 1em 1.2em;
+  overflow-x: auto;
+  line-height: 1.55;
+}
+pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 0.95em;
+}
+pre .comment { color: var(--code-dim); }
+
+/* ===== layout containers ===== */
+
+.hero,
+.section,
+.footer {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+.section--demo,
+.section--install,
+.section--quickstart { padding-top: 2.5rem; padding-bottom: 0.5rem; }
+.section { padding-top: 3rem; padding-bottom: 1rem; }
+
+/* ===== hero ===== */
+
+.hero { text-align: center; padding-top: 4rem; padding-bottom: 1rem; }
+.hero__logo {
+  width: 100%;
+  max-width: 540px;
+  height: auto;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.06));
+}
+.hero__tagline {
+  font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+  font-weight: 700;
+  margin: 0.5rem 0 0.5rem;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.hero__sub {
+  color: var(--text-dim);
+  max-width: 560px;
+  margin: 0 auto 1.5rem;
+  font-size: 1.05rem;
+}
+.hero__install {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: var(--radius);
+  padding: 0.65rem 0.85rem;
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  max-width: 100%;
+  overflow-x: auto;
+  text-align: left;
+  border: 1px solid transparent;
+}
+.hero__install code {
+  background: transparent;
+  border: 0;
+  color: var(--code-text);
+  white-space: nowrap;
+}
+.copy-btn {
+  background: transparent;
+  color: var(--code-dim);
+  border: 0;
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0 0.2rem;
+  line-height: 1;
+}
+.copy-btn:hover { color: var(--code-text); }
+
+.hero__ctas { margin-top: 1.5rem; }
+
+.btn {
+  display: inline-block;
+  padding: 0.55rem 1.1rem;
+  border-radius: var(--radius);
+  font-weight: 600;
+  text-decoration: none;
+  margin: 0.25rem;
+  transition: transform 0.05s ease, background 0.15s ease, color 0.15s ease;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn--primary {
+  background: var(--green-1);
+  color: #fff;
+}
+.btn--primary:hover { background: #2f6841; color: #fff; }
+.btn--ghost {
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.btn--ghost:hover { color: var(--green-1); border-color: var(--green-1); }
+
+.badges {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+}
+.badges img { vertical-align: middle; }
+
+/* ===== sections ===== */
+
+.section h2 {
+  font-size: 1.5rem;
+  margin: 0 0 0.5rem;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.section__lead {
+  color: var(--text-dim);
+  margin: 0 0 1.5rem;
+  font-size: 1.02rem;
+}
+.section__caption {
+  color: var(--text-dim);
+  font-size: 0.92rem;
+  margin: 0.75rem 0 0;
+}
+
+/* ===== asciinema container ===== */
+
+.section--demo { max-width: var(--wide); }
+.asciicast {
+  background: var(--code-bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(28, 39, 51, 0.08);
+}
+.asciicast .ap-player { background: var(--code-bg) !important; }
+
+/* ===== feature grid ===== */
+
+.feature-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+@media (min-width: 720px) {
+  .feature-grid { grid-template-columns: 1fr 1fr; }
+}
+.feature {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.2rem;
+}
+.feature h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+  color: var(--green-1);
+}
+.feature p {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.96rem;
+}
+
+/* ===== install ===== */
+
+.install-option { margin: 1.25rem 0 1.5rem; }
+.install-option h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  color: var(--blue);
+}
+.install-option p {
+  margin: 0.5rem 0 0;
+  color: var(--text-dim);
+  font-size: 0.95rem;
+}
+.code-block {
+  margin: 0;
+}
+
+/* ===== footer ===== */
+
+.footer {
+  margin-top: 4rem;
+  padding-top: 2rem;
+  padding-bottom: 2.5rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+}
+.footer p { margin: 0.4rem 0; }
+.footer__disclaimer {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  max-width: 520px;
+  margin: 1rem auto 0 !important;
+}
