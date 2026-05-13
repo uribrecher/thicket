@@ -115,10 +115,11 @@ func doRemove(cmd *cobra.Command, dir string, st *workspace.State, force, skipCo
 	}
 
 	w := workspace.New(git.New())
-	if err := w.RemoveWithState(dir, st, force); err != nil {
+	fmt.Fprintln(out)
+	if err := w.RemoveWithState(dir, st, force, out); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "removed %s\n", dir)
+	fmt.Fprintf(out, "\nremoved %s\n", dir)
 	return nil
 }
 
