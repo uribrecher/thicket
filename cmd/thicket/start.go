@@ -44,17 +44,31 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	id, err := src.Parse(args[0])
-	if err != nil {
-		return err
-	}
 
-	fmt.Fprintf(out, "fetching ticket %s...\n", id)
-	tk, err := src.Fetch(id)
-	if err != nil {
-		return err
+	var tk ticket.Ticket
+	if len(args) == 0 {
+		// Interactive picker over the user's active assigned tickets.
+		tk, err = pickAssignedTicket(cmd.Context(), src, cfg, errOut)
+		if err != nil {
+			if errors.Is(err, tui.ErrCancelled) {
+				fmt.Fprintln(out, "cancelled.")
+				return nil
+			}
+			return err
+		}
+		fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
+	} else {
+		id, err := src.Parse(args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "fetching ticket %s...\n", id)
+		tk, err = src.Fetch(id)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
 	}
-	fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
 	if strings.TrimSpace(tk.Body) == "" {
 		fmt.Fprintln(out, "  ⚠ ticket has no description — LLM routing will lack context;\n"+
 			"    consider \"thicket start <ticket> --only repo1,repo2\" instead.")
@@ -221,6 +235,66 @@ func withProgress(w io.Writer, label string, fn func() error) error {
 		fmt.Fprintf(w, "%s — %.1fs\n", label, time.Since(start).Seconds())
 	}
 	return err
+}
+
+// pickAssignedTicket fetches the user's active assigned tickets from
+// the configured source (if it implements ticket.Lister) and shows a
+// fuzzy-search PickOne over them. Rows are annotated with the
+// existing workspace slug when one already exists on disk — handy for
+// switching back to in-flight work without re-creating the workspace.
+func pickAssignedTicket(ctx context.Context, src ticket.Source, cfg *config.Config,
+	errOut io.Writer) (ticket.Ticket, error) {
+
+	lister, ok := src.(ticket.Lister)
+	if !ok {
+		return ticket.Ticket{}, fmt.Errorf(
+			"ticket source %q does not support listing — pass a ticket id explicitly",
+			src.Name())
+	}
+
+	var tickets []ticket.Ticket
+	err := withProgress(errOut, "fetching your open assigned tickets", func() error {
+		var listErr error
+		tickets, listErr = lister.ListAssigned(ctx)
+		return listErr
+	})
+	if err != nil {
+		return ticket.Ticket{}, err
+	}
+	if len(tickets) == 0 {
+		return ticket.Ticket{}, errors.New("no open assigned tickets found")
+	}
+
+	// Cross-reference with existing managed workspaces so the picker
+	// can surface 'already has a workspace' inline.
+	workspaces, _ := listManagedWorkspaces(cfg)
+	slugByTicket := make(map[string]string, len(workspaces))
+	for _, w := range workspaces {
+		slugByTicket[w.ticket] = w.slug
+	}
+
+	columns := []tui.Column{
+		{Title: "Ticket", Width: 10},
+		{Title: "State", Width: 18},
+		{Title: "Title", Width: 50},
+		{Title: "Workspace", Width: 36},
+	}
+	rows := make([]tui.Row, len(tickets))
+	byID := make(map[string]ticket.Ticket, len(tickets))
+	for i, tk := range tickets {
+		ws := slugByTicket[tk.SourceID]
+		rows[i] = tui.Row{
+			Key:    tk.SourceID,
+			Cells:  []string{tk.SourceID, tk.State, tk.Title, ws},
+			Filter: tk.SourceID + " " + tk.State + " " + tk.Title + " " + ws,
+		}
+		byID[tk.SourceID] = tk
+	}
+	key, err := tui.PickOne("Pick a ticket to start a workspace for", columns, rows)
+	if err != nil {
+		return ticket.Ticket{}, err
+	}
+	return byID[key], nil
 }
 
 // isDir reports whether path exists and is a directory.

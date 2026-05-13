@@ -40,9 +40,9 @@ func newRootCmd() *cobra.Command {
 
 func newStartCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "start <ticket>",
-		Short: "Spawn a workspace for a ticket",
-		Args:  cobra.ExactArgs(1),
+		Use:   "start [ticket]",
+		Short: "Spawn a workspace for a ticket (interactive picker if no id given)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  runStart,
 	}
 	c.Flags().StringSlice("only", nil, "use exactly these repos (skips LLM)")

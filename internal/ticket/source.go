@@ -3,7 +3,19 @@
 // Ticket data type that everything downstream consumes.
 package ticket
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
+
+// Lister is the optional capability a Source exposes when it can
+// enumerate the tickets currently assigned to the authenticated user
+// in an "active" state (e.g. not closed, not in review). When a Source
+// also implements Lister, `thicket start` (with no id arg) opens a
+// fuzzy-search picker over the results.
+type Lister interface {
+	ListAssigned(ctx context.Context) ([]Ticket, error)
+}
 
 // ID is an opaque identifier for one ticket, canonical to its source.
 // Implementations stringify to the form humans paste back into the CLI
