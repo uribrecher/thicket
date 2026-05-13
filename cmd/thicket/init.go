@@ -50,6 +50,14 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// Expand ~ in path fields so MkdirAll doesn't create a literal
+	// ./~/tasks folder when the user accepts the default. The saved
+	// config then carries absolute paths, which round-trip cleanly
+	// through Load.
+	if err := cfg.ExpandPaths(); err != nil {
+		return err
+	}
+
 	// Persist.
 	if err := cfg.Validate(); err != nil {
 		return err

@@ -175,6 +175,13 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// ExpandPaths resolves ~ in ReposRoot and WorkspaceRoot to the user's
+// home directory. Load already does this for configs read from disk;
+// callers building a Config in memory (e.g. the init wizard) must call
+// this before using the path fields with os.MkdirAll / os.Stat, or git
+// will create literal `./~/tasks` folders.
+func (c *Config) ExpandPaths() error { return c.expandPaths() }
+
 func (c *Config) expandPaths() error {
 	var err error
 	c.ReposRoot, err = expand(c.ReposRoot)
