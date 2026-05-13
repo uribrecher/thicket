@@ -446,7 +446,8 @@ func collectSecretRefs1Password(ctx context.Context, slots []secretSlot) error {
 	for i, s := range slots {
 		fmt.Printf("\n━━ [%d/%d] %s ━━\n", i+1, len(slots), s.label)
 
-		account, err := pickAccountForSlot(s.label, accs, lastAccount, *s.acctPtr)
+		def := firstNonEmpty(*s.acctPtr, lastAccount, accs[0].AccountUUID)
+		account, err := pickAccountForSlot(s.label, accs, def)
 		if err != nil {
 			return err
 		}
@@ -470,21 +471,14 @@ func collectSecretRefs1Password(ctx context.Context, slots []secretSlot) error {
 }
 
 // pickAccountForSlot shows a per-slot account picker. With only one
-// account known to op, we skip the picker entirely.
+// account known to op, we skip the picker entirely. `def` is the
+// account to highlight initially when the picker does appear.
 func pickAccountForSlot(label string, accs []secrets.OnePasswordAccount,
-	previousChoice, currentValue string) (string, error) {
+	def string) (string, error) {
 
 	if len(accs) == 1 {
 		fmt.Printf("  ✓ account: %s (%s)\n", accs[0].Email, accs[0].URL)
 		return accs[0].AccountUUID, nil
-	}
-
-	def := currentValue
-	if def == "" {
-		def = previousChoice
-	}
-	if def == "" {
-		def = accs[0].AccountUUID
 	}
 
 	options := make([]huh.Option[string], 0, len(accs))
@@ -527,10 +521,9 @@ func loadItemsForAccount(ctx context.Context, cache map[string][]secrets.OnePass
 	return items, nil
 }
 
-// sortedItems returns items with API-credential-like categories first,
-// then alphabetically by vault and title — same ordering rules as
-// before, just without the huh.Option wrapping (the new tableized
-// picker consumes the items directly).
+// sortedItems orders items by credentialPriority (API_CREDENTIAL >
+// PASSWORD > LOGIN > other), then alphabetically by vault and title,
+// so the likeliest match for an API-token slot surfaces first.
 func sortedItems(items []secrets.OnePasswordItem) []secrets.OnePasswordItem {
 	sorted := make([]secrets.OnePasswordItem, len(items))
 	copy(sorted, items)
@@ -600,7 +593,7 @@ func pick1PasswordRef(ctx context.Context, op *secrets.OnePassword,
 		if f.Reference == "" {
 			continue
 		}
-		labelStr := fmt.Sprintf("%s  (%s)", coalesce(f.Label, f.ID), friendlyFieldType(f.Type, f.Purpose))
+		labelStr := fmt.Sprintf("%s  (%s)", firstNonEmpty(f.Label, f.ID), friendlyFieldType(f.Type, f.Purpose))
 		fieldOpts = append(fieldOpts, huh.NewOption(labelStr, f.Reference))
 		if defaultRef == "" && f.Type == "CONCEALED" {
 			defaultRef = f.Reference
@@ -630,11 +623,15 @@ func pick1PasswordRef(ctx context.Context, op *secrets.OnePassword,
 	return ref, nil
 }
 
-func coalesce(a, b string) string {
-	if strings.TrimSpace(a) != "" {
-		return a
+// firstNonEmpty returns the first argument whose trimmed value is
+// non-empty, or "" if all are empty/whitespace.
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
 	}
-	return b
+	return ""
 }
 
 // credentialPriority orders categories so API-credential-like items

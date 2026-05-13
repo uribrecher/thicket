@@ -24,9 +24,9 @@ func runRm(cmd *cobra.Command, args []string) error {
 	force, _ := cmd.Flags().GetBool("force")
 	skipConfirm, _ := cmd.Flags().GetBool("yes")
 
-	// 1. Exact-slug short-circuit: preserves the muscle-memory of
-	//    `thicket rm <full-slug>` for scripts. Confirmation still
-	//    applies unless --yes is set.
+	// Exact-slug short-circuit preserves the muscle-memory of
+	// `thicket rm <full-slug>` for scripts. Confirmation still applies
+	// unless --yes is set.
 	if len(args) == 1 {
 		if err := validateSlug(args[0]); err != nil {
 			return err
@@ -37,7 +37,7 @@ func runRm(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 2. Otherwise enumerate managed workspaces and let the user pick.
+
 	workspaces, err := listManagedWorkspaces(cfg)
 	if err != nil {
 		return err

@@ -1,14 +1,7 @@
-// picker.go — bubbletea-based repo selector.
-//
-// Replaces the previous "loop of huh.Input prompts" with a single full-
-// screen view that shows:
-//   - the current selection (with the LLM's reason for each preselected
-//     entry, if any)
-//   - a search input that filters live as you type
-//   - the fuzzy matches under the cursor, navigable with ↑/↓
-//
-// One Enter on a match toggles it; one Enter on an empty input
-// confirms. Esc cancels.
+// Repo-selection bubbletea view: search box + live fuzzy matches with
+// LLM picks pre-loaded into the selection. Empty-query matches show
+// the current selection so Enter can drop entries the user can't
+// remember the exact name of.
 package tui
 
 import (
@@ -130,9 +123,15 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	// Only re-run the fuzzy matcher when the input text actually
+	// changed — arrow keys / focus events route through textinput too
+	// but leave the query alone.
+	prev := m.input.Value()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
-	m.recomputeMatches()
+	if m.input.Value() != prev {
+		m.recomputeMatches()
+	}
 	m.status = ""
 	return m, cmd
 }
@@ -265,13 +264,6 @@ func (m pickerModel) renderMatchTable() string {
 		b.WriteString(fmt.Sprintf("  %s %s %s%s\n", marker, name, desc, tail))
 	}
 	return b.String()
-}
-
-func padRight(s string, n int) string {
-	if len([]rune(s)) >= n {
-		return s
-	}
-	return s + strings.Repeat(" ", n-len([]rune(s)))
 }
 
 // ----- public entry point used by HuhSelector -----

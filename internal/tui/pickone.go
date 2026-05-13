@@ -1,12 +1,5 @@
-// pickone.go — small reusable bubbletea picker for "choose one row
-// from a table with fuzzy filtering." The picker shows:
-//
-//   - a title bar
-//   - a search input
-//   - a tabular list with cursor navigation
-//
-// Used by the init wizard for 1Password items; designed so any future
-// tabular pick-one flow (account picker, field picker, ...) can reuse it.
+// Tableized single-row picker with fuzzy filter. Title + search input
+// + tabular match list; ↑/↓ to navigate, Enter to pick.
 package tui
 
 import (
@@ -144,9 +137,14 @@ func (m pickOneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	// Only re-run the fuzzy matcher when the input text actually
+	// changed — non-text events still route through textinput.Update.
+	prev := m.input.Value()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
-	m.recompute()
+	if m.input.Value() != prev {
+		m.recompute()
+	}
 	return m, cmd
 }
 
@@ -154,8 +152,6 @@ func (m *pickOneModel) recompute() {
 	q := strings.TrimSpace(m.input.Value())
 	m.matches = m.matches[:0]
 	if q == "" {
-		// No query — show the first pickOneVisibleRows entries in
-		// natural order. Users start typing immediately.
 		for i := range m.rows {
 			if i >= pickOneVisibleRows {
 				break

@@ -38,8 +38,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	out := cmd.OutOrStdout()
+	errOut := cmd.ErrOrStderr()
 
-	// 1. Ticket source + ID parsing (fetches its own secret).
 	src, err := buildTicketSource(cmd.Context(), cfg)
 	if err != nil {
 		return err
@@ -49,7 +49,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 2. Fetch ticket
 	fmt.Fprintf(out, "fetching ticket %s...\n", id)
 	tk, err := src.Fetch(id)
 	if err != nil {
@@ -61,16 +60,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 			"    consider \"thicket start <ticket> --only repo1,repo2\" instead.")
 	}
 
-	errOut := cmd.ErrOrStderr()
-
-	// 3. Catalog
 	repos, err := loadCatalog(cfg, errOut)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "catalog: %d active repos across %v\n", len(repos), cfg.GithubOrgs)
 
-	// 4. Detect involved repos
 	var picks []detector.RepoMatch
 	err = withProgress(errOut, "looking for relevant repos", func() error {
 		var detErr error
@@ -81,7 +76,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 5. Interactive selection (or accept LLM picks)
 	selector := pickSelector(flags.noInteractive)
 	chosenNames, err := selector.SelectRepos(repos, picks)
 	if err != nil {
@@ -95,7 +89,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return errors.New("no repos selected — nothing to do")
 	}
 
-	// 6. Missing-clone gate
 	chosen, err := resolveOrClone(cmd.Context(), cfg, errOut, repos, chosenNames, selector, flags.dryRun)
 	if err != nil {
 		return err
@@ -104,7 +97,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return errors.New("no repos remain after the clone gate")
 	}
 
-	// 7. Plan
 	plan, err := buildPlan(cfg, flags, src, tk, chosen)
 	if err != nil {
 		return err
@@ -115,22 +107,20 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// 8. Create workspace
 	w := workspace.New(gitops.New())
 	if err := w.Create(plan); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "workspace ready at %s\n", plan.WorkspaceDir)
 
-	// 9. Launch claude (or print fallback)
 	if flags.noLaunch {
 		fmt.Fprintf(out, "cd %s\n", plan.WorkspaceDir)
 		return nil
 	}
+	// `--name` labels the Claude session in its prompt box, /resume
+	// picker, and the terminal window title — useful when juggling
+	// several open workspaces.
 	l := launcher.New(cfg.ClaudeBinary)
-	// Label the session after the workspace so users juggling several
-	// open Claude windows can tell them apart from the prompt box,
-	// `/resume` picker, and terminal window title.
 	l.ExtraArgs = []string{"--name", workspace.Slug(tk.SourceID, tk.Title)}
 	if err := l.Launch(plan.WorkspaceDir); err != nil {
 		if errors.Is(err, launcher.ErrMissingBinary) {

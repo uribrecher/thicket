@@ -95,6 +95,14 @@ func truncate(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
+func padRight(s string, n int) string {
+	r := []rune(s)
+	if len(r) >= n {
+		return s
+	}
+	return s + strings.Repeat(" ", n-len(r))
+}
+
 // ----- non-interactive selector -----
 
 // AutoSelector accepts the LLM picks unchanged and answers "yes" to every
