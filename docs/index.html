@@ -23,7 +23,12 @@
         crossorigin="anonymous"
         defer></script>
 
-<link rel="stylesheet" href="styles.css">
+<!-- Cache-busting via content-hash query string. Run
+     `task pages:cachebust` (or `python3 scripts/cachebust.py`)
+     whenever docs/styles.css changes; it rewrites the `?v=...`
+     stamp in place. CI enforces this — PRs that change styles.css
+     without bumping the stamp fail the `cachebust-check` workflow. -->
+<link rel="stylesheet" href="styles.css?v=51c941bf">
 
 <meta property="og:title" content="thicket — one ticket, many repos, zero ceremony">
 <meta property="og:description" content="A CLI that spawns a Claude-ready, multi-repo git workspace from a ticket.">

@@ -1,0 +1,38 @@
+# Fails the PR if docs/index.html's styles.css?v=... stamp is stale
+# relative to the current contents of docs/styles.css. The actual
+# rewrite lives in scripts/cachebust.py — this workflow just runs
+# it and then `git diff`s the result; a non-empty diff means the
+# author forgot to run `task pages:cachebust` locally before
+# pushing. Only fires on PRs that touch the relevant docs files
+# so backend-only PRs aren't slowed down.
+name: cachebust-check
+
+on:
+  pull_request:
+    paths:
+      - "docs/styles.css"
+      - "docs/index.html"
+      - "scripts/cachebust.py"
+      - ".github/workflows/cachebust-check.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Recompute the cache-busting stamp
+        run: python3 scripts/cachebust.py
+
+      - name: Fail if the stamp is out of date
+        run: |
+          if ! git diff --quiet docs/index.html; then
+            echo "::error file=docs/index.html::stale styles.css?v=... stamp"
+            echo "::error::Run \`task pages:cachebust\` locally, commit the rewritten docs/index.html, and push again."
+            git --no-pager diff docs/index.html
+            exit 1
+          fi
+          echo "stamp is current."

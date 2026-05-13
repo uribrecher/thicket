@@ -98,6 +98,14 @@ tasks:
     cmds:
       - goreleaser release --clean
 
+  pages:cachebust:
+    desc: Recompute the styles.css cache-busting hash in docs/index.html
+    # Shared with the cachebust-check CI workflow, so both paths
+    # (local + CI) compute the same stamp from the same source.
+    cmds:
+      - python3 scripts/cachebust.py
+      - git diff --stat docs/index.html || true
+
   ci:
     desc: Run everything CI runs (test + vet + lint)
     deps: [test, vet, lint]
