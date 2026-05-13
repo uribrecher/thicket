@@ -27,15 +27,18 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	firstRun := false
 	cfg, err := config.Load(cfgPath)
 	if errors.Is(err, config.ErrNoConfig) || cfg == nil {
 		d := config.Default()
 		cfg = &d
+		firstRun = true
 	} else if err != nil {
 		fmt.Fprintf(errOut, "warning: existing config at %s is invalid (%v); starting fresh.\n",
 			cfgPath, err)
 		d := config.Default()
 		cfg = &d
+		firstRun = true
 	}
 
 	// Sequential step machine so the user can press Esc at any prompt
@@ -43,7 +46,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	// step is interpreted as "go back"; on step 0 it means cancel
 	// (there's nothing earlier to return to).
 	steps := []func() error{
-		func() error { return runBaseConfigForm(cfg, out, errOut) },
+		func() error { return runBaseConfigForm(cfg, firstRun, out, errOut) },
 		func() error { return chooseClaudeBackend(cfg) },
 		func() error { return collectSecretsStep(ctx, cfg, out) },
 	}
@@ -105,17 +108,19 @@ func collectSecretsStep(ctx context.Context, cfg *config.Config, out io.Writer) 
 
 // ----- Step 1 -----
 
-func runBaseConfigForm(cfg *config.Config, out, errOut io.Writer) error {
+func runBaseConfigForm(cfg *config.Config, firstRun bool, out, errOut io.Writer) error {
 	available := availableGitHubOrgs()
 
-	// Welcome note runs in its own form so the orgs widget can switch
-	// shape (multiselect vs typed input) based on what gh tells us.
-	if err := huh.NewForm(huh.NewGroup(
-		huh.NewNote().
-			Title("Welcome to thicket").
-			Description("First time here — let's configure your workflow."),
-	)).Run(); err != nil {
-		return err
+	// Welcome note only on first run. Re-running `thicket init` to
+	// tweak settings shouldn't make you tap through a hello screen.
+	if firstRun {
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewNote().
+				Title("Welcome to thicket").
+				Description("First time here — let's configure your workflow."),
+		)).Run(); err != nil {
+			return err
+		}
 	}
 
 	if err := collectGitHubOrgs(cfg, available, out); err != nil {
