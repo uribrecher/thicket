@@ -233,10 +233,12 @@ thicket rm sc-12345-fix-inventory</code></pre>
 <!-- Post-copy modal for the "Install on macOS" button. Browsers
      can't execute shell commands on a visitor's machine, so the
      button copies the install one-liner to the clipboard and tells
-     the user exactly how to paste it into Terminal. -->
-<div id="install-modal" class="modal" role="dialog" aria-modal="true"
-     aria-labelledby="install-modal-title" hidden>
-  <div class="modal__backdrop" data-modal-close></div>
+     the user exactly how to paste it into Terminal.
+
+     Native <dialog> + showModal() gives us a real focus trap
+     (Tab/Shift+Tab cycle within the dialog), Esc-to-close, and
+     ::backdrop dimming — no manual ARIA juggling needed. -->
+<dialog id="install-modal" class="modal" aria-labelledby="install-modal-title">
   <div class="modal__panel">
     <button class="modal__close" type="button" data-modal-close
             aria-label="Close install instructions">×</button>
@@ -267,7 +269,7 @@ thicket rm sc-12345-fix-inventory</code></pre>
       <a href="#install">below</a>.
     </p>
   </div>
-</div>
+</dialog>
 
 <script>
   // Boot the asciinema player once the bundle has loaded.
@@ -341,27 +343,17 @@ thicket rm sc-12345-fix-inventory</code></pre>
   // to paste it into Terminal. (A page can't execute shell commands
   // on a visitor's machine — best a website can do is make the next
   // step impossible to miss.)
+  //
+  // Uses the native <dialog> + showModal() API, which gives us:
+  //   - focus trap (Tab/Shift+Tab cycle within the dialog)
+  //   - Esc-to-close
+  //   - the rest of the page is implicitly inert
+  //   - ::backdrop pseudo-element for dimming (styled in CSS)
   (function () {
     var btn = document.getElementById('install-btn');
     var modal = document.getElementById('install-modal');
     var cmdEl = document.getElementById('install-modal-cmd');
     if (!btn || !modal || !cmdEl) return;
-
-    var lastFocused = null;
-
-    function openModal() {
-      lastFocused = document.activeElement;
-      modal.hidden = false;
-      document.body.classList.add('modal-open');
-      var closeBtn = modal.querySelector('.modal__close');
-      if (closeBtn) closeBtn.focus();
-    }
-
-    function closeModal() {
-      modal.hidden = true;
-      document.body.classList.remove('modal-open');
-      if (lastFocused && lastFocused.focus) lastFocused.focus();
-    }
 
     btn.addEventListener('click', function () {
       var text = cmdEl.textContent;
@@ -374,14 +366,34 @@ thicket rm sc-12345-fix-inventory</code></pre>
       } else {
         legacyCopy(text);
       }
-      openModal();
+      if (typeof modal.showModal === 'function') {
+        modal.showModal();
+      } else {
+        // Very old browsers without <dialog> support. Fall back to
+        // hidden=false; no focus trap but at least the modal renders.
+        modal.removeAttribute('hidden');
+        modal.setAttribute('open', '');
+      }
+      var closeBtn = modal.querySelector('.modal__close');
+      if (closeBtn) closeBtn.focus();
     });
 
+    function closeModal() {
+      if (typeof modal.close === 'function') {
+        modal.close();
+      } else {
+        modal.setAttribute('hidden', '');
+        modal.removeAttribute('open');
+      }
+    }
+
     modal.addEventListener('click', function (e) {
-      if (e.target.hasAttribute('data-modal-close')) closeModal();
-    });
-    document.addEventListener('keydown', function (e) {
-      if (!modal.hidden && e.key === 'Escape') closeModal();
+      // Native <dialog> click events bubble from the dialog element
+      // itself when the user clicks the backdrop area (not the
+      // .modal__panel). Detect by checking the target.
+      if (e.target === modal || e.target.hasAttribute('data-modal-close')) {
+        closeModal();
+      }
     });
   })();
 

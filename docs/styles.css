@@ -184,27 +184,24 @@ pre .comment { color: var(--code-dim); }
   .star-btn { padding: 0.4rem 0.55rem; }
 }
 
-/* ===== install modal ===== */
+/* ===== install modal (native <dialog>) =====
+   The <dialog> element handles focus-trapping, Esc-to-close, and
+   the rest-of-page-inert behaviour for free when opened via
+   .showModal(). We just style the panel and the ::backdrop. */
 
-body.modal-open { overflow: hidden; }
-
-.modal[hidden] { display: none; }
 .modal {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.25rem;
+  padding: 0;
+  border: 0;
+  background: transparent;       /* the panel inside is the visible card */
+  max-width: 560px;
+  width: calc(100% - 2.5rem);
+  color: var(--text);
 }
-.modal__backdrop {
-  position: absolute;
-  inset: 0;
+.modal::backdrop {
   background: rgba(28, 39, 51, 0.55);
   backdrop-filter: blur(2px);
-  cursor: pointer;
 }
+.modal[open] { animation: modal-in 0.18s ease-out; }
 .modal__panel {
   position: relative;
   background: var(--bg);
@@ -212,10 +209,7 @@ body.modal-open { overflow: hidden; }
   border-radius: 12px;
   border: 1px solid var(--border);
   box-shadow: 0 20px 60px rgba(28, 39, 51, 0.35);
-  max-width: 560px;
-  width: 100%;
   padding: 1.5rem 1.75rem 1.25rem;
-  animation: modal-in 0.18s ease-out;
 }
 @keyframes modal-in {
   from { opacity: 0; transform: translateY(8px); }
@@ -297,10 +291,13 @@ body.modal-open { overflow: hidden; }
 .btn {
   display: inline-block;
   padding: 0.55rem 1.1rem;
+  border: 0;
   border-radius: var(--radius);
+  margin: 0.25rem;
+  font-size: 1rem;
   font-weight: 600;
   text-decoration: none;
-  margin: 0.25rem;
+  cursor: pointer;
   transition: transform 0.05s ease, background 0.15s ease, color 0.15s ease;
 }
 .btn:hover { transform: translateY(-1px); }
@@ -310,12 +307,11 @@ body.modal-open { overflow: hidden; }
 }
 .btn--primary:hover { background: #2f6841; color: #fff; }
 .btn--ghost {
+  background: transparent;
   border: 1px solid var(--border);
   color: var(--text);
 }
 .btn--ghost:hover { color: var(--green-1); border-color: var(--green-1); }
-.btn { cursor: pointer; border: 0; font-size: 1rem; }
-.btn--ghost { border: 1px solid var(--border); background: transparent; }
 .btn__icon {
   display: inline-block;
   vertical-align: -2px;
