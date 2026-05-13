@@ -73,7 +73,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// open Claude on it directly — this is the "I'm switching back to
 	// in-flight work" path. Lookup is by ticket id (not slug) so a
 	// renamed ticket still resolves to its original workspace.
-	if existing := findWorkspaceForTicket(cfg, tk.SourceID); existing != nil {
+	if existing := findWorkspaceForTicket(cfg, tk.SourceID, errOut); existing != nil {
 		fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
 		return launchClaudeIn(out, cfg, tk, existing.Path, flags.noLaunch)
 	}
@@ -142,12 +142,20 @@ func runStart(cmd *cobra.Command, args []string) error {
 // workspace whose manifest's TicketID matches the given id. Returns
 // nil when none exists. Read errors are tolerated silently — the
 // caller will hit the same dir again on the create path.
-func findWorkspaceForTicket(cfg *config.Config, ticketID string) *workspace.ManagedWorkspace {
-	workspaces, _, err := workspace.ListManaged(cfg.WorkspaceRoot)
+func findWorkspaceForTicket(cfg *config.Config, ticketID string, errOut io.Writer) *workspace.ManagedWorkspace {
+	workspaces, warnings, err := workspace.ListManaged(cfg.WorkspaceRoot)
 	if err != nil {
 		// Treat as "no existing workspace" — workspace.Create will hit
 		// the same dir read and surface the underlying error then.
 		return nil
+	}
+	// Surface per-manifest warnings here too: if a corrupt manifest
+	// hides an existing workspace from this lookup, the user is about
+	// to hit a confusing ErrExists from workspace.Create. Telling them
+	// "warning: ws-xyz: parse state: ..." right now is far more useful
+	// than the eventual mkdir-collision error.
+	for _, w := range warnings {
+		fmt.Fprintf(errOut, "warning: %v\n", w)
 	}
 	for i := range workspaces {
 		if workspaces[i].State.TicketID == ticketID {

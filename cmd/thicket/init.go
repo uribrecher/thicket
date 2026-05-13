@@ -41,12 +41,29 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		firstRun = true
 	}
 
+	// The welcome note lives outside the step machine — otherwise
+	// pressing Esc to back up to step 0 would re-display it each time,
+	// which gets annoying fast on a first-run flow.
+	if firstRun {
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewNote().
+				Title("Welcome to thicket").
+				Description("First time here — let's configure your workflow."),
+		)).Run(); err != nil {
+			if errors.Is(err, huh.ErrUserAborted) {
+				fmt.Fprintln(out, "cancelled.")
+				return nil
+			}
+			return err
+		}
+	}
+
 	// Sequential step machine so the user can press Esc at any prompt
 	// to back up to the previous step. Any huh.ErrUserAborted from a
 	// step is interpreted as "go back"; on step 0 it means cancel
 	// (there's nothing earlier to return to).
 	steps := []func() error{
-		func() error { return runBaseConfigForm(cfg, firstRun, out, errOut) },
+		func() error { return runBaseConfigForm(cfg, out, errOut) },
 		func() error {
 			announceEnvSecrets(out)
 			return chooseClaudeBackend(cfg)
@@ -109,20 +126,8 @@ func collectSecretsStep(ctx context.Context, cfg *config.Config, out io.Writer) 
 
 // ----- Step 1 -----
 
-func runBaseConfigForm(cfg *config.Config, firstRun bool, out, errOut io.Writer) error {
+func runBaseConfigForm(cfg *config.Config, out, errOut io.Writer) error {
 	available := availableGitHubOrgs()
-
-	// Welcome note only on first run. Re-running `thicket init` to
-	// tweak settings shouldn't make you tap through a hello screen.
-	if firstRun {
-		if err := huh.NewForm(huh.NewGroup(
-			huh.NewNote().
-				Title("Welcome to thicket").
-				Description("First time here — let's configure your workflow."),
-		)).Run(); err != nil {
-			return err
-		}
-	}
 
 	if err := collectGitHubOrgs(cfg, available, out); err != nil {
 		return err
