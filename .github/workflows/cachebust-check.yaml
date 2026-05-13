@@ -3,17 +3,18 @@
 # rewrite lives in scripts/cachebust.py — this workflow just runs
 # it and then `git diff`s the result; a non-empty diff means the
 # author forgot to run `task pages:cachebust` locally before
-# pushing. Only fires on PRs that touch the relevant docs files
-# so backend-only PRs aren't slowed down.
+# pushing.
+#
+# Runs on every PR (no path filter) so it can be registered as a
+# Required status check in branch protection. Path-filtered
+# workflows that don't run on irrelevant PRs leave required checks
+# stuck in "expected", blocking merge for backend-only changes.
+# The script is idempotent and fast (~5s including checkout) so
+# always-running is cheap.
 name: cachebust-check
 
 on:
   pull_request:
-    paths:
-      - "docs/styles.css"
-      - "docs/index.html"
-      - "scripts/cachebust.py"
-      - ".github/workflows/cachebust-check.yaml"
 
 permissions:
   contents: read
