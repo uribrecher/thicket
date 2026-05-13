@@ -203,16 +203,41 @@ func TestRemove_noManifest(t *testing.T) {
 	}
 }
 
-func TestSlugFromBranch(t *testing.T) {
+func TestSlug_alwaysPrefixesTicketID(t *testing.T) {
+	cases := []struct {
+		id, title, want string
+	}{
+		{"sc-65825", "freshness", "sc-65825-freshness"},
+		{"SC-65825", "Freshness", "sc-65825-freshness"},
+		{"sc-12345", "Fix inventory grouping!!", "sc-12345-fix-inventory-grouping"},
+		{"sc-1", "", "sc-1"},
+		{"", "just-a-title", "just-a-title"},
+		{"", "", "workspace"},
+		// Title contains the id — still safe: id wins as prefix.
+		{"sc-1", "sc-1 follow-up", "sc-1-sc-1-follow-up"},
+		// Non-ASCII letters are stripped; surrounding ASCII fuses.
+		{"sc-1", "café / résumé", "sc-1-caf-rsum"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"|"+tc.title, func(t *testing.T) {
+			if got := Slug(tc.id, tc.title); got != tc.want {
+				t.Errorf("Slug(%q,%q)=%q, want %q", tc.id, tc.title, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSlugify_basic(t *testing.T) {
 	cases := map[string]string{
-		"uri/sc-12345-fix-x": "sc-12345-fix-x",
-		"feature/x":          "x",
-		"plain":              "plain",
-		"a/b/c":              "c",
+		"Fix Inventory Grouping": "fix-inventory-grouping",
+		"  spaces  everywhere ":  "spaces-everywhere",
+		"under_scores/and/slashes": "under-scores-and-slashes",
+		"keep_123_digits":         "keep-123-digits",
+		"!!!":                     "",
 	}
 	for in, want := range cases {
-		if got := SlugFromBranch(in); got != want {
-			t.Errorf("slug(%q)=%q, want %q", in, got, want)
+		if got := Slugify(in); got != want {
+			t.Errorf("Slugify(%q)=%q, want %q", in, got, want)
 		}
 	}
 }

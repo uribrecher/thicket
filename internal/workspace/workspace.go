@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/uribrecher/thicket/internal/git"
@@ -202,14 +203,43 @@ func ReadState(workspaceDir string) (State, error) {
 	return st, nil
 }
 
-// SlugFromBranch derives a workspace directory name from a branch name by
-// taking the part after the last "/", which is typically the
-// `sc-12345-title` shape Shortcut produces.
-func SlugFromBranch(branch string) string {
-	for i := len(branch) - 1; i >= 0; i-- {
-		if branch[i] == '/' {
-			return branch[i+1:]
+// Slug returns the canonical workspace directory name for a ticket.
+// Format: "<lowercase-ticket-id>-<slugified-title>". Always carries the
+// ticket id so two tickets with the same title (e.g. "freshness") don't
+// collide on disk. The branch name is intentionally NOT used here —
+// Shortcut and other sources sometimes produce branch names that omit
+// the ticket id (e.g. "uri/freshness"), and we don't want the workspace
+// folder to inherit that fragility.
+func Slug(ticketID, title string) string {
+	id := strings.ToLower(strings.TrimSpace(ticketID))
+	t := Slugify(title)
+	switch {
+	case id == "" && t == "":
+		return "workspace"
+	case id == "":
+		return t
+	case t == "":
+		return id
+	}
+	return id + "-" + t
+}
+
+// Slugify converts free-form text to a lowercase, hyphen-separated
+// identifier suitable for filenames and branch names.
+func Slugify(s string) string {
+	var b strings.Builder
+	prev := '-'
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prev = r
+		case r == ' ' || r == '-' || r == '_' || r == '/' || r == '\t':
+			if prev != '-' {
+				b.WriteRune('-')
+				prev = '-'
+			}
 		}
 	}
-	return branch
+	return strings.Trim(b.String(), "-")
 }

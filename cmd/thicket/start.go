@@ -367,10 +367,12 @@ func buildPlan(cfg *config.Config, flags startFlags, src ticket.Source, tk ticke
 	}
 	if branch == "" {
 		// Last-resort default if the source has no opinion.
-		branch = fmt.Sprintf("%s-%s", strings.ToLower(strings.ReplaceAll(tk.SourceID, " ", "-")),
-			slugify(tk.Title))
+		branch = workspace.Slug(tk.SourceID, tk.Title)
 	}
-	slug := workspace.SlugFromBranch(branch)
+	// Slug is always ticket-id-prefixed, decoupled from the branch name.
+	// Branch may come from Shortcut as e.g. "uri/freshness" (no id) —
+	// we still want the workspace folder to carry "sc-65825-freshness".
+	slug := workspace.Slug(tk.SourceID, tk.Title)
 	wsDir := filepath.Join(cfg.WorkspaceRoot, slug)
 
 	g := gitops.New()
@@ -428,22 +430,3 @@ func printPlan(w io.Writer, p workspace.Plan) {
 	}
 }
 
-// slugify is a last-resort branch-naming helper used only when the ticket
-// source returns no opinion of its own.
-func slugify(s string) string {
-	var b strings.Builder
-	prev := '-'
-	for _, r := range strings.ToLower(s) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-			prev = r
-		case r == ' ' || r == '-' || r == '_' || r == '/':
-			if prev != '-' {
-				b.WriteRune('-')
-				prev = '-'
-			}
-		}
-	}
-	return strings.Trim(b.String(), "-")
-}
