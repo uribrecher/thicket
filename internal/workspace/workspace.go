@@ -107,7 +107,7 @@ func (w *Workspace) Create(p Plan) error {
 			return fmt.Errorf("add worktree for %s: %w", r.Name, err)
 		}
 		created = append(created, r)
-		progressf(p.Progress, "  %s worktree: %s\n", checkMark, r.Name)
+		progressf(p.Progress, "%s worktree: %s\n", checkMark, r.Name)
 	}
 
 	// Render and write CLAUDE.local.md
@@ -124,7 +124,7 @@ func (w *Workspace) Create(p Plan) error {
 		rollback()
 		return fmt.Errorf("write %s: %w", memory.FileName, err)
 	}
-	progressf(p.Progress, "  %s wrote %s (ticket context, %s)\n",
+	progressf(p.Progress, "%s wrote %s (ticket context, %s)\n",
 		checkMark, memory.FileName, p.Memory.TicketID)
 
 	// Write the state manifest
@@ -132,7 +132,7 @@ func (w *Workspace) Create(p Plan) error {
 		rollback()
 		return fmt.Errorf("write state: %w", err)
 	}
-	progressf(p.Progress, "  %s wrote .thicket/state.json (manifest for `thicket rm`)\n",
+	progressf(p.Progress, "%s wrote .thicket/state.json (manifest for `thicket rm`)\n",
 		checkMark)
 	return nil
 }
@@ -142,9 +142,17 @@ func (w *Workspace) Create(p Plan) error {
 // force=true tolerates dirty worktrees AND lets the caller delete a
 // directory that has no state manifest (i.e. wasn't created by thicket
 // or had its manifest deleted) — see safety note below. progress, if
-// non-nil, receives one line per teardown step (`✓ removed worktree
-// …`, `✓ deleted workspace directory …`); pass nil for silent
-// operation (tests, scripts).
+// non-nil, receives human-readable status lines as the teardown
+// proceeds:
+//
+//   - per worktree: a ✓-prefixed line on success (followed by a
+//     continuation line listing the source repo), or a ✗-prefixed
+//     line on failure;
+//   - a final ✓ for the workspace directory delete, OR a
+//     "(workspace directory preserved — re-run with --force …)"
+//     note if any worktree removal failed.
+//
+// Pass nil for silent operation (tests, scripts).
 //
 // Safety:
 //   - If any worktree refuses to be removed (e.g. dirty changes with
@@ -189,7 +197,7 @@ func (w *Workspace) removeNoManifest(workspaceDir string, force bool, progress i
 	if err := os.RemoveAll(workspaceDir); err != nil {
 		return err
 	}
-	progressf(progress, "  %s deleted workspace directory: %s (no manifest, --force)\n",
+	progressf(progress, "%s deleted workspace directory: %s (no manifest, --force)\n",
 		checkMark, workspaceDir)
 	return nil
 }
@@ -201,23 +209,23 @@ func (w *Workspace) removeWithState(workspaceDir string, st State, force bool, p
 			if firstErr == nil {
 				firstErr = fmt.Errorf("remove worktree %s: %w", r.Name, err)
 			}
-			progressf(progress, "  %s could not remove worktree %s: %v\n", crossMark, r.Name, err)
+			progressf(progress, "%s could not remove worktree %s: %v\n", crossMark, r.Name, err)
 			// keep going — best effort
 			continue
 		}
-		progressf(progress, "  %s removed worktree %s\n      from source repo %s\n",
+		progressf(progress, "%s removed worktree %s\n    from source repo %s\n",
 			checkMark, r.Name, r.SourcePath)
 	}
 	if firstErr != nil {
 		// Preserve the workspace dir so the user's uncommitted changes
 		// survive. Re-run with --force after triaging.
-		progressf(progress, "  (workspace directory preserved — re-run with --force after fixing the worktrees above)\n")
+		progressf(progress, "(workspace directory preserved — re-run with --force after fixing the worktrees above)\n")
 		return firstErr
 	}
 	if err := os.RemoveAll(workspaceDir); err != nil {
 		return err
 	}
-	progressf(progress, "  %s deleted workspace directory: %s\n", checkMark, workspaceDir)
+	progressf(progress, "%s deleted workspace directory: %s\n", checkMark, workspaceDir)
 	return nil
 }
 

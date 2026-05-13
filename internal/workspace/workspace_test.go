@@ -265,6 +265,41 @@ func TestRemove_writesProgressLines(t *testing.T) {
 	}
 }
 
+func TestRemove_writesFailureProgress(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	initRepo(t, p.Repos[1].SourcePath)
+	w := New(git.New())
+	if err := w.Create(p); err != nil {
+		t.Fatal(err)
+	}
+	// Dirty the first worktree so a non-force remove will refuse it.
+	if err := os.WriteFile(filepath.Join(p.Repos[0].WorktreePath, "dirty.txt"),
+		[]byte("uncommitted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := w.Remove(p.WorkspaceDir, false, &buf); err == nil {
+		t.Fatal("expected error when worktree removal fails")
+	}
+
+	got := buf.String()
+	for _, want := range []string{
+		"✗ could not remove worktree " + p.Repos[0].Name,
+		"workspace directory preserved",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("failure-progress output missing %q\nfull output:\n%s", want, got)
+		}
+	}
+	// The final-delete ✓ must NOT appear — the workspace was preserved.
+	if strings.Contains(got, "deleted workspace directory") {
+		t.Errorf("output should not announce delete on failure path:\n%s", got)
+	}
+}
+
 func TestRemove_noManifest_refusesWithoutForce(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "ws")
