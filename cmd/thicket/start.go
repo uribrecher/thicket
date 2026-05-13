@@ -126,6 +126,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	l := launcher.New(cfg.ClaudeBinary)
+	// Label the session after the workspace so users juggling several
+	// open Claude windows can tell them apart from the prompt box,
+	// `/resume` picker, and terminal window title.
+	l.ExtraArgs = []string{"--name", workspace.Slug(tk.SourceID, tk.Title)}
 	if err := l.Launch(plan.WorkspaceDir); err != nil {
 		if errors.Is(err, launcher.ErrMissingBinary) {
 			launcher.PrintFallback(out, plan.WorkspaceDir)

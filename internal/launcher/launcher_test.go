@@ -40,6 +40,32 @@ func TestLaunch_callsExecWithResolvedPath(t *testing.T) {
 	}
 }
 
+func TestLaunch_appendsExtraArgs(t *testing.T) {
+	tmp := t.TempDir()
+	cwdBefore, _ := os.Getwd()
+	defer func() { _ = os.Chdir(cwdBefore) }()
+
+	var gotArgv []string
+	l := &Launcher{
+		BinaryName: "claude",
+		ExtraArgs:  []string{"--name", "sc-67761-fix-x"},
+		LookPath:   func(name string) (string, error) { return "/opt/claude/claude", nil },
+		Exec: func(_ string, argv []string, _ []string) error {
+			gotArgv = argv
+			return nil
+		},
+	}
+	if err := l.Launch(tmp); err != nil {
+		t.Fatalf("launch: %v", err)
+	}
+	if len(gotArgv) != 3 ||
+		gotArgv[0] != "claude" ||
+		gotArgv[1] != "--name" ||
+		gotArgv[2] != "sc-67761-fix-x" {
+		t.Errorf("argv = %v", gotArgv)
+	}
+}
+
 func TestLaunch_missingBinary_returnsSentinel(t *testing.T) {
 	tmp := t.TempDir()
 	cwdBefore, _ := os.Getwd()

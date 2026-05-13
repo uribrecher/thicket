@@ -29,9 +29,14 @@ type ExecFn func(argv0 string, argv []string, envv []string) error
 // Launcher carries the configurable injection points.
 type Launcher struct {
 	BinaryName string
-	LookPath   LookPathFn
-	Exec       ExecFn
-	Stderr     io.Writer
+	// ExtraArgs are appended to the binary invocation, after argv[0].
+	// thicket sets these to `--name <slug>` so each workspace's Claude
+	// session is labelled in the prompt box, /resume list, and the
+	// terminal window title.
+	ExtraArgs []string
+	LookPath  LookPathFn
+	Exec      ExecFn
+	Stderr    io.Writer
 }
 
 // New returns a Launcher with production defaults.
@@ -59,7 +64,8 @@ func (l *Launcher) Launch(workspaceDir string) error {
 	if err != nil {
 		return ErrMissingBinary
 	}
-	if err := l.Exec(path, []string{l.BinaryName}, os.Environ()); err != nil {
+	argv := append([]string{l.BinaryName}, l.ExtraArgs...)
+	if err := l.Exec(path, argv, os.Environ()); err != nil {
 		return fmt.Errorf("exec claude: %w", err)
 	}
 	return nil
