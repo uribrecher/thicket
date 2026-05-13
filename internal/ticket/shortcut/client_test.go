@@ -1,8 +1,11 @@
 package shortcut
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -136,6 +139,110 @@ func TestBranchName_emptyExtra(t *testing.T) {
 	s := New("tok", "")
 	if got := s.BranchName(ticket.Ticket{}); got != "" {
 		t.Errorf("want empty, got %q", got)
+	}
+}
+
+// ----- ListAssigned -----
+
+// listAssignedServer wires up an httptest.Server that handles the three
+// endpoints ListAssigned hits. Each handler returns canned JSON; the
+// search handler asserts the request body matches what the caller is
+// expected to send.
+func listAssignedServer(t *testing.T, member memberResponse,
+	workflows []workflowResponse, stories []storyResponse) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Shortcut-Token"); got != "tok" {
+			t.Errorf("token header = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v3/member" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(member)
+		case r.URL.Path == "/api/v3/workflows" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(workflows)
+		case r.URL.Path == "/api/v3/stories/search" && r.Method == http.MethodPost:
+			body, _ := io.ReadAll(r.Body)
+			var sb searchBody
+			if err := json.Unmarshal(body, &sb); err != nil {
+				t.Errorf("decode search body: %v", err)
+			}
+			if len(sb.OwnerIDs) != 1 || sb.OwnerIDs[0] != member.ID {
+				t.Errorf("owner_ids = %v, want [%s]", sb.OwnerIDs, member.ID)
+			}
+			if sb.Archived {
+				t.Errorf("Archived = true, want false")
+			}
+			_ = json.NewEncoder(w).Encode(stories)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestListAssigned_filtersDoneArchivedAndExcludedStates(t *testing.T) {
+	member := memberResponse{ID: "user-abc"}
+	workflows := []workflowResponse{{
+		States: []workflowStateResponse{
+			{ID: 100, Name: "Ready for Dev", Type: "unstarted"},
+			{ID: 101, Name: "In Development", Type: "started"},
+			{ID: 102, Name: "In Review", Type: "started"},
+			{ID: 103, Name: "Verifying", Type: "started"},
+			{ID: 104, Name: "Completed", Type: "done"},
+		},
+	}}
+	stories := []storyResponse{
+		{ID: 1, Name: "active dev", WorkflowStateID: 101},
+		{ID: 2, Name: "in review", WorkflowStateID: 102}, // excluded by name
+		{ID: 3, Name: "verifying", WorkflowStateID: 103}, // excluded by name
+		{ID: 4, Name: "done", WorkflowStateID: 104},      // excluded by type
+		{ID: 5, Name: "archived", WorkflowStateID: 101, Archived: true},
+		{ID: 6, Name: "ready", WorkflowStateID: 100},
+		{ID: 7, Name: "unknown state", WorkflowStateID: 9999}, // not in workflow
+	}
+	srv := listAssignedServer(t, member, workflows, stories)
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d tickets, want 2 (active dev + ready)", len(got))
+	}
+	if got[0].SourceID != "sc-1" || got[0].State != "In Development" {
+		t.Errorf("first ticket = %+v", got[0])
+	}
+	if got[1].SourceID != "sc-6" || got[1].State != "Ready for Dev" {
+		t.Errorf("second ticket = %+v", got[1])
+	}
+}
+
+func TestListAssigned_unauthorizedSurfacesClearError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	_, err := New("bad", srv.URL).ListAssigned(context.Background())
+	if err == nil || !contains(err.Error(), "401") {
+		t.Fatalf("want 401 error, got %v", err)
+	}
+}
+
+func TestListAssigned_emptyStoriesNotAnError(t *testing.T) {
+	srv := listAssignedServer(t,
+		memberResponse{ID: "u"},
+		[]workflowResponse{{States: []workflowStateResponse{{ID: 1, Name: "Dev", Type: "started"}}}},
+		[]storyResponse{},
+	)
+	defer srv.Close()
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %d, want 0", len(got))
 	}
 }
 
