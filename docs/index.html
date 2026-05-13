@@ -7,7 +7,9 @@
 <meta name="description" content="thicket is a CLI that spawns a Claude-ready, multi-repo git workspace from a ticket. Pure Go, no telemetry.">
 <meta name="theme-color" content="#3a7a4d">
 
-<link rel="icon" type="image/png" href="assets/thicket.png">
+<!-- Small favicon (~41KB, 256px) instead of the 4.7MB hero splash. -->
+<link rel="icon" type="image/png" sizes="256x256" href="assets/favicon.png">
+<link rel="apple-touch-icon" sizes="256x256" href="assets/favicon.png">
 
 <!-- asciinema player 3.8.0 — pinned via SRI so a compromised CDN
      can't swap in tampered JS/CSS. Hashes regenerated whenever the
@@ -25,7 +27,12 @@
 
 <meta property="og:title" content="thicket — one ticket, many repos, zero ceremony">
 <meta property="og:description" content="A CLI that spawns a Claude-ready, multi-repo git workspace from a ticket.">
-<meta property="og:image" content="assets/thicket.png">
+<!-- Absolute URLs so social-card scrapers (Slack, Twitter, etc.) can
+     resolve the assets without inheriting the page URL context. -->
+<meta property="og:url" content="https://uribrecher.github.io/thicket/">
+<meta property="og:image" content="https://uribrecher.github.io/thicket/assets/thicket.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://uribrecher.github.io/thicket/assets/thicket.png">
 <meta property="og:type" content="website">
 </head>
 <body>
@@ -81,7 +88,15 @@
     Type the ticket id. Fuzzy-pick repos. <code>thicket</code> creates worktrees, drops a
     seeded <code>CLAUDE.local.md</code>, and launches your AI session named after the slug.
   </p>
-  <div id="asciinema-container" class="asciicast"></div>
+  <div id="asciinema-container" class="asciicast">
+    <noscript>
+      <p class="asciicast__fallback">
+        The terminal demo needs JavaScript to play. View the raw
+        recording: <a href="assets/demo.cast">demo.cast</a> (asciinema
+        v2 format — play with <code>asciinema play demo.cast</code>).
+      </p>
+    </noscript>
+  </div>
   <p class="section__caption">
     The whole flow above is one command: <code>thicket start sc-65825</code>.
     No id? <code>thicket start</code> fuzzy-picks across your assigned tickets.
@@ -256,18 +271,28 @@ thicket rm sc-12345-fix-inventory</code></pre>
 
 <script>
   // Boot the asciinema player once the bundle has loaded.
+  // If AsciinemaPlayer never showed up (CDN blocked, SRI mismatch,
+  // offline), surface the same fallback text the <noscript> block
+  // uses so the container isn't an empty void.
   window.addEventListener('load', function () {
+    var box = document.getElementById('asciinema-container');
+    if (!box) return;
     if (window.AsciinemaPlayer) {
-      AsciinemaPlayer.create('assets/demo.cast',
-        document.getElementById('asciinema-container'), {
-          cols: 92,
-          rows: 22,
-          autoPlay: true,
-          loop: true,
-          idleTimeLimit: 2,
-          theme: 'monokai',
-          fit: 'width',
-        });
+      AsciinemaPlayer.create('assets/demo.cast', box, {
+        cols: 92,
+        rows: 22,
+        autoPlay: true,
+        loop: true,
+        idleTimeLimit: 2,
+        theme: 'monokai',
+        fit: 'width',
+      });
+    } else {
+      box.innerHTML = '<p class="asciicast__fallback">' +
+        'The terminal demo couldn\'t load (asciinema-player bundle blocked or unreachable). ' +
+        'Grab the raw recording: <a href="assets/demo.cast">demo.cast</a> ' +
+        '(play locally with <code>asciinema play demo.cast</code>).' +
+        '</p>';
     }
   });
 

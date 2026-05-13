@@ -1,6 +1,6 @@
 /* Palette pulled from the splash: forest greens + a stripe of navy
    blue, on a soft cream background. Typography is a clean system
-   sans with a mono-space terminal accent. */
+   sans with a monospace terminal accent. */
 :root {
   --bg:        #faf7f0;
   --bg-soft:   #f1ecdd;
@@ -361,6 +361,14 @@ body.modal-open { overflow: hidden; }
   box-shadow: 0 4px 20px rgba(28, 39, 51, 0.08);
 }
 .asciicast .ap-player { background: var(--code-bg) !important; }
+.asciicast__fallback {
+  margin: 0;
+  padding: 1.25rem 1.5rem;
+  color: var(--code-text);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+.asciicast__fallback a { color: var(--green-2); }
 
 /* ===== feature grid ===== */
 
