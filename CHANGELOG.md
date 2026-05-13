@@ -21,4 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `op` call via `--account <uuid>`.
 - `CLAUDE.local.md` workspace memory file.
 - Atomic-ish workspace creation with rollback on failure.
-- GoReleaser-based cross-compile for darwin/linux × amd64/arm64.
+- GoReleaser-based cross-compile for darwin/linux × amd64/arm64 published
+  to GitHub Releases.
+- `Taskfile.yaml` with `build`, `test`, `lint`, `release:*`, `ci`, etc.
+  Run `task --list` to see the full set. `task build` produces a binary
+  at `bin/thicket` with version/commit/date baked in.

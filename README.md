@@ -23,27 +23,26 @@ End result: `thicket start sc-12345` → two prompts → you're coding.
 
 ## Install
 
-### Homebrew (macOS, Linux)
+### Pre-built binary (macOS, Linux)
 
-```sh
-brew install uribrecher/thicket/thicket
-```
-
-### Manual
-
-Download a binary from
-[the latest release](https://github.com/uribrecher/thicket/releases/latest)
-and drop it on your `$PATH`.
+Download from
+[the latest GitHub release](https://github.com/uribrecher/thicket/releases/latest)
+(`thicket_<version>_<os>_<arch>.tar.gz`), extract, and drop the `thicket`
+binary on your `$PATH`.
 
 ### From source
 
 ```sh
 git clone https://github.com/uribrecher/thicket
 cd thicket
+task build           # produces ./bin/thicket
+# or
 go install ./cmd/thicket
 ```
 
-Requires Go 1.23+, `git`, and [`gh`](https://cli.github.com/) on `$PATH`.
+Requires Go 1.23+, `git`, [`gh`](https://cli.github.com/), and optionally
+[`task`](https://taskfile.dev/) on `$PATH`. See `task --list` for the full
+set of dev tasks.
 
 ## Quickstart
 
