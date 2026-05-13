@@ -47,7 +47,10 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	// (there's nothing earlier to return to).
 	steps := []func() error{
 		func() error { return runBaseConfigForm(cfg, firstRun, out, errOut) },
-		func() error { return chooseClaudeBackend(cfg) },
+		func() error {
+			announceEnvSecrets(out)
+			return chooseClaudeBackend(cfg)
+		},
 		func() error { return collectSecretsStep(ctx, cfg, out) },
 	}
 	i := 0
@@ -91,11 +94,9 @@ func runInit(cmd *cobra.Command, _ []string) error {
 // coverage and skip, or run the manager picker + per-secret collection.
 func collectSecretsStep(ctx context.Context, cfg *config.Config, out io.Writer) error {
 	if allSecretsCoveredByEnv(cfg) {
-		fmt.Fprintln(out, "  ✓ found $SHORTCUT_API_TOKEN in env")
-		if cfg.ClaudeBackend == "api" {
-			fmt.Fprintln(out, "  ✓ found $ANTHROPIC_API_KEY in env")
-		}
-		fmt.Fprintln(out, "  All secrets covered by env vars — no password manager needed.")
+		// Env-var detection was already announced before the backend
+		// picker; here we just confirm the conclusion.
+		fmt.Fprintln(out, "  All required secrets covered by env vars — no password manager needed.")
 		cfg.Passwords.Manager = "env"
 		return nil
 	}
@@ -227,6 +228,17 @@ func collectGitHubOrgs(cfg *config.Config, available []string, out io.Writer) er
 	}
 	cfg.GithubOrgs = chosen
 	return nil
+}
+
+// announceEnvSecrets prints which credential env vars are currently
+// set so the user sees that detection happened *before* the backend
+// picker — useful context for choosing cli vs api.
+func announceEnvSecrets(out io.Writer) {
+	for _, v := range []string{"SHORTCUT_API_TOKEN", "ANTHROPIC_API_KEY"} {
+		if os.Getenv(v) != "" {
+			fmt.Fprintf(out, "  ✓ found $%s in env\n", v)
+		}
+	}
 }
 
 // allSecretsCoveredByEnv reports whether every secret thicket would
