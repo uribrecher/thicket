@@ -98,7 +98,7 @@ func runBaseConfigForm(cfg *config.Config, out, errOut io.Writer) error {
 	if err := huh.NewForm(huh.NewGroup(
 		huh.NewNote().
 			Title("Welcome to thicket").
-			Description("Walk through the prerequisites once. You can re-run `thicket init` any time to change values.\n\nThicket never asks you to paste a raw API token — point it at your password manager and we fetch on demand."),
+			Description("First time here — let's configure your workflow."),
 	)).Run(); err != nil {
 		return err
 	}
