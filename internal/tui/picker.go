@@ -45,7 +45,7 @@ var (
 type pickerModel struct {
 	// Static inputs
 	repos      []catalog.Repo
-	names      []string // sorted, for fuzzy.Find
+	names      []string // catalog order; fuzzy.Find re-ranks per query
 	nameSet    map[string]bool
 	descByName map[string]string
 	picks      map[string]detector.RepoMatch
