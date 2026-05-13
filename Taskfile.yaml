@@ -38,6 +38,9 @@ tasks:
 
   install:
     desc: go install the binary into $GOBIN / $GOPATH/bin
+    # If you see "cannot install, GOBIN must be an absolute path", your
+    # Go env config has GOBIN with a literal ~. Fix it once with:
+    #   go env -w GOBIN="$HOME/go/bin"
     cmds:
       - go install -ldflags "{{.LDFLAGS}}" {{.MAIN}}
 

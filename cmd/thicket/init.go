@@ -87,18 +87,66 @@ func runInit(cmd *cobra.Command, _ []string) error {
 // ----- Step 1 -----
 
 func runBaseConfigForm(cfg *config.Config) error {
-	orgs := strings.Join(cfg.GithubOrgs, ",")
+	available := availableGitHubOrgs()
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Welcome to thicket").
-				Description("Walk through the prerequisites once. You can re-run `thicket init` any time to change values.\n\nThicket never asks you to paste a raw API token. Instead, you point it at your password manager and we fetch on demand."),
-		),
-		huh.NewGroup(
+	// Welcome note runs in its own form so the orgs widget can switch
+	// shape (multiselect vs typed input) based on what gh tells us.
+	if err := huh.NewForm(huh.NewGroup(
+		huh.NewNote().
+			Title("Welcome to thicket").
+			Description("Walk through the prerequisites once. You can re-run `thicket init` any time to change values.\n\nThicket never asks you to paste a raw API token — point it at your password manager and we fetch on demand."),
+	)).Run(); err != nil {
+		return err
+	}
+
+	if err := collectGitHubOrgs(cfg, available); err != nil {
+		return err
+	}
+
+	// Paths come last so we don't make the user re-pick everything if
+	// gh enumeration was slow.
+	if err := huh.NewForm(huh.NewGroup(
+		huh.NewInput().
+			Title("Where do your repo clones live? (repos_root)").
+			Value(&cfg.ReposRoot),
+		huh.NewInput().
+			Title("Where should new workspaces be created? (workspace_root)").
+			Value(&cfg.WorkspaceRoot),
+	)).Run(); err != nil {
+		return err
+	}
+
+	fillDefaults(cfg)
+	warnAboutEmptyOrgs(cfg.GithubOrgs)
+	return nil
+}
+
+// availableGitHubOrgs queries the gh user's org memberships. Returns
+// nil on any error so the caller falls back to free-text input.
+func availableGitHubOrgs() []string {
+	out, err := exec.Command("gh", "api", "user/orgs", "--jq", ".[].login").Output()
+	if err != nil {
+		return nil
+	}
+	var orgs []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			orgs = append(orgs, t)
+		}
+	}
+	return orgs
+}
+
+// collectGitHubOrgs shows a multiselect over the user's actual gh
+// memberships when available. Falls back to free-text input if gh
+// returned nothing useful (not auth'd, offline, no org memberships).
+func collectGitHubOrgs(cfg *config.Config, available []string) error {
+	if len(available) == 0 {
+		var orgs string
+		err := huh.NewForm(huh.NewGroup(
 			huh.NewInput().
-				Title("GitHub orgs").
-				Description("Comma-separated list (e.g. sentrasec,my-org)").
+				Title("GitHub orgs to scan for repos").
+				Description("Comma-separated. (Could not list your gh memberships — type the names.)").
 				Value(&orgs).
 				Validate(func(s string) error {
 					if strings.TrimSpace(s) == "" {
@@ -106,20 +154,46 @@ func runBaseConfigForm(cfg *config.Config) error {
 					}
 					return nil
 				}),
-			huh.NewInput().
-				Title("Where do your repo clones live? (repos_root)").
-				Value(&cfg.ReposRoot),
-			huh.NewInput().
-				Title("Where should new workspaces be created? (workspace_root)").
-				Value(&cfg.WorkspaceRoot),
-		),
-	)
-	if err := form.Run(); err != nil {
+		)).Run()
+		if err != nil {
+			return err
+		}
+		cfg.GithubOrgs = splitCSV(orgs)
+		return nil
+	}
+
+	// Pre-select any previously-saved orgs that are still available.
+	already := make(map[string]bool, len(cfg.GithubOrgs))
+	for _, o := range cfg.GithubOrgs {
+		already[o] = true
+	}
+	options := make([]huh.Option[string], 0, len(available))
+	preselected := []string{}
+	for _, o := range available {
+		options = append(options, huh.NewOption(o, o))
+		if already[o] {
+			preselected = append(preselected, o)
+		}
+	}
+
+	chosen := preselected
+	if err := huh.NewForm(huh.NewGroup(
+		huh.NewMultiSelect[string]().
+			Title("GitHub orgs to scan for repos").
+			Description("space toggles  ·  type to filter  ·  enter confirms").
+			Options(options...).
+			Value(&chosen).
+			Filterable(true).
+			Validate(func(s []string) error {
+				if len(s) == 0 {
+					return errors.New("pick at least one org")
+				}
+				return nil
+			}),
+	)).Run(); err != nil {
 		return err
 	}
-	cfg.GithubOrgs = splitCSV(orgs)
-	fillDefaults(cfg)
-	warnAboutEmptyOrgs(cfg.GithubOrgs)
+	cfg.GithubOrgs = chosen
 	return nil
 }
 
