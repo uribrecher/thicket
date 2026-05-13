@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   local `claude` binary — no Anthropic API key needed (handy for
   users on a Claude Enterprise subscription). Init wizard skips the
   Anthropic key slot entirely when `claude_backend = cli`.
+- `SHORTCUT_API_TOKEN` and `ANTHROPIC_API_KEY` env vars short-circuit
+  the password-manager lookup at runtime; `thicket init` skips those
+  slots when the env vars are already set. `thicket doctor` reports
+  the override.
 - `CLAUDE.local.md` workspace memory file.
 - Atomic-ish workspace creation with rollback on failure.
 - GoReleaser-based cross-compile for darwin/linux × amd64/arm64 published

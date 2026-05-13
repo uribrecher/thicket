@@ -152,6 +152,18 @@ account picker → item autocomplete → field picker. The previous slot's
 account is offered as the default for the next, so single-account users
 just press Enter and multi-account users can switch per secret.
 
+### Env-var overrides
+
+Two env vars always short-circuit the password manager at runtime:
+
+- `SHORTCUT_API_TOKEN` — used as the Shortcut token if set
+- `ANTHROPIC_API_KEY` — used as the Anthropic key if set (irrelevant when
+  `claude_backend = "cli"`)
+
+If either is set when you run `thicket init`, the corresponding slot is
+skipped with a notice. Useful for CI, one-off runs, and the
+`SHORTCUT_API_TOKEN=… thicket start sc-123` quick-test pattern.
+
 `thicket doctor` verifies the CLI is installed, the vault is unlocked, and
 each reference resolves to a value — without ever showing the value.
 

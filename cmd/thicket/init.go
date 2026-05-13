@@ -222,15 +222,38 @@ type secretSlot struct {
 }
 
 func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Manager) error {
-	slots := []secretSlot{
-		{"Shortcut API token", &cfg.Passwords.ShortcutTokenRef, &cfg.Passwords.ShortcutTokenAccount},
+	// All candidate slots, paired with the env var that would
+	// short-circuit them at runtime.
+	type candidate struct {
+		slot   secretSlot
+		envVar string
+	}
+	candidates := []candidate{
+		{secretSlot{"Shortcut API token", &cfg.Passwords.ShortcutTokenRef, &cfg.Passwords.ShortcutTokenAccount}, "SHORTCUT_API_TOKEN"},
 	}
 	// Only ask for the Anthropic key when the API backend is configured.
 	// Under the CLI backend the local `claude` binary handles auth.
 	if cfg.ClaudeBackend == "api" {
-		slots = append(slots, secretSlot{
-			"Anthropic API key", &cfg.Passwords.AnthropicKeyRef, &cfg.Passwords.AnthropicKeyAccount,
+		candidates = append(candidates, candidate{
+			secretSlot{"Anthropic API key", &cfg.Passwords.AnthropicKeyRef, &cfg.Passwords.AnthropicKeyAccount},
+			"ANTHROPIC_API_KEY",
 		})
+	}
+
+	// Filter: skip any slot whose env var is currently set. The env var
+	// also wins at runtime via fetchSecret, so we don't need a stored
+	// reference for it.
+	var slots []secretSlot
+	for _, c := range candidates {
+		if v := os.Getenv(c.envVar); v != "" {
+			fmt.Printf("\n  ℹ $%s is set — skipping %s setup (env var wins at runtime).\n",
+				c.envVar, c.slot.label)
+			continue
+		}
+		slots = append(slots, c.slot)
+	}
+	if len(slots) == 0 {
+		return nil
 	}
 
 	// 1Password gets the nice account-per-slot + item/field picker.

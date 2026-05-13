@@ -152,16 +152,49 @@ func readStartFlags(cmd *cobra.Command) (startFlags, error) {
 	}, nil
 }
 
-// fetchSecret builds a freshly-scoped Manager for one secret and resolves
-// its value. Each secret can carry its own 1Password account, so we
-// construct on demand instead of sharing a single manager across the
-// whole `start` command.
-func fetchSecret(ctx context.Context, cfg *config.Config, ref, account string) (string, error) {
+// secretKind identifies which logical secret we're resolving.
+type secretKind int
+
+const (
+	secretShortcut secretKind = iota
+	secretAnthropic
+)
+
+// envVarFor returns the canonical env-var name for a secret. When that
+// env var is set, it short-circuits the password-manager fetch — useful
+// for CI, one-off debugging, and Claude-Enterprise users who only need
+// to set ANTHROPIC_API_KEY for a single run.
+func envVarFor(k secretKind) string {
+	switch k {
+	case secretShortcut:
+		return "SHORTCUT_API_TOKEN"
+	case secretAnthropic:
+		return "ANTHROPIC_API_KEY"
+	}
+	return ""
+}
+
+// fetchSecret resolves a secret using the highest-priority source
+// available: env var → password manager. Each manager call is
+// constructed fresh with the secret's own 1Password account so different
+// secrets can live in different accounts.
+func fetchSecret(ctx context.Context, cfg *config.Config, kind secretKind) (string, error) {
+	if v := os.Getenv(envVarFor(kind)); v != "" {
+		return v, nil
+	}
 	if cfg.Passwords.Manager == "" {
 		return "", errors.New("no password manager configured — run `thicket init`")
 	}
+	var ref, account string
+	switch kind {
+	case secretShortcut:
+		ref, account = cfg.Passwords.ShortcutTokenRef, cfg.Passwords.ShortcutTokenAccount
+	case secretAnthropic:
+		ref, account = cfg.Passwords.AnthropicKeyRef, cfg.Passwords.AnthropicKeyAccount
+	}
 	if ref == "" {
-		return "", errors.New("reference not configured — run `thicket init`")
+		return "", fmt.Errorf("reference not configured — set $%s or run `thicket init`",
+			envVarFor(kind))
 	}
 	mgr, err := secrets.New(cfg.Passwords.Manager, secrets.Options{
 		OnePasswordAccount: account,
@@ -175,8 +208,7 @@ func fetchSecret(ctx context.Context, cfg *config.Config, ref, account string) (
 func buildTicketSource(ctx context.Context, cfg *config.Config) (ticket.Source, error) {
 	switch cfg.TicketSource {
 	case "shortcut":
-		token, err := fetchSecret(ctx, cfg,
-			cfg.Passwords.ShortcutTokenRef, cfg.Passwords.ShortcutTokenAccount)
+		token, err := fetchSecret(ctx, cfg, secretShortcut)
 		if err != nil {
 			return nil, fmt.Errorf("fetch shortcut token: %w", err)
 		}
@@ -258,8 +290,7 @@ func buildClaudeDetector(ctx context.Context, cfg *config.Config) (detector.Dete
 		}
 		return detector.NewClaudeCLI(bin, cfg.ClaudeModel), nil
 	case "api":
-		key, err := fetchSecret(ctx, cfg,
-			cfg.Passwords.AnthropicKeyRef, cfg.Passwords.AnthropicKeyAccount)
+		key, err := fetchSecret(ctx, cfg, secretAnthropic)
 		if err != nil {
 			return nil, fmt.Errorf("fetch anthropic key: %w", err)
 		}

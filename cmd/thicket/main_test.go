@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/uribrecher/thicket/internal/config"
 )
 
 func runCmd(t *testing.T, args ...string) (string, string, error) {
@@ -57,5 +60,49 @@ func TestUnknownSubcommand_errors(t *testing.T) {
 	_, _, err := runCmd(t, "nonsense")
 	if err == nil {
 		t.Fatal("expected error for unknown command")
+	}
+}
+
+func TestFetchSecret_envVarOverrideShortcuts(t *testing.T) {
+	t.Setenv("SHORTCUT_API_TOKEN", "from-env")
+	cfg := &config.Config{} // no manager configured at all
+	got, err := fetchSecret(context.Background(), cfg, secretShortcut)
+	if err != nil {
+		t.Fatalf("fetchSecret: %v", err)
+	}
+	if got != "from-env" {
+		t.Errorf("got %q, want %q", got, "from-env")
+	}
+}
+
+func TestFetchSecret_envVarOverride_forAnthropic(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "k-from-env")
+	cfg := &config.Config{}
+	got, err := fetchSecret(context.Background(), cfg, secretAnthropic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "k-from-env" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestFetchSecret_noEnvAndNoManager_errors(t *testing.T) {
+	// Defensive: explicitly clear the override env vars in case the dev
+	// shell has them set, so the fall-through path is exercised.
+	t.Setenv("SHORTCUT_API_TOKEN", "")
+	cfg := &config.Config{}
+	_, err := fetchSecret(context.Background(), cfg, secretShortcut)
+	if err == nil || !strings.Contains(err.Error(), "manager") {
+		t.Errorf("want manager-not-configured error, got %v", err)
+	}
+}
+
+func TestEnvVarFor_knownKinds(t *testing.T) {
+	if got := envVarFor(secretShortcut); got != "SHORTCUT_API_TOKEN" {
+		t.Errorf("shortcut env = %q", got)
+	}
+	if got := envVarFor(secretAnthropic); got != "ANTHROPIC_API_KEY" {
+		t.Errorf("anthropic env = %q", got)
 	}
 }

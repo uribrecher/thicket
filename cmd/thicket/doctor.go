@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 
 	"github.com/spf13/cobra"
@@ -117,20 +118,29 @@ func checkSecrets(ctx context.Context, c *config.Config) []check {
 		backend = "cli"
 	}
 	type secCheck struct {
-		label, ref, account string
-		skip                bool
+		label, envVar, ref, account string
+		skip                        bool
 	}
 	checks := []secCheck{
-		{"shortcut token", c.Passwords.ShortcutTokenRef, c.Passwords.ShortcutTokenAccount, false},
-		{"anthropic key", c.Passwords.AnthropicKeyRef, c.Passwords.AnthropicKeyAccount, backend == "cli"},
+		{"shortcut token", "SHORTCUT_API_TOKEN",
+			c.Passwords.ShortcutTokenRef, c.Passwords.ShortcutTokenAccount, false},
+		{"anthropic key", "ANTHROPIC_API_KEY",
+			c.Passwords.AnthropicKeyRef, c.Passwords.AnthropicKeyAccount, backend == "cli"},
 	}
 	for _, sec := range checks {
 		if sec.skip {
 			out = append(out, ok(sec.label, "skipped (claude_backend=cli)"))
 			continue
 		}
+		// Env-var override wins at runtime, so doctor reports it the
+		// same way `start` will use it.
+		if v := os.Getenv(sec.envVar); v != "" {
+			out = append(out, ok(sec.label, "from $"+sec.envVar))
+			continue
+		}
 		if sec.ref == "" {
-			out = append(out, fail(sec.label, "no reference set — run `thicket init`"))
+			out = append(out, fail(sec.label,
+				"no reference set — set $"+sec.envVar+" or run `thicket init`"))
 			continue
 		}
 		mgr, err := secrets.New(c.Passwords.Manager, secrets.Options{
