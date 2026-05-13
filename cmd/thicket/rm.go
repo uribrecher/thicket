@@ -220,9 +220,9 @@ func pickWorkspaceForRm(workspaces []managedWorkspace, prefilter string) (*manag
 		}
 		return nil, err
 	}
-	for _, w := range workspaces {
-		if w.slug == key {
-			return &w, nil
+	for i := range workspaces {
+		if workspaces[i].slug == key {
+			return &workspaces[i], nil
 		}
 	}
 	return nil, fmt.Errorf("picked workspace not found: %s", key)

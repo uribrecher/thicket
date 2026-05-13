@@ -39,7 +39,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Step 1: paths, orgs (no secrets here — trust gained gradually).
-	if err := runBaseConfigForm(cfg); err != nil {
+	if err := runBaseConfigForm(cfg, errOut); err != nil {
 		return err
 	}
 
@@ -79,7 +79,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	if err := os.MkdirAll(cfg.WorkspaceRoot, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not create workspace_root %s: %v\n",
+		fmt.Fprintf(errOut, "warning: could not create workspace_root %s: %v\n",
 			cfg.WorkspaceRoot, err)
 	}
 
@@ -90,7 +90,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 // ----- Step 1 -----
 
-func runBaseConfigForm(cfg *config.Config) error {
+func runBaseConfigForm(cfg *config.Config, errOut io.Writer) error {
 	available := availableGitHubOrgs()
 
 	// Welcome note runs in its own form so the orgs widget can switch
@@ -121,7 +121,7 @@ func runBaseConfigForm(cfg *config.Config) error {
 	}
 
 	fillDefaults(cfg)
-	warnAboutEmptyOrgs(cfg.GithubOrgs)
+	warnAboutEmptyOrgs(errOut, cfg.GithubOrgs)
 	return nil
 }
 
@@ -206,13 +206,13 @@ func collectGitHubOrgs(cfg *config.Config, available []string) error {
 // the orgs the gh user actually belongs to). If gh itself errors, we
 // say so honestly instead of pretending every org is empty — a missing
 // `gh auth login` is a different problem than a typo'd org name.
-func warnAboutEmptyOrgs(orgs []string) {
+func warnAboutEmptyOrgs(errOut io.Writer, orgs []string) {
 	var empties []string
 	for _, org := range orgs {
 		out, err := exec.Command("gh", "repo", "list", org, "--limit", "1", "--json", "name").Output()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\nwarning: could not query org %q via gh: %v\n", org, err)
-			fmt.Fprintln(os.Stderr, "  (run `gh auth status` to check; thicket won't be able to list repos until this is fixed)")
+			fmt.Fprintf(errOut, "\nwarning: could not query org %q via gh: %v\n", org, err)
+			fmt.Fprintln(errOut, "  (run `gh auth status` to check; thicket won't be able to list repos until this is fixed)")
 			return
 		}
 		trimmed := strings.TrimSpace(string(out))
@@ -223,15 +223,15 @@ func warnAboutEmptyOrgs(orgs []string) {
 	if len(empties) == 0 {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "\nwarning: no visible repos in %v\n", empties)
+	fmt.Fprintf(errOut, "\nwarning: no visible repos in %v\n", empties)
 	if memberships, err := exec.Command("gh", "api", "user/orgs", "--jq", ".[].login").Output(); err == nil {
 		got := strings.TrimSpace(string(memberships))
 		if got != "" {
-			fmt.Fprintf(os.Stderr, "  orgs your gh user belongs to: %s\n",
+			fmt.Fprintf(errOut, "  orgs your gh user belongs to: %s\n",
 				strings.Join(strings.Split(got, "\n"), ", "))
 		}
 	}
-	fmt.Fprintln(os.Stderr, "  edit ~/.config/thicket/config.toml or re-run `thicket init` to fix.")
+	fmt.Fprintln(errOut, "  edit ~/.config/thicket/config.toml or re-run `thicket init` to fix.")
 }
 
 func fillDefaults(cfg *config.Config) {
