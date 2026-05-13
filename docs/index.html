@@ -58,7 +58,7 @@
   <h1 class="hero__tagline">One ticket. Many repos. Zero ceremony.</h1>
   <p class="hero__sub">
     <code>thicket</code> spawns a Claude-ready, multi-repo git worktree workspace from a single ticket —
-    so you stop ferrying context between Linear, GitHub, and your terminal.
+    so you stop ferrying context between your ticket tracker, GitHub, and your terminal.
   </p>
 
   <p class="hero__ctas">
@@ -147,12 +147,14 @@
     </li>
 
     <li class="feature">
-      <h3>Self-update, opt-out</h3>
+      <h3>Parallel sessions, no collisions</h3>
       <p>
-        Most commands run a quick "is there a newer release?" probe (24h cached, 2s timeout).
-        TTY users get a confirm prompt; SHA-256 verified before swap. Set
-        <code>THICKET_NO_UPDATE_CHECK=1</code> to silence entirely. Brew / Nix / <code>go
-        install</code> users get a copy-paste hint instead of an in-place replace.
+        Each workspace is its own git worktree at its own filesystem path — not a
+        branch checkout in your source clone. Open N tickets in N terminals (or N
+        Claude sessions) at once, each on its own branch, with zero
+        <code>git stash</code> / <code>git checkout</code> thrashing. Source clones
+        stay clean on their default branch; worktrees share the source's
+        <code>.git</code> so creation is instant and storage is cheap.
       </p>
     </li>
 
@@ -254,20 +256,21 @@ thicket rm sc-12345-fix-inventory</code></pre>
       dropping the binary into <code>$HOME/.local/bin</code>.
     </p>
 
-    <pre class="modal__cmd"><code id="install-modal-cmd">curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh</code></pre>
+    <div class="modal__cmd-wrap">
+      <pre class="modal__cmd"><code id="install-modal-cmd">curl -fsSL https://github.com/uribrecher/thicket/releases/latest/download/install.sh | sh</code></pre>
+      <button id="modal-copy-btn" class="modal__copy" type="button"
+              aria-label="Copy install command to clipboard"
+              title="Copy command">
+        <span class="modal__copy-icon" aria-hidden="true">⧉</span>
+      </button>
+      <span id="modal-copy-status" class="visually-hidden" aria-live="polite"></span>
+    </div>
 
     <ol class="modal__steps">
       <li><kbd>⌘</kbd> + <kbd>Space</kbd> → type “Terminal” → <kbd>Enter</kbd></li>
       <li><kbd>⌘</kbd> + <kbd>V</kbd> to paste</li>
       <li><kbd>Enter</kbd></li>
     </ol>
-
-    <p class="modal__footer">
-      Or copy from your password manager / clipboard manager — the
-      command is just the one-liner above. Other install paths
-      (<code>go install</code>, manual tarball) are
-      <a href="#install">below</a>.
-    </p>
   </div>
 </dialog>
 
@@ -395,6 +398,52 @@ thicket rm sc-12345-fix-inventory</code></pre>
         closeModal();
       }
     });
+
+    // Secondary copy button next to the command. Useful when the
+    // initial automatic clipboard write failed (denied permission /
+    // non-secure context) or when the user just wants to re-copy.
+    var copyBtn = document.getElementById('modal-copy-btn');
+    if (copyBtn) {
+      var icon = copyBtn.querySelector('.modal__copy-icon');
+      var status = document.getElementById('modal-copy-status');
+      // Track the pending "reset to ⧉ / clear status" timer so
+      // rapid successive clicks cancel the previous one instead of
+      // racing to reset the icon mid-feedback.
+      var resetTimer = null;
+      copyBtn.addEventListener('click', function () {
+        var text = cmdEl.textContent;
+        var done = function (ok) {
+          if (resetTimer) {
+            clearTimeout(resetTimer);
+            resetTimer = null;
+          }
+          var symbol = ok ? '✓' : '✗';
+          var message = ok ? 'Copied' : 'Copy failed';
+          if (icon) icon.textContent = symbol;
+          if (status) {
+            // aria-live regions only announce on text-content change.
+            // When the same message would be set twice in a row,
+            // clear it first so the mutation is detected and the
+            // screen reader re-announces.
+            status.textContent = '';
+            status.textContent = message;
+          }
+          resetTimer = setTimeout(function () {
+            if (icon) icon.textContent = '⧉';
+            if (status) status.textContent = '';
+            resetTimer = null;
+          }, 1500);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(
+            function () { done(true); },
+            function () { done(legacyCopy(text)); }
+          );
+        } else {
+          done(legacyCopy(text));
+        }
+      });
+    }
   })();
 
 </script>
