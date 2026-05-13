@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.1.4] - 2026-05-14
+
+`thicket start` and `thicket rm` are now transparent about what
+they're about to do and what they're doing — no more "press Enter
+and pray". Plus a small CI-infra change so the cache-busting
+check can be enforced as a Required status check on `main`.
+
 ### Added
 
 - **`thicket start`: plan preview + confirm + per-step progress.**
