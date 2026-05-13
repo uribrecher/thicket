@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -35,6 +36,13 @@ type Plan struct {
 	Branch       string
 	Repos        []PlanRepo
 	Memory       memory.Input
+
+	// Progress, when non-nil, receives one line per materialization
+	// step (`✓ worktree: …`, `✓ wrote CLAUDE.local.md (…)`, etc.).
+	// Lets the CLI stream feedback during a multi-second `Create`
+	// without leaking presentation concerns into the workspace
+	// package. Leave nil for silent operation (tests, scripts).
+	Progress io.Writer
 }
 
 // State is the persisted manifest written into <workspace>/.thicket/state.json.
@@ -99,6 +107,7 @@ func (w *Workspace) Create(p Plan) error {
 			return fmt.Errorf("add worktree for %s: %w", r.Name, err)
 		}
 		created = append(created, r)
+		progressf(p.Progress, "  %s worktree: %s\n", checkMark, r.Name)
 	}
 
 	// Render and write CLAUDE.local.md
@@ -115,13 +124,31 @@ func (w *Workspace) Create(p Plan) error {
 		rollback()
 		return fmt.Errorf("write %s: %w", memory.FileName, err)
 	}
+	progressf(p.Progress, "  %s wrote %s (ticket context, %s)\n",
+		checkMark, memory.FileName, p.Memory.TicketID)
 
 	// Write the state manifest
 	if err := writeState(p); err != nil {
 		rollback()
 		return fmt.Errorf("write state: %w", err)
 	}
+	progressf(p.Progress, "  %s wrote .thicket/state.json (manifest for `thicket rm`)\n",
+		checkMark)
 	return nil
+}
+
+// checkMark is the inline progress glyph. Kept as a package-level
+// const so a future "ascii-only" mode (no Unicode) is a one-line
+// switch.
+const checkMark = "✓"
+
+// progressf is a nil-safe Fprintf — drops silently when Plan.Progress
+// is unset (the package's default; tests + scripts get no chatter).
+func progressf(w io.Writer, format string, args ...any) {
+	if w == nil {
+		return
+	}
+	fmt.Fprintf(w, format, args...)
 }
 
 // Remove tears down the workspace at workspaceDir by removing every

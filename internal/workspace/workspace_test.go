@@ -102,6 +102,44 @@ func TestCreate_happyPath(t *testing.T) {
 	}
 }
 
+func TestCreate_writesProgressLines(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	initRepo(t, p.Repos[1].SourcePath)
+
+	var buf bytes.Buffer
+	p.Progress = &buf
+
+	if err := New(git.New()).Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got := buf.String()
+	// One ✓ per worktree + memory file + state manifest.
+	for _, want := range []string{
+		"✓ worktree: " + p.Repos[0].Name,
+		"✓ worktree: " + p.Repos[1].Name,
+		"✓ wrote " + memory.FileName,
+		"✓ wrote .thicket/state.json",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("progress output missing %q\nfull output:\n%s", want, got)
+		}
+	}
+}
+
+func TestCreate_nilProgressIsSilent(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	initRepo(t, p.Repos[1].SourcePath)
+	// Plan.Progress left nil — must not panic.
+	if err := New(git.New()).Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+}
+
 func TestCreate_collisionReturnsErrExists(t *testing.T) {
 	root := t.TempDir()
 	p := basePlan(root)

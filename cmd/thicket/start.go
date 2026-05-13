@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
 	"github.com/uribrecher/thicket/internal/catalog"
@@ -150,16 +151,41 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	printPlan(out, plan, flags.dryRun)
 	if flags.dryRun {
-		printPlan(out, plan)
 		return nil
 	}
+
+	// Last gate before we touch disk. --no-interactive skips
+	// (scripts/CI explicitly opted out of prompts upstream); a TTY
+	// confirm wraps the same huh widget as `thicket rm` so the
+	// muscle memory carries over.
+	if !flags.noInteractive {
+		confirmed := false
+		err := huh.NewConfirm().
+			Title("Create this workspace?").
+			Description("Creates the worktrees and seeds CLAUDE.local.md.").
+			Affirmative("Yes, create").
+			Negative("No, cancel").
+			Value(&confirmed).
+			Run()
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			fmt.Fprintln(out, "cancelled.")
+			return nil
+		}
+	}
+
+	// Stream per-step ✓ lines while Create runs.
+	plan.Progress = out
 
 	w := workspace.New(gitops.New())
 	if err := w.Create(plan); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "workspace ready at %s\n", plan.WorkspaceDir)
+	fmt.Fprintf(out, "\nworkspace ready at %s\n", plan.WorkspaceDir)
 	return launchClaudeIn(out, cfg, tk, plan.WorkspaceDir, flags.noLaunch)
 }
 
@@ -645,16 +671,39 @@ func buildPlan(cfg *config.Config, flags startFlags, src ticket.Source, tk ticke
 	}, nil
 }
 
-func printPlan(w io.Writer, p workspace.Plan) {
-	fmt.Fprintf(w, "\n(dry-run) plan:\n")
-	fmt.Fprintf(w, "  workspace: %s\n", p.WorkspaceDir)
-	fmt.Fprintf(w, "  branch:    %s\n", p.Branch)
-	fmt.Fprintf(w, "  repos:\n")
+func printPlan(w io.Writer, p workspace.Plan, dryRun bool) {
+	header := "\nplan:\n"
+	if dryRun {
+		header = "\n(dry-run) plan:\n"
+	}
+	fmt.Fprint(w, header)
+	fmt.Fprintf(w, "  workspace dir: %s\n", abbrevHome(p.WorkspaceDir))
+	fmt.Fprintf(w, "  branch:        %s\n", p.Branch)
+	fmt.Fprintf(w, "  worktrees:     %d\n", len(p.Repos))
 	for _, r := range p.Repos {
 		mode := "create branch"
 		if r.BranchExists {
 			mode = "checkout existing"
 		}
-		fmt.Fprintf(w, "    - %s (%s) src=%s\n", r.Name, mode, r.SourcePath)
+		fmt.Fprintf(w, "    • %s (%s) src=%s\n",
+			r.Name, mode, abbrevHome(r.SourcePath))
 	}
+	fmt.Fprintln(w)
+}
+
+// abbrevHome collapses an absolute path under $HOME to a leading `~`
+// so the plan preview stays readable. Falls through unchanged for
+// paths that aren't under $HOME (or when $HOME isn't resolvable).
+func abbrevHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if strings.HasPrefix(path, home+string(os.PathSeparator)) {
+		return "~" + path[len(home):]
+	}
+	return path
 }
