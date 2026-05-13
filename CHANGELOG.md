@@ -16,6 +16,13 @@ plus an interactive ticket picker for `thicket start`.
 
 ### Added
 
+- **`thicket start` reuses an existing workspace.** If a workspace
+  already exists for the chosen ticket (matched by ticket id, so
+  renamed tickets still resolve), `start` skips repo detection,
+  selection, and workspace creation and opens Claude directly on the
+  existing directory with the same `--name <slug>` label. Works
+  whether the ticket comes from the picker or from
+  `thicket start <id>`.
 - **`thicket start` interactive ticket picker.** With no id arg,
   opens a fuzzy-search picker over your active assigned Shortcut
   tickets (`Ticket | State | Title | Workspace` columns). Filters

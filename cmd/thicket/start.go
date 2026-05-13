@@ -69,6 +69,15 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
 	}
+	// If a workspace already exists for this ticket, skip creation and
+	// open Claude on it directly — this is the "I'm switching back to
+	// in-flight work" path. Lookup is by ticket id (not slug) so a
+	// renamed ticket still resolves to its original workspace.
+	if existing := findWorkspaceForTicket(cfg, tk.SourceID); existing != nil {
+		fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
+		return launchClaudeIn(out, cfg, tk, existing.Path, flags.noLaunch)
+	}
+
 	if strings.TrimSpace(tk.Body) == "" {
 		fmt.Fprintln(out, "  ⚠ ticket has no description — LLM routing will lack context;\n"+
 			"    consider \"thicket start <ticket> --only repo1,repo2\" instead.")
@@ -126,19 +135,39 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Fprintf(out, "workspace ready at %s\n", plan.WorkspaceDir)
+	return launchClaudeIn(out, cfg, tk, plan.WorkspaceDir, flags.noLaunch)
+}
 
-	if flags.noLaunch {
-		fmt.Fprintf(out, "cd %s\n", plan.WorkspaceDir)
+// findWorkspaceForTicket scans the workspace root for a managed
+// workspace whose manifest's TicketID matches the given id. Returns
+// nil when none exists. Read errors are tolerated silently — the
+// caller will hit the same dir again on the create path.
+func findWorkspaceForTicket(cfg *config.Config, ticketID string) *workspace.ManagedWorkspace {
+	workspaces, _ := workspace.ListManaged(cfg.WorkspaceRoot)
+	for i := range workspaces {
+		if workspaces[i].State.TicketID == ticketID {
+			return &workspaces[i]
+		}
+	}
+	return nil
+}
+
+// launchClaudeIn opens the configured Claude binary in workspaceDir,
+// passing `--name <slug>` so the session is distinguishable in
+// Claude's prompt box, /resume picker, and the terminal title.
+// Honors --no-launch by printing the cd line instead.
+func launchClaudeIn(out io.Writer, cfg *config.Config, tk ticket.Ticket,
+	workspaceDir string, noLaunch bool) error {
+
+	if noLaunch {
+		fmt.Fprintf(out, "cd %s\n", workspaceDir)
 		return nil
 	}
-	// `--name` labels the Claude session in its prompt box, /resume
-	// picker, and the terminal window title — useful when juggling
-	// several open workspaces.
 	l := launcher.New(cfg.ClaudeBinary)
 	l.ExtraArgs = []string{"--name", workspace.Slug(tk.SourceID, tk.Title)}
-	if err := l.Launch(plan.WorkspaceDir); err != nil {
+	if err := l.Launch(workspaceDir); err != nil {
 		if errors.Is(err, launcher.ErrMissingBinary) {
-			launcher.PrintFallback(out, plan.WorkspaceDir)
+			launcher.PrintFallback(out, workspaceDir)
 			return nil
 		}
 		return err
