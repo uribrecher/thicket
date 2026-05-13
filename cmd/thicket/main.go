@@ -30,11 +30,13 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: false,
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
-			// Self-update probe. Cached for 24h; soft-fails on any
-			// network / cache issue. The Names() set below covers
-			// commands where running the probe is pointless or
-			// would loop (`update` runs its own forced check, and
-			// `version` / `help` are read-only diagnostics).
+			// Self-update probe. Synchronous but bounded by the
+			// updater's 2s HTTP timeout, and cached for 24h so most
+			// invocations pay no I/O at all. Soft-fails on any
+			// network / cache issue. The Names() switch below
+			// covers commands where running the probe is pointless
+			// or would loop (`update` runs its own forced check,
+			// and `version` / `help` are read-only diagnostics).
 			switch cmd.Name() {
 			case "update", "version", "help", "":
 				return

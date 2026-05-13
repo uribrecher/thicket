@@ -9,19 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Self-update.** Every command runs a background probe (cached for
-  24h) against `releases/latest`. When a newer release is available
-  in a TTY, you get a confirm prompt — saying yes downloads the
-  matching tarball, verifies SHA-256 against the release's
-  `checksums.txt`, and atomically swaps the running binary in place.
-  Saying no remembers the declined version for the rest of the 24h
-  window so you're not pestered every command. New `thicket update`
-  command bypasses the cache for a manual check-and-apply.
-  Disable entirely with `THICKET_NO_UPDATE_CHECK=1` or
-  `--no-update-check`. Skipped for dev/dirty builds, non-TTY output
-  (a one-line hint is printed instead), and binaries installed under
-  Homebrew / Nix / `go install` / source-build paths — the prompt
-  for those falls back to a copy-paste install command.
+- **Self-update.** Every command runs a quick probe (cached for 24h,
+  bounded by a 2-second HTTP timeout) against `releases/latest`. When
+  a newer release is available in a TTY, you get a confirm prompt —
+  saying yes downloads the matching tarball, verifies SHA-256 against
+  the release's `checksums.txt`, and atomically swaps the running
+  binary in place. Saying no remembers the declined version for the
+  rest of the 24h window so you're not pestered every command. New
+  `thicket update` command bypasses the cache for a manual
+  check-and-apply. Disable entirely with `THICKET_NO_UPDATE_CHECK=1`
+  or `--no-update-check`. Skipped for dev/dirty builds, non-TTY
+  output (a one-line hint is printed instead), and binaries
+  installed under Homebrew / Nix / `go install` / source-build
+  paths — the prompt for those falls back to a copy-paste install
+  command. Cache lives at `$XDG_CONFIG_HOME/thicket/.update-check.json`.
 
 ## [0.1.1] - 2026-05-13
 

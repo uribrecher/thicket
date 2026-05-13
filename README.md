@@ -280,20 +280,29 @@ thicket version         Print version info.
 
 ### Self-update
 
-Every command runs a self-update probe in the background, cached for
-24h in `~/.config/thicket/.update-check.json`. When a newer release is
-available you're prompted to apply it; saying yes downloads the
-matching release tarball, verifies its SHA-256 against
-`checksums.txt`, and atomically swaps the running binary in place.
+Every command runs a quick "is there a newer release?" probe before
+the actual work, cached for 24h so the GitHub round-trip happens at
+most once a day per machine. The cache lives next to your config —
+`$XDG_CONFIG_HOME/thicket/.update-check.json` (typically
+`~/.config/thicket/` on Linux, `~/Library/Application Support/thicket/`
+on macOS).
 
-The probe never blocks: network failures, missing TTY, dev/dirty
-builds, and binaries living under Homebrew / Nix / `go install` /
-source-build paths all silently fall through (in the unmanaged-binary
-case you get a one-line install command instead).
+When a newer release is available and stderr is a TTY, you're
+prompted to apply it. Saying yes downloads the matching release
+tarball, verifies its SHA-256 against `checksums.txt`, and
+atomically swaps the running binary in place.
 
-Force-check at any time with `thicket update`. Disable the
-background check entirely with `THICKET_NO_UPDATE_CHECK=1` or
-`--no-update-check` on any command.
+The probe is synchronous but bounded by a 2-second HTTP timeout and
+silently soft-fails on any network / parse error — so a flaky GitHub
+or an offline machine never blocks your actual command by more than
+that. Dev/dirty builds (unparseable version), non-TTY output, and
+binaries living under Homebrew / Nix / `go install` / source-build
+paths all silently fall through (in the unmanaged-binary case you
+get a one-line install command instead).
+
+Force-check at any time with `thicket update`. Disable the probe
+entirely with `THICKET_NO_UPDATE_CHECK=1` or `--no-update-check` on
+any command.
 
 ## Troubleshooting
 

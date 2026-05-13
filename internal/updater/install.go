@@ -111,8 +111,12 @@ func IsManagedInstall(exePath string) bool {
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		// Source builds and cached intermediates: explicitly skip.
-		for _, sub := range []string{"/.cache/", "/Library/Caches/"} {
-			if strings.HasPrefix(exePath, filepath.Join(home, sub)) {
+		// Use relative subpaths so filepath.Join doesn't have to
+		// debate leading-slash semantics; append a separator
+		// afterwards so we match the directory boundary cleanly.
+		for _, sub := range []string{".cache", "Library/Caches"} {
+			prefix := filepath.Join(home, sub) + string(filepath.Separator)
+			if strings.HasPrefix(exePath, prefix) {
 				return false
 			}
 		}

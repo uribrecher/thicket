@@ -34,16 +34,21 @@ const repoSlug = "uribrecher/thicket"
 const EnvDisable = "THICKET_NO_UPDATE_CHECK"
 
 // httpClient is a package-global so tests can swap it for an httptest
-// server. Timeout is short so a flaky network never delays the user's
-// actual command.
-var httpClient = &http.Client{Timeout: 4 * time.Second}
+// server. Timeout is intentionally short: on a cache miss we pay it
+// synchronously before the user's actual command runs, so 99% of the
+// time (cache hits) we add ~no latency, and on the rare miss we cap
+// the worst case to two seconds.
+var httpClient = &http.Client{Timeout: 2 * time.Second}
 
-// CheckOnRun is the lightweight "did a new release land?" probe. It
-// is safe to call before every command:
+// CheckOnRun is the lightweight "did a new release land?" probe.
+// Synchronous on the calling goroutine: cache hits are effectively
+// free; cache misses pay one HTTP round-trip bounded by the package
+// httpClient timeout (currently 2s). Safe to call before every
+// command:
 //
 //   - silent on success of "no update needed"
 //   - silent on any network/parse error (we never block the user's
-//     actual work)
+//     actual work for longer than the HTTP timeout)
 //   - caches the last-checked-at + latest-version in xdg for 24h
 //   - skips if THICKET_NO_UPDATE_CHECK is set, if currentVersion is
 //     a dev/dirty build, or if stderr is not a TTY (no point
@@ -149,9 +154,16 @@ func promptAndApply(currentVersion, latestTag string, out, errOut io.Writer) {
 		Negative("Not now").
 		Value(&confirmed).
 		Run()
-	if err != nil || !confirmed {
-		// Remember the decline so we don't re-ask for the same
-		// version within the 24h cache window.
+	if err != nil {
+		// Prompt itself failed (terminal init issue, Ctrl-C, etc.).
+		// Treat as a soft-fail: don't persist a decline, so we'll try
+		// again next invocation. This avoids silencing the prompt for
+		// 24h after a transient TTY hiccup.
+		return
+	}
+	if !confirmed {
+		// Explicit "no". Remember the decline so we don't re-ask
+		// for the same version within the 24h cache window.
 		st, _ := loadCache()
 		st.DeclinedVersion = latestTag
 		_ = saveCache(st)
