@@ -13,6 +13,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/uribrecher/thicket/internal/catalog"
@@ -161,7 +162,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// confirm wraps the same huh widget as `thicket rm` so the
 	// muscle memory carries over.
 	if !flags.noInteractive {
-		confirmed := false
+		// Default to Yes (Enter accepts) — the user already typed
+		// through ticket pick → repo pick → clone gate to get here;
+		// requiring an extra explicit click on Yes is friction.
+		// `huh.NewConfirm` uses the bound variable's initial value
+		// as the highlighted option.
+		confirmed := true
 		err := huh.NewConfirm().
 			Title("Create this workspace?").
 			Description("Creates the worktrees and seeds CLAUDE.local.md.").
@@ -671,12 +677,19 @@ func buildPlan(cfg *config.Config, flags startFlags, src ticket.Source, tk ticke
 	}, nil
 }
 
+// planTitleStyle highlights the "plan:" header so it stands out
+// from the surrounding prose. lipgloss auto-degrades to no-color on
+// non-TTY stdout (CI, pipes), so this is safe to apply unconditionally.
+var planTitleStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("214")).
+	Bold(true)
+
 func printPlan(w io.Writer, p workspace.Plan, dryRun bool) {
-	header := "\nplan:\n"
+	label := "plan:"
 	if dryRun {
-		header = "\n(dry-run) plan:\n"
+		label = "(dry-run) plan:"
 	}
-	fmt.Fprint(w, header)
+	fmt.Fprintf(w, "\n%s\n", planTitleStyle.Render(label))
 	fmt.Fprintf(w, "  workspace dir: %s\n", abbrevHome(p.WorkspaceDir))
 	fmt.Fprintf(w, "  branch:        %s\n", p.Branch)
 	fmt.Fprintf(w, "  worktrees:     %d\n", len(p.Repos))
