@@ -137,20 +137,6 @@ func (w *Workspace) Create(p Plan) error {
 	return nil
 }
 
-// checkMark is the inline progress glyph. Kept as a package-level
-// const so a future "ascii-only" mode (no Unicode) is a one-line
-// switch.
-const checkMark = "✓"
-
-// progressf is a nil-safe Fprintf — drops silently when Plan.Progress
-// is unset (the package's default; tests + scripts get no chatter).
-func progressf(w io.Writer, format string, args ...any) {
-	if w == nil {
-		return
-	}
-	fmt.Fprintf(w, format, args...)
-}
-
 // Remove tears down the workspace at workspaceDir by removing every
 // worktree listed in its state manifest, then the directory itself.
 // force=true tolerates dirty worktrees AND lets the caller delete a
@@ -167,10 +153,9 @@ func progressf(w io.Writer, format string, args ...any) {
 //     becoming a blind `rm -rf` against any folder that happens to
 //     live under workspace_root.
 //
-// Remove tears down the workspace at workspaceDir. progress, if
-// non-nil, receives one line per teardown step (`✓ removed worktree
-// …`, `✓ deleted workspace directory …`); pass nil for silent
-// operation (tests, scripts).
+// progress, if non-nil, receives one line per teardown step
+// (`✓ removed worktree …`, `✓ deleted workspace directory …`); pass
+// nil for silent operation (tests, scripts).
 func (w *Workspace) Remove(workspaceDir string, force bool, progress io.Writer) error {
 	st, err := ReadState(workspaceDir)
 	if err != nil {
