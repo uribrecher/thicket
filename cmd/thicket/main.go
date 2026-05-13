@@ -73,9 +73,9 @@ func newListCmd() *cobra.Command {
 
 func newRmCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "rm <slug>",
-		Short: "Remove a workspace and its worktrees",
-		Args:  cobra.ExactArgs(1),
+		Use:   "rm [slug]",
+		Short: "Remove a workspace and its worktrees (interactive picker if no slug)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  runRm,
 	}
 	c.Flags().Bool("force", false, "remove even if worktrees have local changes")

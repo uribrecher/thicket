@@ -37,10 +37,27 @@ type Row struct {
 	Filter string
 }
 
+// PickOneOption configures PickOne. Empty / zero-value fields use
+// PickOne's defaults.
+type PickOneOption struct {
+	// InitialQuery pre-fills the search input so the picker opens
+	// already filtered. Useful for commands like `thicket rm <slug>`
+	// where the user typed something the caller couldn't match exactly.
+	InitialQuery string
+}
+
 // PickOne shows the picker and returns the Key of the chosen row, or
 // "" with ErrCancelled if the user pressed Esc / Ctrl-C.
-func PickOne(title string, columns []Column, rows []Row) (string, error) {
+func PickOne(title string, columns []Column, rows []Row, opts ...PickOneOption) (string, error) {
+	var o PickOneOption
+	if len(opts) > 0 {
+		o = opts[0]
+	}
 	m := newPickOneModel(title, columns, rows)
+	if o.InitialQuery != "" {
+		m.input.SetValue(o.InitialQuery)
+		m.recompute()
+	}
 	final, err := tea.NewProgram(m).Run()
 	if err != nil {
 		return "", err
