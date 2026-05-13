@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"path/filepath"
 
 	"github.com/charmbracelet/huh"
@@ -22,7 +24,10 @@ func runRm(cmd *cobra.Command, args []string) error {
 	force, _ := cmd.Flags().GetBool("force")
 	skipConfirm, _ := cmd.Flags().GetBool("yes")
 
-	workspaces, warnings := workspace.ListManaged(cfg.WorkspaceRoot)
+	workspaces, warnings, err := workspace.ListManaged(cfg.WorkspaceRoot)
+	if err != nil {
+		return err
+	}
 	for _, w := range warnings {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", w)
 	}
@@ -34,12 +39,23 @@ func runRm(cmd *cobra.Command, args []string) error {
 		slug := args[0]
 		// Exact-slug short-circuit preserves the muscle-memory of
 		// `thicket rm <full-slug>` for scripts. Falls through to the
-		// picker (with the slug as prefilter) when it doesn't match a
-		// managed workspace — handles typos gracefully.
+		// picker (with the slug as prefilter) when the slug doesn't
+		// match a managed workspace.
 		for i := range workspaces {
 			if workspaces[i].Slug == slug {
 				return doRemove(cmd, workspaces[i].Path, &workspaces[i].State, force, skipConfirm)
 			}
+		}
+		// Slug isn't in the managed list, but the directory might
+		// still exist as an orphan (manifest deleted, partial create,
+		// etc.). Honor `thicket rm <orphan-slug> --force` for those.
+		// validateSlug above already locked the slug to a single
+		// directory name under workspace_root.
+		orphan := filepath.Join(cfg.WorkspaceRoot, slug)
+		if info, statErr := os.Stat(orphan); statErr == nil && info.IsDir() {
+			return doRemove(cmd, orphan, nil, force, skipConfirm)
+		} else if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+			return fmt.Errorf("stat %s: %w", orphan, statErr)
 		}
 		if len(workspaces) == 0 {
 			return fmt.Errorf("no workspaces to remove (looked under %s)", cfg.WorkspaceRoot)

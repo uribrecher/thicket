@@ -16,7 +16,10 @@ func runList(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	workspaces, warnings := workspace.ListManaged(cfg.WorkspaceRoot)
+	workspaces, warnings, err := workspace.ListManaged(cfg.WorkspaceRoot)
+	if err != nil {
+		return err
+	}
 	for _, w := range warnings {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", w)
 	}

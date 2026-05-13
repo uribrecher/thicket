@@ -199,17 +199,27 @@ type ManagedWorkspace struct {
 }
 
 // ListManaged enumerates thicket-managed workspaces under root, newest
-// first by CreatedAt. Entries with no state manifest are skipped
-// silently (they're not thicket workspaces); entries with a
-// corrupt/unreadable manifest are reported via the warnings slice so
-// the caller can surface them without aborting the whole listing.
-func ListManaged(root string) ([]ManagedWorkspace, []error) {
+// first by CreatedAt. Three return values keep the failure modes
+// distinct:
+//
+//   - workspaces:  the usable entries
+//   - warnings:    per-manifest errors (corrupt/unreadable state files
+//     for individual workspaces). The caller should surface
+//     these but continue.
+//   - err:         a fatal failure to read root itself (permission
+//     denied, etc.). Workspaces is nil; the caller should
+//     stop. A missing root is NOT an error — that's a
+//     fresh install / no-workspaces-yet state.
+//
+// Entries with no state manifest (.thicket/state.json missing) are
+// skipped silently — those aren't thicket workspaces.
+func ListManaged(root string) ([]ManagedWorkspace, []error, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, []error{fmt.Errorf("read %s: %w", root, err)}
+		return nil, nil, fmt.Errorf("read %s: %w", root, err)
 	}
 	var out []ManagedWorkspace
 	var warnings []error
@@ -231,7 +241,7 @@ func ListManaged(root string) ([]ManagedWorkspace, []error) {
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].State.CreatedAt.After(out[j].State.CreatedAt)
 	})
-	return out, warnings
+	return out, warnings, nil
 }
 
 // ----- state manifest -----

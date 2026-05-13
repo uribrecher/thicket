@@ -249,7 +249,10 @@ func TestListManaged_skipsNonWorkspacesAndWarnsOnCorruptManifests(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	got, warnings := ListManaged(root)
+	got, warnings, err := ListManaged(root)
+	if err != nil {
+		t.Fatalf("unexpected fatal error: %v", err)
+	}
 
 	if len(got) != 2 {
 		t.Fatalf("want 2 workspaces, got %d: %+v", len(got), got)
@@ -270,9 +273,31 @@ func TestListManaged_skipsNonWorkspacesAndWarnsOnCorruptManifests(t *testing.T) 
 }
 
 func TestListManaged_missingRootIsNotAnError(t *testing.T) {
-	got, warnings := ListManaged(filepath.Join(t.TempDir(), "does-not-exist"))
+	got, warnings, err := ListManaged(filepath.Join(t.TempDir(), "does-not-exist"))
+	if got != nil || warnings != nil || err != nil {
+		t.Errorf("missing root should return nil/nil/nil, got %v / %v / %v",
+			got, warnings, err)
+	}
+}
+
+func TestListManaged_unreadableRootReturnsFatalError(t *testing.T) {
+	// Create a directory we deliberately can't read by chmodding 0.
+	root := filepath.Join(t.TempDir(), "no-access")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0o000); err != nil {
+		t.Skip("cannot remove read perms on this fs:", err)
+	}
+	defer func() { _ = os.Chmod(root, 0o755) }()
+
+	got, warnings, err := ListManaged(root)
+	if err == nil {
+		t.Fatalf("want fatal error for unreadable root, got nil (workspaces=%v warnings=%v)",
+			got, warnings)
+	}
 	if got != nil || warnings != nil {
-		t.Errorf("missing root should return nil/nil, got %v / %v", got, warnings)
+		t.Errorf("on fatal err want nil workspaces/warnings, got %v / %v", got, warnings)
 	}
 }
 

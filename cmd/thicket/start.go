@@ -143,7 +143,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 // nil when none exists. Read errors are tolerated silently — the
 // caller will hit the same dir again on the create path.
 func findWorkspaceForTicket(cfg *config.Config, ticketID string) *workspace.ManagedWorkspace {
-	workspaces, _ := workspace.ListManaged(cfg.WorkspaceRoot)
+	workspaces, _, err := workspace.ListManaged(cfg.WorkspaceRoot)
+	if err != nil {
+		// Treat as "no existing workspace" — workspace.Create will hit
+		// the same dir read and surface the underlying error then.
+		return nil
+	}
 	for i := range workspaces {
 		if workspaces[i].State.TicketID == ticketID {
 			return &workspaces[i]
@@ -299,7 +304,13 @@ func pickAssignedTicket(ctx context.Context, src ticket.Source, cfg *config.Conf
 	// per-manifest read errors here (the picker still works without
 	// the column) but warn so the user knows their workspace_root is
 	// dodgy before workspace.Create eventually trips on the same issue.
-	workspaces, warnings := workspace.ListManaged(cfg.WorkspaceRoot)
+	workspaces, warnings, listErr := workspace.ListManaged(cfg.WorkspaceRoot)
+	if listErr != nil {
+		// Non-fatal here — the picker can still function without the
+		// cross-reference column. Surface the cause so the user knows
+		// before workspace.Create eventually trips on the same issue.
+		fmt.Fprintf(errOut, "warning: could not enumerate existing workspaces: %v\n", listErr)
+	}
 	for _, w := range warnings {
 		fmt.Fprintf(errOut, "warning: %v\n", w)
 	}
