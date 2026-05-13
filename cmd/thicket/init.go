@@ -335,7 +335,11 @@ func collectSecretRefs1Password(ctx context.Context, op *secrets.OnePassword, sl
 		itemOptions = append(itemOptions, huh.NewOption(label, it.ID))
 	}
 
-	for _, s := range slots {
+	for i, s := range slots {
+		// A sticky stdout banner so the user always sees which secret
+		// they're picking for, even if huh's filter mode swallows the
+		// in-form title.
+		fmt.Printf("\n━━ [%d/%d] %s ━━\n", i+1, len(slots), s.label)
 		ref, err := pick1PasswordRef(ctx, op, itemOptions, s.label)
 		if err != nil {
 			return err
@@ -343,6 +347,7 @@ func collectSecretRefs1Password(ctx context.Context, op *secrets.OnePassword, sl
 		*s.current = ref
 		fmt.Printf("  ✓ %s — %s\n", s.label, ref)
 	}
+	fmt.Println()
 	return nil
 }
 
@@ -353,8 +358,8 @@ func pick1PasswordRef(ctx context.Context, op *secrets.OnePassword,
 
 	var itemID string
 	if err := huh.NewSelect[string]().
-		Title(fmt.Sprintf("%s — pick a 1Password item", label)).
-		Description("Type to filter. Showing all items across your vaults.").
+		Title(fmt.Sprintf("Pick the 1Password item for %s", label)).
+		Description("type to filter  ·  ↑/↓ to move  ·  enter to select").
 		Options(itemOptions...).
 		Filtering(true).
 		Height(15).
@@ -392,12 +397,16 @@ func pick1PasswordRef(ctx context.Context, op *secrets.OnePassword,
 		defaultRef = fieldOpts[0].Value
 	}
 
+	// Skip the field picker entirely when there's only one usable field.
+	if len(fieldOpts) == 1 {
+		return fieldOpts[0].Value, nil
+	}
+
 	ref := defaultRef
 	if err := huh.NewSelect[string]().
-		Title(fmt.Sprintf("%s — which field?", label)).
-		Description(fmt.Sprintf("Item: %s", detail.Title)).
+		Title(fmt.Sprintf("Pick the field from \"%s\"", detail.Title)).
+		Description("↑/↓ to move  ·  enter to select").
 		Options(fieldOpts...).
-		Filtering(true).
 		Value(&ref).
 		Run(); err != nil {
 		return "", err
