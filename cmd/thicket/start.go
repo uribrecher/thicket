@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -275,8 +276,13 @@ func loadCatalog(cfg *config.Config) ([]catalog.Repo, error) {
 	needsRefresh := errors.Is(err, catalog.ErrNoCache) ||
 		age >= catalog.DefaultCacheTTL || len(repos) == 0
 	if needsRefresh {
-		fmt.Fprintln(os.Stderr, "fetching repo catalog via gh...")
-		repos, err = catalog.Build(cfg.GithubOrgs, catalog.GHFetcher{})
+		err = withProgress(os.Stderr,
+			fmt.Sprintf("fetching repo catalog from GitHub (%v)", cfg.GithubOrgs),
+			func() error {
+				var buildErr error
+				repos, buildErr = catalog.Build(cfg.GithubOrgs, catalog.GHFetcher{})
+				return buildErr
+			})
 		if err != nil {
 			return nil, err
 		}
@@ -390,8 +396,16 @@ func resolveOrClone(_ context.Context, cfg *config.Config, repos []catalog.Repo,
 			out = append(out, r)
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "cloning %s → %s\n", r.CloneURL, target)
-		if err := g.Clone(r.CloneURL, target, os.Stderr, os.Stderr); err != nil {
+		// Buffer git's output so the spinner has the line to itself,
+		// then dump the buffered output only on error so failed clones
+		// stay diagnosable.
+		var gitOut bytes.Buffer
+		err = withProgress(os.Stderr, fmt.Sprintf("cloning %s → %s", r.CloneURL, target),
+			func() error {
+				return g.Clone(r.CloneURL, target, &gitOut, &gitOut)
+			})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, strings.TrimSpace(gitOut.String()))
 			return nil, fmt.Errorf("clone %s: %w", r.Name, err)
 		}
 		r.LocalPath = target
