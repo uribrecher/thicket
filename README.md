@@ -1,3 +1,16 @@
+<p align="center">
+  <img src=".github/assets/thicket.png" alt="thicket — CLI for Claude &amp; Tickets" width="600">
+</p>
+
+<p align="center">
+  <a href="https://github.com/uribrecher/thicket/actions/workflows/ci.yaml"><img src="https://github.com/uribrecher/thicket/actions/workflows/ci.yaml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/uribrecher/thicket/actions/workflows/release.yaml"><img src="https://github.com/uribrecher/thicket/actions/workflows/release.yaml/badge.svg" alt="Release"></a>
+  <a href="https://github.com/uribrecher/thicket/releases/latest"><img src="https://img.shields.io/github/v/release/uribrecher/thicket?display_name=tag&amp;sort=semver" alt="Latest release"></a>
+  <a href="https://github.com/uribrecher/thicket/releases"><img src="https://img.shields.io/github/downloads/uribrecher/thicket/total" alt="Downloads"></a>
+  <a href="./go.mod"><img src="https://img.shields.io/github/go-mod/go-version/uribrecher/thicket" alt="Go version"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/uribrecher/thicket" alt="License"></a>
+</p>
+
 # thicket
 
 > A thicket is a cluster of trees grown around the same root cause —
