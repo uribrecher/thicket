@@ -1,11 +1,9 @@
-version: "2"
-
 run:
   go: "1.22"
   timeout: 5m
 
 linters:
-  default: none
+  disable-all: true
   enable:
     - errcheck
     - govet
@@ -15,18 +13,19 @@ linters:
     - misspell
     - gocritic
     - gosec
-
-  settings:
-    gosec:
-      excludes:
-        # We shell out to git/gh with arguments we control.
-        - G204
-    gocritic:
-      disabled-checks:
-        - ifElseChain
-        - singleCaseSwitch
-
-formatters:
-  enable:
     - gofmt
     - goimports
+
+linters-settings:
+  gosec:
+    excludes:
+      # We shell out to git/gh with arguments we control.
+      - G204
+  gocritic:
+    disabled-checks:
+      - ifElseChain
+      - singleCaseSwitch
+
+issues:
+  exclude-dirs:
+    - dist
