@@ -6,17 +6,21 @@
 `thicket` is a CLI that turns one ticket into an isolated, ready-to-code
 multi-repo workspace. Given a Shortcut ticket id it:
 
-1. Fetches the ticket
+1. Fetches the ticket from your tracker
 2. Asks Claude which repos in your GitHub org(s) need code changes
-3. Lets you confirm/edit the list interactively
+3. Opens a bubbletea picker so you can fuzzy-search the catalog and
+   refine the LLM's pre-selection (type-ahead, ↑/↓, Enter toggles)
 4. Materializes a workspace folder with one git worktree per repo on a
-   ticket-named branch
+   ticket-id-prefixed branch (slug is always `<lower-ticket-id>-<title>`,
+   so two tickets with the same title never collide on disk)
 5. Auto-clones any repos that aren't on your machine yet
 6. Drops a `CLAUDE.local.md` into the workspace so your AI coding session
    inside it has full ticket context, across reboots and context resets
-7. Launches Claude Code in the new workspace
+7. Launches Claude Code (`claude --name <slug>`) so the session is
+   labelled in the prompt box, `/resume` picker, and terminal title —
+   handy for distinguishing several open workspaces
 
-End result: `thicket start sc-12345` → two prompts → you're coding.
+End result: `thicket start sc-12345` → fuzzy-pick repos → you're coding.
 
 > **Unofficial, community-built. Not affiliated with or endorsed by
 > Anthropic.** "Claude" is a trademark of Anthropic, PBC.
@@ -60,9 +64,19 @@ thicket start sc-12345
 When you're done with a workspace:
 
 ```sh
-thicket list                  # show active workspaces
-thicket rm sc-12345-fix-x     # remove worktrees + folder
+thicket list                  # show active workspaces, newest first
+
+thicket rm                    # interactive picker over all workspaces
+thicket rm 12345              # picker pre-filtered to the typed query
+thicket rm sc-12345-fix-x     # exact slug → preview + Y/N confirm, then remove
+thicket rm sc-12345-fix-x --yes   # skip the confirm (for scripts)
 ```
+
+`rm` always prints a preview (workspace path, worktrees, source repos)
+and asks for explicit Y/N confirmation before deleting — `--force`
+lets it remove dirty worktrees, but the absence of a state manifest
+also requires `--force` to protect non-thicket folders that happen to
+live under `workspace_root`.
 
 ## How it works
 
@@ -83,6 +97,28 @@ Source clones never get checked out to a feature branch — they stay clean
 on their default branch. The workspace contains only worktrees, which
 share the `.git` of their source clone (storage cheap, no double-fetch).
 
+## Interactive UX
+
+Most of the interactive flows are bubbletea + lipgloss views with live
+fuzzy search:
+
+- **Repo picker** (`thicket start`) — type a partial name, see top
+  matches ranked by `sahilm/fuzzy`, Enter toggles selection. Empty
+  query shows your current selection so you can drop entries quickly.
+- **1Password item picker** (`thicket init` under 1Password) — tabular
+  view: `Item | Vault | Type`, live filter, ↑/↓ + Enter.
+- **Workspace picker** (`thicket rm`) — tabular view:
+  `Slug | Ticket | Created | Repos`, newest first.
+
+Slow operations show a single-line in-place elapsed-time spinner so
+the CLI never looks stuck:
+
+```
+fetching repo catalog from GitHub ([acme]) — 2.4s
+looking for relevant repos — 6.8s
+cloning git@github.com:acme/acme-foo.git → /Users/uri/code/acme-foo — 5.1s
+```
+
 ## Configuration
 
 `~/.config/thicket/config.toml`:
@@ -93,6 +129,7 @@ workspace_root  = "~/tasks"
 default_branch  = "main"
 claude_model    = "claude-haiku-4-5"
 claude_binary   = "claude"
+claude_backend  = "cli"          # "cli" | "api" — see Secrets section
 
 ticket_source   = "shortcut"
 github_orgs     = ["your-org"]
@@ -105,6 +142,11 @@ workspace_slug  = "your-shortcut-workspace"
 name    = "service-name"
 aliases = ["short", "alias"]
 ```
+
+`thicket init` populates `github_orgs` from a multi-select over the
+orgs your `gh` user actually belongs to (no typed placeholders) and
+runs `gh repo list <org> --limit 1` for each to warn if any are
+unreachable (auth vs. typo distinguished).
 
 ### Secrets
 
@@ -170,22 +212,29 @@ each reference resolves to a value — without ever showing the value.
 ## Command reference
 
 ```
-thicket init            First-run wizard.
+thicket init            First-run wizard (or re-run to edit existing config).
 thicket start <ticket>  Spawn a workspace.
    --only foo,bar       Skip the LLM; use exactly these repos.
-   --branch <name>      Override the branch name.
+   --branch <name>      Override the branch name (slug stays ticket-id-prefixed).
    --no-interactive     Accept the LLM picks; auto-clone missing repos.
    --no-launch          Don't auto-launch claude after creating.
    --dry-run            Print the plan, change nothing on disk.
 
-thicket list            Show active workspaces.
-thicket rm <slug>       Remove a workspace + its worktrees.
-   --force              Allow removing dirty worktrees.
+thicket list            Show active workspaces (newest first).
+thicket rm [slug]       Remove a workspace + its worktrees.
+                          - No arg: interactive picker.
+                          - Partial slug: picker pre-filtered.
+                          - Exact slug: skip picker, jump straight to preview.
+   --force              Allow removing dirty worktrees AND deleting
+                          directories with no state manifest.
+   --yes                Skip the Y/N confirm prompt.
 
 thicket catalog         Show the GitHub-org repo cache.
    --refresh            Re-fetch via `gh`.
 
 thicket doctor          Diagnose config, tokens, external tools.
+                        Reports password-manager status, per-secret
+                        fetchability, and env-var overrides.
 thicket version         Print version info.
 ```
 
@@ -196,16 +245,46 @@ Thicket still works; it just won't auto-launch your AI session and instead
 prints `cd` instructions when the workspace is ready.
 
 **`gh` 401 / 403** — run `gh auth login` and ensure the resulting token has
-read access to your orgs.
+read access to your orgs. `thicket init` will say so explicitly.
 
-**LLM picks the wrong repos** — pass `--only foo,bar` to bypass the LLM,
-or just toggle in the interactive selector before confirming.
+**LLM picks the wrong repos** (or none) — type in the bubbletea picker
+to fuzzy-add, prefix the query with `-` to drop, or pass `--only foo,bar`
+to bypass the LLM entirely. An empty ticket body triggers a warning
+that the LLM has nothing to route on; the picker still works.
 
 **"workspace exists"** — pick a different `--branch` or
 `thicket rm <slug>` first.
 
 **Worktree creation fails partway** — thicket rolls back already-created
 worktrees and removes the workspace dir. The source repos are untouched.
+
+**`thicket rm` refused because of "no state manifest"** — the workspace
+wasn't created by thicket (or its `.thicket/state.json` was deleted).
+Pass `--force` if you're sure you want it gone.
+
+**`task install` says "GOBIN must be an absolute path"** — your Go env
+has a relative path set. Fix once with
+`go env -w GOBIN="$HOME/go/bin"`.
+
+**`go.mod` complaints under Go 1.23** — bump to Go 1.24+; `go.mod`
+pins `go 1.24` with a `toolchain go1.24.x` directive.
+
+## Security notes
+
+- **Slug validation.** `thicket rm <slug>` rejects absolute paths,
+  `..`, and any value containing path separators before joining with
+  `workspace_root`, so `thicket rm /tmp` or `thicket rm ../..` can't
+  escape into arbitrary directories.
+- **Manifest-required deletes.** When a target directory has no
+  `.thicket/state.json`, `Workspace.Remove` refuses unless `--force`,
+  so an accidental `thicket rm foo` over a non-thicket folder won't
+  blind-`rm -rf` it.
+- **No raw secrets at rest.** The config records only password-manager
+  references; live values are fetched on demand. The `[secrets]`
+  plain-text table is rejected by this tool — pick a real PM (`op` /
+  `bw` / `pass`) or use the env-var override path.
+- **No telemetry.** thicket calls Anthropic / Shortcut / GitHub only
+  to do its job. No phone-home, no analytics.
 
 ## Status
 
