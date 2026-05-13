@@ -1,0 +1,33 @@
+run:
+  go: "1.24"
+  timeout: 5m
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - gocritic
+    - gosec
+    - gofmt
+    - goimports
+
+linters-settings:
+  gosec:
+    excludes:
+      # We shell out to git/gh with arguments we control.
+      - G204
+      # WriteFile 0o644 is intentional for caches and test fixtures.
+      - G306
+  gocritic:
+    disabled-checks:
+      - ifElseChain
+      - singleCaseSwitch
+
+issues:
+  exclude-dirs:
+    - dist
