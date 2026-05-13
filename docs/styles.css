@@ -159,6 +159,63 @@ pre .comment { color: var(--code-dim); }
 }
 .copy-btn:hover { color: var(--code-text); }
 
+/* "Star me on GitHub" — fixed top-right, GitHub-style pill with
+   live stargazer count. The count is set by JS on page load; if the
+   API is unreachable the count just stays empty and the button still
+   functions as a "go star me" link. */
+.star-btn {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(28, 39, 51, 0.08);
+  transition: transform 0.06s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.star-btn:hover {
+  color: #b88300;            /* GitHub-ish "starred" amber */
+  border-color: #b88300;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(184, 131, 0, 0.18);
+}
+.star-btn:focus-visible {
+  outline: 2px solid var(--green-1);
+  outline-offset: 2px;
+}
+.star-btn__icon {
+  flex-shrink: 0;
+  color: #b88300;
+}
+.star-btn__count {
+  font-variant-numeric: tabular-nums;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  min-width: 1.5rem;
+  text-align: center;
+}
+.star-btn__count:empty {
+  display: none;             /* hide the chip if the API call failed */
+}
+@media (max-width: 480px) {
+  /* On phones the label crowds the hero; keep just the icon + count. */
+  .star-btn__label { display: none; }
+  .star-btn { padding: 0.4rem 0.55rem; }
+}
+
 /* Screen-reader-only — content is announced via aria-live but
    visually hidden. Standard "sr-only" recipe. */
 .visually-hidden {
