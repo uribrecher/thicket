@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **GitHub Pages landing site.** Single-page docs/index.html with
+  hero splash, an asciinema-player demo of the `thicket start`
+  flow, six-card feature grid, install + quickstart sections. Pure
+  HTML/CSS + a single CDN-loaded player script; no build step.
+  Served at https://uribrecher.github.io/thicket/ once Pages is
+  enabled (Settings → Pages → Source: main / /docs).
 
 ## [0.1.2] - 2026-05-13
 
