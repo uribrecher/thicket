@@ -119,6 +119,48 @@ func TestListOnePasswordAccounts_cliMissing(t *testing.T) {
 	}
 }
 
+func TestOnePassword_ListItems_parsesJSON(t *testing.T) {
+	fr := &fakeRunner{stdout: []byte(`[
+		{"id":"AAA","title":"Shortcut Token","vault":{"id":"V1","name":"Private"},"category":"API_CREDENTIAL"},
+		{"id":"BBB","title":"GitHub PAT","vault":{"id":"V2","name":"Work"},"category":"PASSWORD"}
+	]`)}
+	p := OnePassword{Runner: fr, Account: "acc-uuid"}
+	items, err := p.ListItems(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].Title != "Shortcut Token" || items[0].Vault.Name != "Private" {
+		t.Errorf("got %+v", items)
+	}
+	got := strings.Join(fr.calls[0].args, " ")
+	want := "--account acc-uuid item list --format json"
+	if got != want {
+		t.Errorf("args = %q, want %q", got, want)
+	}
+}
+
+func TestOnePassword_GetItem_parsesFields(t *testing.T) {
+	fr := &fakeRunner{stdout: []byte(`{
+		"id":"AAA","title":"Shortcut Token","fields":[
+			{"id":"username","type":"STRING","purpose":"USERNAME","label":"username","reference":"op://Private/Shortcut Token/username"},
+			{"id":"credential","type":"CONCEALED","purpose":"","label":"credential","reference":"op://Private/Shortcut Token/credential"}
+		]
+	}`)}
+	p := OnePassword{Runner: fr, Account: "acc-uuid"}
+	item, err := p.GetItem(context.Background(), "AAA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(item.Fields) != 2 || item.Fields[1].Reference != "op://Private/Shortcut Token/credential" {
+		t.Errorf("got %+v", item)
+	}
+	got := strings.Join(fr.calls[0].args, " ")
+	want := "--account acc-uuid item get AAA --format json"
+	if got != want {
+		t.Errorf("args = %q, want %q", got, want)
+	}
+}
+
 func TestNew_withOptions_threadsOnePasswordAccount(t *testing.T) {
 	m, err := New("1password", Options{OnePasswordAccount: "uuid-123"})
 	if err != nil {

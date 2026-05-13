@@ -220,6 +220,73 @@ func listOnePasswordAccounts(ctx context.Context, r Runner, lookPath LookPathFn)
 	return accs, nil
 }
 
+// ----- 1Password item discovery -----
+
+// OnePasswordItem is one row of `op item list --format json`. The full
+// item structure has many more fields; we keep only what the init wizard
+// needs to render an autocomplete picker.
+type OnePasswordItem struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Vault struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"vault"`
+	Category string `json:"category"`
+}
+
+// OnePasswordField is one row of `op item get --format json`'s `fields`.
+// `Reference` is the canonical op:// URI for that exact field — we store
+// it verbatim in thicket's config so future fetches don't need to
+// re-resolve via item id.
+type OnePasswordField struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Type      string `json:"type"`    // STRING / CONCEALED / OTP / DATE / URL / ...
+	Purpose   string `json:"purpose"` // USERNAME / PASSWORD / NOTES / ""
+	Reference string `json:"reference"`
+}
+
+// OnePasswordItemDetail is the subset of `op item get --format json` the
+// init wizard renders for field selection.
+type OnePasswordItemDetail struct {
+	ID     string             `json:"id"`
+	Title  string             `json:"title"`
+	Fields []OnePasswordField `json:"fields"`
+}
+
+// ListItems lists every item the chosen account can see, across vaults.
+// Triggers a biometric/Touch ID prompt scoped to OnePassword.Account so
+// the prompt shows the correct account name.
+func (p OnePassword) ListItems(ctx context.Context) ([]OnePasswordItem, error) {
+	stdout, stderr, err := p.Runner.Run(ctx, "op",
+		p.opArgs("item", "list", "--format", "json"), nil)
+	if err != nil {
+		return nil, fmt.Errorf("op item list: %w (%s)", err, strings.TrimSpace(string(stderr)))
+	}
+	var items []OnePasswordItem
+	if err := jsonUnmarshal(stdout, &items); err != nil {
+		return nil, fmt.Errorf("decode op items: %w", err)
+	}
+	return items, nil
+}
+
+// GetItem fetches the full structure of one item, including its fields
+// and their canonical op:// references. The id may be the item UUID or
+// its title.
+func (p OnePassword) GetItem(ctx context.Context, id string) (*OnePasswordItemDetail, error) {
+	stdout, stderr, err := p.Runner.Run(ctx, "op",
+		p.opArgs("item", "get", id, "--format", "json"), nil)
+	if err != nil {
+		return nil, fmt.Errorf("op item get %s: %w (%s)", id, err, strings.TrimSpace(string(stderr)))
+	}
+	var item OnePasswordItemDetail
+	if err := jsonUnmarshal(stdout, &item); err != nil {
+		return nil, fmt.Errorf("decode op item: %w", err)
+	}
+	return &item, nil
+}
+
 // ----- Bitwarden (bw CLI) -----
 
 // Bitwarden uses `bw get password <ref>`. Requires `BW_SESSION` env var

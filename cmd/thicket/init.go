@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -179,11 +180,11 @@ func chooseAndVerifyManager(ctx context.Context, cfg *config.Config) (secrets.Ma
 	if err != nil {
 		return nil, err
 	}
-	if err := mgr.Check(ctx); err != nil {
-		return nil, fmt.Errorf("%s check failed: %w — install the CLI and sign in, then re-run `thicket init`",
-			choice, err)
-	}
-	fmt.Printf("  ✓ %s CLI is installed and unlocked\n", choice)
+	// Deliberately no Check() here: for 1Password it would do
+	// `op --account <X> vault list`, which fires biometric auth before
+	// we have a clear reason for the user to grant it. The first
+	// actually-needed call (item-list / test-fetch) prompts naturally
+	// and is scoped to the chosen account.
 	return mgr, nil
 }
 
@@ -229,7 +230,29 @@ func pickOnePasswordAccount(ctx context.Context, current string) (string, error)
 
 // ----- Step 3 -----
 
+type secretSlot struct {
+	label   string
+	current *string
+}
+
 func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Manager) error {
+	slots := []secretSlot{
+		{"Shortcut API token", &cfg.Passwords.ShortcutTokenRef},
+		{"Anthropic API key", &cfg.Passwords.AnthropicKeyRef},
+	}
+
+	// 1Password gets the nice item/field picker; other managers stick
+	// with the simpler text-input path (no API exists to enumerate
+	// `pass` / `bw` items uniformly here).
+	if op, ok := mgr.(*secrets.OnePassword); ok {
+		return collectSecretRefs1Password(ctx, op, slots)
+	}
+	return collectSecretRefsTyped(ctx, mgr, slots)
+}
+
+// collectSecretRefsTyped is the typed-string fallback used by every
+// manager except 1Password.
+func collectSecretRefsTyped(ctx context.Context, mgr secrets.Manager, slots []secretSlot) error {
 	fmt.Println()
 	fmt.Println("For each secret below, enter the item reference in your password manager.")
 	fmt.Printf("  Reference format: %s\n\n", mgr.Describe())
@@ -239,19 +262,10 @@ func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Mana
 	// only validate the name shape and skip the live fetch.
 	envMode := mgr.Name() == "env"
 
-	type slot struct {
-		label   string
-		current *string
-	}
-	slots := []slot{
-		{"Shortcut API token reference", &cfg.Passwords.ShortcutTokenRef},
-		{"Anthropic API key reference", &cfg.Passwords.AnthropicKeyRef},
-	}
-
 	for _, s := range slots {
 		val := *s.current
 		err := huh.NewInput().
-			Title(s.label).
+			Title(s.label + " reference").
 			Value(&val).
 			Validate(func(in string) error {
 				in = strings.TrimSpace(in)
@@ -282,6 +296,167 @@ func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Mana
 		}
 	}
 	return nil
+}
+
+// collectSecretRefs1Password fetches the user's 1Password items once,
+// then presents an autocomplete picker per secret. After picking an
+// item, the user picks which field to use; the canonical op:// ref
+// comes straight from `op item get`'s `reference` value.
+func collectSecretRefs1Password(ctx context.Context, op *secrets.OnePassword, slots []secretSlot) error {
+	fmt.Println()
+	fmt.Println("Loading your 1Password items… (first time today may prompt for biometric auth)")
+	items, err := op.ListItems(ctx)
+	if err != nil {
+		return fmt.Errorf("list 1Password items: %w", err)
+	}
+	if len(items) == 0 {
+		return errors.New("no 1Password items visible to this account")
+	}
+	fmt.Printf("  ✓ loaded %d items\n\n", len(items))
+
+	// Sort: items with credential-like categories first, then alpha by
+	// vault then title. Doesn't hide anything — just orders the picker
+	// so the likely-correct items rise to the top.
+	sort.SliceStable(items, func(i, j int) bool {
+		ip := credentialPriority(items[i].Category)
+		jp := credentialPriority(items[j].Category)
+		if ip != jp {
+			return ip > jp
+		}
+		if items[i].Vault.Name != items[j].Vault.Name {
+			return items[i].Vault.Name < items[j].Vault.Name
+		}
+		return items[i].Title < items[j].Title
+	})
+
+	itemOptions := make([]huh.Option[string], 0, len(items))
+	for _, it := range items {
+		label := fmt.Sprintf("%s  ·  %s  ·  %s", it.Title, it.Vault.Name, friendlyCategory(it.Category))
+		itemOptions = append(itemOptions, huh.NewOption(label, it.ID))
+	}
+
+	for _, s := range slots {
+		ref, err := pick1PasswordRef(ctx, op, itemOptions, s.label)
+		if err != nil {
+			return err
+		}
+		*s.current = ref
+		fmt.Printf("  ✓ %s — %s\n", s.label, ref)
+	}
+	return nil
+}
+
+// pick1PasswordRef shows the item picker, then the field picker, then
+// returns the canonical op:// reference.
+func pick1PasswordRef(ctx context.Context, op *secrets.OnePassword,
+	itemOptions []huh.Option[string], label string) (string, error) {
+
+	var itemID string
+	if err := huh.NewSelect[string]().
+		Title(fmt.Sprintf("%s — pick a 1Password item", label)).
+		Description("Type to filter. Showing all items across your vaults.").
+		Options(itemOptions...).
+		Filtering(true).
+		Height(15).
+		Value(&itemID).
+		Run(); err != nil {
+		return "", err
+	}
+
+	detail, err := op.GetItem(ctx, itemID)
+	if err != nil {
+		return "", fmt.Errorf("fetch item details: %w", err)
+	}
+	if len(detail.Fields) == 0 {
+		return "", fmt.Errorf("item %q has no fields", detail.Title)
+	}
+
+	// Field picker: default to the first CONCEALED field (most API
+	// tokens live there). Hide fields without a usable Reference.
+	fieldOpts := make([]huh.Option[string], 0, len(detail.Fields))
+	defaultRef := ""
+	for _, f := range detail.Fields {
+		if f.Reference == "" {
+			continue
+		}
+		labelStr := fmt.Sprintf("%s  (%s)", coalesce(f.Label, f.ID), friendlyFieldType(f.Type, f.Purpose))
+		fieldOpts = append(fieldOpts, huh.NewOption(labelStr, f.Reference))
+		if defaultRef == "" && f.Type == "CONCEALED" {
+			defaultRef = f.Reference
+		}
+	}
+	if len(fieldOpts) == 0 {
+		return "", fmt.Errorf("item %q exposes no referenceable fields", detail.Title)
+	}
+	if defaultRef == "" {
+		defaultRef = fieldOpts[0].Value
+	}
+
+	ref := defaultRef
+	if err := huh.NewSelect[string]().
+		Title(fmt.Sprintf("%s — which field?", label)).
+		Description(fmt.Sprintf("Item: %s", detail.Title)).
+		Options(fieldOpts...).
+		Filtering(true).
+		Value(&ref).
+		Run(); err != nil {
+		return "", err
+	}
+	return ref, nil
+}
+
+func coalesce(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
+}
+
+// credentialPriority orders categories so API-credential-like items
+// surface first in the picker.
+func credentialPriority(category string) int {
+	switch category {
+	case "API_CREDENTIAL":
+		return 3
+	case "PASSWORD":
+		return 2
+	case "LOGIN":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func friendlyCategory(c string) string {
+	switch c {
+	case "API_CREDENTIAL":
+		return "API credential"
+	case "PASSWORD":
+		return "password"
+	case "LOGIN":
+		return "login"
+	case "":
+		return "item"
+	default:
+		return strings.ToLower(strings.ReplaceAll(c, "_", " "))
+	}
+}
+
+func friendlyFieldType(t, purpose string) string {
+	switch {
+	case t == "CONCEALED" && purpose == "PASSWORD":
+		return "password"
+	case t == "CONCEALED":
+		return "secret"
+	case purpose == "USERNAME":
+		return "username"
+	case t == "STRING":
+		return "text"
+	case t == "OTP":
+		return "OTP"
+	default:
+		return strings.ToLower(t)
+	}
 }
 
 // looksLikeEnvVarName accepts conventional uppercase-underscore env var
