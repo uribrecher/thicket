@@ -147,12 +147,14 @@
     </li>
 
     <li class="feature">
-      <h3>Self-update, opt-out</h3>
+      <h3>Parallel sessions, no collisions</h3>
       <p>
-        Most commands run a quick "is there a newer release?" probe (24h cached, 2s timeout).
-        TTY users get a confirm prompt; SHA-256 verified before swap. Set
-        <code>THICKET_NO_UPDATE_CHECK=1</code> to silence entirely. Brew / Nix / <code>go
-        install</code> users get a copy-paste hint instead of an in-place replace.
+        Each workspace is its own git worktree at its own filesystem path — not a
+        branch checkout in your source clone. Open N tickets in N terminals (or N
+        Claude sessions) at once, each on its own branch, with zero
+        <code>git stash</code> / <code>git checkout</code> thrashing. Source clones
+        stay clean on their default branch; worktrees share the source's
+        <code>.git</code> so creation is instant and storage is cheap.
       </p>
     </li>
 
