@@ -125,6 +125,11 @@ func (w *Workspace) Create(p Plan) error {
 // Remove tears down the workspace at workspaceDir by removing every
 // worktree listed in its state manifest, then the directory itself.
 // force=true tolerates dirty worktrees.
+//
+// Safety: if any worktree refuses to be removed (e.g. dirty changes with
+// force=false), the workspace directory is NOT deleted. Otherwise we'd
+// silently destroy uncommitted work while leaving stale worktree
+// metadata in the source repos.
 func (w *Workspace) Remove(workspaceDir string, force bool) error {
 	st, err := ReadState(workspaceDir)
 	if err != nil {
@@ -143,10 +148,12 @@ func (w *Workspace) Remove(workspaceDir string, force bool) error {
 			// keep going — best effort
 		}
 	}
-	if err := os.RemoveAll(workspaceDir); err != nil && firstErr == nil {
-		firstErr = err
+	if firstErr != nil {
+		// Preserve the workspace dir so the user's uncommitted changes
+		// survive. Re-run with --force after triaging.
+		return firstErr
 	}
-	return firstErr
+	return os.RemoveAll(workspaceDir)
 }
 
 // ----- state manifest -----

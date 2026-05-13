@@ -163,6 +163,32 @@ func TestRemove_cleansWorktreesAndDir(t *testing.T) {
 	}
 }
 
+func TestRemove_preservesWorkspaceWhenWorktreeRemovalFails(t *testing.T) {
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	initRepo(t, p.Repos[1].SourcePath)
+	w := New(git.New())
+	if err := w.Create(p); err != nil {
+		t.Fatal(err)
+	}
+	// Dirty up the first worktree so a non-force remove will refuse it.
+	if err := os.WriteFile(filepath.Join(p.Repos[0].WorktreePath, "dirty.txt"),
+		[]byte("uncommitted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Remove(p.WorkspaceDir, false); err == nil {
+		t.Fatal("expected error when worktree removal fails")
+	}
+	// Critically: the workspace dir must still exist with the user's file.
+	if _, err := os.Stat(p.WorkspaceDir); err != nil {
+		t.Errorf("workspace should be preserved when removal fails: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Repos[0].WorktreePath, "dirty.txt")); err != nil {
+		t.Errorf("uncommitted file should survive: %v", err)
+	}
+}
+
 func TestRemove_noManifest(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "ws")
