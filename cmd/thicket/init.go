@@ -39,14 +39,22 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Step 2: password manager — choose, then verify CLI is available + unlocked.
-	mgr, err := chooseAndVerifyManager(ctx, cfg)
+	// Step 2: pick the Claude backend (CLI vs API) so we know whether
+	// to ask for an Anthropic API key at all.
+	if err := chooseClaudeBackend(cfg); err != nil {
+		return err
+	}
+
+	// Step 3: password manager — choose only; account selection happens
+	// per-secret in step 4 because users may keep secrets in different
+	// 1Password accounts.
+	mgr, err := chooseManager(cfg)
 	if err != nil {
 		return err
 	}
 
-	// Step 3: per-secret item references. We only ever ask for the *ref*,
-	// never the value; we test-fetch each one immediately to fail fast.
+	// Step 4: per-secret references. Skips the Anthropic key when
+	// claude_backend is "cli" — the local `claude` CLI handles auth.
 	if err := collectSecretRefs(ctx, cfg, mgr); err != nil {
 		return err
 	}
@@ -130,12 +138,43 @@ func fillDefaults(cfg *config.Config) {
 	}
 }
 
-// ----- Step 2 -----
+// ----- Step 2: Claude backend -----
 
-func chooseAndVerifyManager(ctx context.Context, cfg *config.Config) (secrets.Manager, error) {
+func chooseClaudeBackend(cfg *config.Config) error {
+	// Default to "cli" when the `claude` binary is present; otherwise
+	// API is the only working option.
+	def := cfg.ClaudeBackend
+	if def == "" {
+		def = "cli"
+		if _, err := exec.LookPath("claude"); err != nil {
+			def = "api"
+		}
+	}
+	choice := def
+	err := huh.NewForm(huh.NewGroup(
+		huh.NewNote().
+			Title("How should thicket talk to Claude?").
+			Description("Repo detection uses Claude. \"cli\" shells out to the local `claude` binary (reuses Claude Code / Enterprise auth — no API key). \"api\" calls the Anthropic API directly and needs an API key in your password manager."),
+		huh.NewSelect[string]().
+			Title("Claude backend").
+			Options(
+				huh.NewOption("cli — local `claude` binary (no API key)", "cli"),
+				huh.NewOption("api — Anthropic API (needs anthropic_key_ref)", "api"),
+			).
+			Value(&choice),
+	)).Run()
+	if err != nil {
+		return err
+	}
+	cfg.ClaudeBackend = choice
+	return nil
+}
+
+// ----- Step 3: password manager -----
+
+func chooseManager(cfg *config.Config) (secrets.Manager, error) {
 	options := make([]huh.Option[string], 0, len(secrets.Supported))
 	for _, id := range secrets.Supported {
-		// Construct an instance just to call Describe() — cheap, no network/exec.
 		m, _ := secrets.New(id)
 		options = append(options, huh.NewOption(
 			fmt.Sprintf("%s — %s", id, m.Describe()),
@@ -151,7 +190,7 @@ func chooseAndVerifyManager(ctx context.Context, cfg *config.Config) (secrets.Ma
 		huh.NewGroup(
 			huh.NewNote().
 				Title("Pick a password manager").
-				Description("Thicket fetches API tokens from your password manager on demand. Pick the one you already use. If you don't use any of these, choose \"env\" and we'll read from environment variables."),
+				Description("Thicket fetches API tokens from your password manager on demand. For 1Password, you'll pick the account per-secret next so different secrets can live in different accounts."),
 			huh.NewSelect[string]().
 				Title("Password manager").
 				Options(options...).
@@ -164,88 +203,40 @@ func chooseAndVerifyManager(ctx context.Context, cfg *config.Config) (secrets.Ma
 	}
 	cfg.Passwords.Manager = choice
 
-	// 1Password may have multiple signed-in accounts; pick one before
-	// constructing the manager so subsequent op calls scope correctly.
-	var opts secrets.Options
-	if choice == "1password" {
-		account, err := pickOnePasswordAccount(ctx, cfg.Passwords.OnePassword.Account)
-		if err != nil {
-			return nil, err
-		}
-		cfg.Passwords.OnePassword.Account = account
-		opts.OnePasswordAccount = account
-	}
-
-	mgr, err := secrets.New(choice, opts)
+	// Construct a baseline manager (no account scoping yet). For
+	// 1Password, the actual op calls happen later — each scoped to a
+	// per-secret account.
+	mgr, err := secrets.New(choice)
 	if err != nil {
 		return nil, err
 	}
-	// Deliberately no Check() here: for 1Password it would do
-	// `op --account <X> vault list`, which fires biometric auth before
-	// we have a clear reason for the user to grant it. The first
-	// actually-needed call (item-list / test-fetch) prompts naturally
-	// and is scoped to the chosen account.
 	return mgr, nil
 }
 
-// pickOnePasswordAccount lists 1Password accounts known to the local op
-// CLI and, if more than one exists, presents a picker. Single-account
-// users get an automatic pass-through. Returns the account UUID (stable
-// across email changes), or "" when only one account is signed in and we
-// can let op pick its default.
-func pickOnePasswordAccount(ctx context.Context, current string) (string, error) {
-	accs, err := secrets.ListOnePasswordAccounts(ctx)
-	if err != nil {
-		return "", fmt.Errorf("list 1Password accounts: %w", err)
-	}
-	if len(accs) == 0 {
-		return "", errors.New("no 1Password accounts signed in — run `op signin` first")
-	}
-	if len(accs) == 1 {
-		fmt.Printf("  ✓ 1Password: using account %s (%s)\n", accs[0].Email, accs[0].URL)
-		return accs[0].AccountUUID, nil
-	}
-
-	opts := make([]huh.Option[string], 0, len(accs))
-	for _, a := range accs {
-		opts = append(opts, huh.NewOption(
-			fmt.Sprintf("%s  (%s)", a.Email, a.URL),
-			a.AccountUUID,
-		))
-	}
-	choice := current
-	if choice == "" {
-		choice = accs[0].AccountUUID
-	}
-	if err := huh.NewSelect[string]().
-		Title("Which 1Password account holds your dev tokens?").
-		Description("Pick one. You can change this later by re-running `thicket init`.").
-		Options(opts...).
-		Value(&choice).
-		Run(); err != nil {
-		return "", err
-	}
-	return choice, nil
-}
-
-// ----- Step 3 -----
+// ----- Step 4 -----
 
 type secretSlot struct {
 	label   string
-	current *string
+	refPtr  *string
+	acctPtr *string // nil for non-1password managers
 }
 
 func collectSecretRefs(ctx context.Context, cfg *config.Config, mgr secrets.Manager) error {
 	slots := []secretSlot{
-		{"Shortcut API token", &cfg.Passwords.ShortcutTokenRef},
-		{"Anthropic API key", &cfg.Passwords.AnthropicKeyRef},
+		{"Shortcut API token", &cfg.Passwords.ShortcutTokenRef, &cfg.Passwords.ShortcutTokenAccount},
+	}
+	// Only ask for the Anthropic key when the API backend is configured.
+	// Under the CLI backend the local `claude` binary handles auth.
+	if cfg.ClaudeBackend == "api" {
+		slots = append(slots, secretSlot{
+			"Anthropic API key", &cfg.Passwords.AnthropicKeyRef, &cfg.Passwords.AnthropicKeyAccount,
+		})
 	}
 
-	// 1Password gets the nice item/field picker; other managers stick
-	// with the simpler text-input path (no API exists to enumerate
-	// `pass` / `bw` items uniformly here).
-	if op, ok := mgr.(*secrets.OnePassword); ok {
-		return collectSecretRefs1Password(ctx, op, slots)
+	// 1Password gets the nice account-per-slot + item/field picker.
+	// Other managers stick with the typed-string path.
+	if mgr.Name() == "1password" {
+		return collectSecretRefs1Password(ctx, slots)
 	}
 	return collectSecretRefsTyped(ctx, mgr, slots)
 }
@@ -263,7 +254,7 @@ func collectSecretRefsTyped(ctx context.Context, mgr secrets.Manager, slots []se
 	envMode := mgr.Name() == "env"
 
 	for _, s := range slots {
-		val := *s.current
+		val := *s.refPtr
 		err := huh.NewInput().
 			Title(s.label + " reference").
 			Value(&val).
@@ -288,9 +279,9 @@ func collectSecretRefsTyped(ctx context.Context, mgr secrets.Manager, slots []se
 		if err != nil {
 			return err
 		}
-		*s.current = strings.TrimSpace(val)
+		*s.refPtr = strings.TrimSpace(val)
 		if envMode {
-			fmt.Printf("  ✓ %s — recorded (will read $%s at runtime)\n", s.label, *s.current)
+			fmt.Printf("  ✓ %s — recorded (will read $%s at runtime)\n", s.label, *s.refPtr)
 		} else {
 			fmt.Printf("  ✓ %s — fetched OK\n", s.label)
 		}
@@ -298,57 +289,141 @@ func collectSecretRefsTyped(ctx context.Context, mgr secrets.Manager, slots []se
 	return nil
 }
 
-// collectSecretRefs1Password fetches the user's 1Password items once,
-// then presents an autocomplete picker per secret. After picking an
-// item, the user picks which field to use; the canonical op:// ref
-// comes straight from `op item get`'s `reference` value.
-func collectSecretRefs1Password(ctx context.Context, op *secrets.OnePassword, slots []secretSlot) error {
-	fmt.Println()
-	fmt.Println("Loading your 1Password items… (first time today may prompt for biometric auth)")
-	items, err := op.ListItems(ctx)
+// collectSecretRefs1Password walks the user through each secret one at
+// a time: pick the 1Password account, then the item, then the field.
+// The previous slot's account is offered as the default for the next so
+// users with multi-account setups can move quickly while still being
+// able to switch.
+func collectSecretRefs1Password(ctx context.Context, slots []secretSlot) error {
+	accs, err := secrets.ListOnePasswordAccounts(ctx)
 	if err != nil {
-		return fmt.Errorf("list 1Password items: %w", err)
+		return fmt.Errorf("list 1Password accounts: %w", err)
 	}
-	if len(items) == 0 {
-		return errors.New("no 1Password items visible to this account")
+	if len(accs) == 0 {
+		return errors.New("no 1Password accounts signed in — run `op signin` first")
 	}
-	fmt.Printf("  ✓ loaded %d items\n\n", len(items))
 
-	// Sort: items with credential-like categories first, then alpha by
-	// vault then title. Doesn't hide anything — just orders the picker
-	// so the likely-correct items rise to the top.
-	sort.SliceStable(items, func(i, j int) bool {
-		ip := credentialPriority(items[i].Category)
-		jp := credentialPriority(items[j].Category)
-		if ip != jp {
-			return ip > jp
-		}
-		if items[i].Vault.Name != items[j].Vault.Name {
-			return items[i].Vault.Name < items[j].Vault.Name
-		}
-		return items[i].Title < items[j].Title
-	})
-
-	itemOptions := make([]huh.Option[string], 0, len(items))
-	for _, it := range items {
-		label := fmt.Sprintf("%s  ·  %s  ·  %s", it.Title, it.Vault.Name, friendlyCategory(it.Category))
-		itemOptions = append(itemOptions, huh.NewOption(label, it.ID))
-	}
+	// Cache the per-account item lists so each account only pays its
+	// first-call biometric prompt once across the whole init session.
+	itemsByAccount := map[string][]secrets.OnePasswordItem{}
+	lastAccount := ""
 
 	for i, s := range slots {
-		// A sticky stdout banner so the user always sees which secret
-		// they're picking for, even if huh's filter mode swallows the
-		// in-form title.
 		fmt.Printf("\n━━ [%d/%d] %s ━━\n", i+1, len(slots), s.label)
-		ref, err := pick1PasswordRef(ctx, op, itemOptions, s.label)
+
+		account, err := pickAccountForSlot(s.label, accs, lastAccount, *s.acctPtr)
 		if err != nil {
 			return err
 		}
-		*s.current = ref
+		lastAccount = account
+		*s.acctPtr = account
+
+		items, err := loadItemsForAccount(ctx, itemsByAccount, account, accountLabel(account, accs))
+		if err != nil {
+			return err
+		}
+		op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
+		ref, err := pick1PasswordRef(ctx, op, itemOptions(items), s.label)
+		if err != nil {
+			return err
+		}
+		*s.refPtr = ref
 		fmt.Printf("  ✓ %s — %s\n", s.label, ref)
 	}
 	fmt.Println()
 	return nil
+}
+
+// pickAccountForSlot shows a per-slot account picker. With only one
+// account known to op, we skip the picker entirely.
+func pickAccountForSlot(label string, accs []secrets.OnePasswordAccount,
+	previousChoice, currentValue string) (string, error) {
+
+	if len(accs) == 1 {
+		fmt.Printf("  ✓ account: %s (%s)\n", accs[0].Email, accs[0].URL)
+		return accs[0].AccountUUID, nil
+	}
+
+	def := currentValue
+	if def == "" {
+		def = previousChoice
+	}
+	if def == "" {
+		def = accs[0].AccountUUID
+	}
+
+	options := make([]huh.Option[string], 0, len(accs))
+	for _, a := range accs {
+		options = append(options, huh.NewOption(
+			fmt.Sprintf("%s  (%s)", a.Email, a.URL),
+			a.AccountUUID,
+		))
+	}
+	choice := def
+	if err := huh.NewSelect[string]().
+		Title(fmt.Sprintf("Which 1Password account holds the %s?", label)).
+		Description("↑/↓ to move  ·  enter to select").
+		Options(options...).
+		Value(&choice).
+		Run(); err != nil {
+		return "", err
+	}
+	return choice, nil
+}
+
+// loadItemsForAccount fetches and caches the item list for one account.
+func loadItemsForAccount(ctx context.Context, cache map[string][]secrets.OnePasswordItem,
+	account, accountLabel string) ([]secrets.OnePasswordItem, error) {
+
+	if items, ok := cache[account]; ok {
+		return items, nil
+	}
+	fmt.Printf("Loading 1Password items for %s… (may prompt for biometric auth)\n", accountLabel)
+	op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
+	items, err := op.ListItems(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list 1Password items: %w", err)
+	}
+	if len(items) == 0 {
+		return nil, errors.New("no 1Password items visible to this account")
+	}
+	fmt.Printf("  ✓ loaded %d items\n", len(items))
+	cache[account] = items
+	return items, nil
+}
+
+// itemOptions renders a sorted, formatted huh option list for an item
+// listing. API-credential-like items rise to the top.
+func itemOptions(items []secrets.OnePasswordItem) []huh.Option[string] {
+	sorted := make([]secrets.OnePasswordItem, len(items))
+	copy(sorted, items)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		ip := credentialPriority(sorted[i].Category)
+		jp := credentialPriority(sorted[j].Category)
+		if ip != jp {
+			return ip > jp
+		}
+		if sorted[i].Vault.Name != sorted[j].Vault.Name {
+			return sorted[i].Vault.Name < sorted[j].Vault.Name
+		}
+		return sorted[i].Title < sorted[j].Title
+	})
+	out := make([]huh.Option[string], 0, len(sorted))
+	for _, it := range sorted {
+		label := fmt.Sprintf("%s  ·  %s  ·  %s", it.Title, it.Vault.Name, friendlyCategory(it.Category))
+		out = append(out, huh.NewOption(label, it.ID))
+	}
+	return out
+}
+
+// accountLabel returns the friendly "<email> (<url>)" form for a UUID.
+func accountLabel(uuid string, accs []secrets.OnePasswordAccount) string {
+	for _, a := range accs {
+		if a.AccountUUID == uuid {
+			return fmt.Sprintf("%s (%s)", a.Email, a.URL)
+		}
+	}
+	return uuid
 }
 
 // pick1PasswordRef shows the item picker, then the field picker, then

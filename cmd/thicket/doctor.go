@@ -108,40 +108,39 @@ func checkSecrets(ctx context.Context, c *config.Config) []check {
 	if c.Passwords.Manager == "" {
 		return append(out, fail("password manager", "not configured — run `thicket init`"))
 	}
-	mgr, err := secrets.New(c.Passwords.Manager, secrets.Options{
-		OnePasswordAccount: c.Passwords.OnePassword.Account,
-	})
-	if err != nil {
-		return append(out, fail("password manager", err.Error()))
-	}
-	if c.Passwords.Manager == "1password" && c.Passwords.OnePassword.Account != "" {
-		out = append(out, ok("1password account", c.Passwords.OnePassword.Account))
-	}
-	if err := mgr.Check(ctx); err != nil {
-		switch {
-		case errors.Is(err, secrets.ErrCLIMissing):
-			return append(out, fail("password manager",
-				fmt.Sprintf("%s: CLI not installed", c.Passwords.Manager)))
-		case errors.Is(err, secrets.ErrNotAuthenticated):
-			return append(out, fail("password manager",
-				fmt.Sprintf("%s: not signed in / unlocked", c.Passwords.Manager)))
-		default:
-			return append(out, fail("password manager", err.Error()))
-		}
-	}
-	out = append(out, ok("password manager", c.Passwords.Manager+" — installed, unlocked"))
+	out = append(out, ok("password manager", c.Passwords.Manager))
 
-	for _, sec := range []struct {
-		label, ref string
-	}{
-		{"shortcut token", c.Passwords.ShortcutTokenRef},
-		{"anthropic key", c.Passwords.AnthropicKeyRef},
-	} {
+	// Each secret carries its own account (1Password only) so we
+	// construct a fresh manager per fetch and report status per-secret.
+	backend := c.ClaudeBackend
+	if backend == "" {
+		backend = "cli"
+	}
+	type secCheck struct {
+		label, ref, account string
+		skip                bool
+	}
+	checks := []secCheck{
+		{"shortcut token", c.Passwords.ShortcutTokenRef, c.Passwords.ShortcutTokenAccount, false},
+		{"anthropic key", c.Passwords.AnthropicKeyRef, c.Passwords.AnthropicKeyAccount, backend == "cli"},
+	}
+	for _, sec := range checks {
+		if sec.skip {
+			out = append(out, ok(sec.label, "skipped (claude_backend=cli)"))
+			continue
+		}
 		if sec.ref == "" {
 			out = append(out, fail(sec.label, "no reference set — run `thicket init`"))
 			continue
 		}
-		_, err := mgr.Get(ctx, sec.ref)
+		mgr, err := secrets.New(c.Passwords.Manager, secrets.Options{
+			OnePasswordAccount: sec.account,
+		})
+		if err != nil {
+			out = append(out, fail(sec.label, err.Error()))
+			continue
+		}
+		_, err = mgr.Get(ctx, sec.ref)
 		if err != nil {
 			out = append(out, fail(sec.label, fmt.Sprintf("%s: %v", sec.ref, err)))
 			continue

@@ -30,6 +30,12 @@ type Config struct {
 	DefaultBranch string `toml:"default_branch"`
 	ClaudeModel   string `toml:"claude_model"`
 	ClaudeBinary  string `toml:"claude_binary"`
+	// ClaudeBackend selects how the repo detector talks to Claude:
+	//   "cli" — shell out to the `claude` binary (no API key, uses your
+	//           Claude Code / Enterprise auth).
+	//   "api" — call Anthropic API directly (requires anthropic_key_ref).
+	// Empty defaults to "cli".
+	ClaudeBackend string `toml:"claude_backend"`
 
 	TicketSource string   `toml:"ticket_source"`
 	GithubOrgs   []string `toml:"github_orgs"`
@@ -52,25 +58,27 @@ type RepoAlias struct {
 // per-secret item references the tool should fetch at runtime. Crucially,
 // this file stores only references — the raw secrets live in the user's
 // password manager and never touch thicket's config.
+//
+// For 1Password specifically, each secret carries its own *_account
+// field so users with secrets split across multiple 1Password accounts
+// (work + personal, say) can point each secret at the right account.
+// Other managers ignore the *_account fields.
 type PasswordsConfig struct {
 	// Manager is one of: "1password", "bitwarden", "pass", "env".
 	Manager string `toml:"manager"`
+
 	// ShortcutTokenRef is the PM ref for the Shortcut API token.
 	ShortcutTokenRef string `toml:"shortcut_token_ref,omitempty"`
+	// ShortcutTokenAccount is the 1Password account UUID (or sign-in
+	// email) that holds the Shortcut token item. Ignored by other
+	// managers. Empty falls back to op's default account.
+	ShortcutTokenAccount string `toml:"shortcut_token_account,omitempty"`
+
 	// AnthropicKeyRef is the PM ref for the Anthropic API key.
 	AnthropicKeyRef string `toml:"anthropic_key_ref,omitempty"`
-
-	// OnePassword carries manager-specific settings used only when
-	// Manager == "1password". Other managers ignore this block.
-	OnePassword OnePasswordConfig `toml:"onepassword,omitempty"`
-}
-
-// OnePasswordConfig is the 1Password-specific portion of PasswordsConfig.
-type OnePasswordConfig struct {
-	// Account selects which 1Password account to use when more than one
-	// is signed into the local `op` CLI. May be the account UUID (stable)
-	// or the sign-in email (human-friendly). Empty = `op`'s default.
-	Account string `toml:"account,omitempty"`
+	// AnthropicKeyAccount is the 1Password account UUID for the
+	// Anthropic key item. Ignored by other managers.
+	AnthropicKeyAccount string `toml:"anthropic_key_account,omitempty"`
 }
 
 // Default returns a Config pre-filled with the defaults the init wizard
@@ -83,6 +91,7 @@ func Default() Config {
 		DefaultBranch: "main",
 		ClaudeModel:   "claude-haiku-4-5",
 		ClaudeBinary:  "claude",
+		ClaudeBackend: "cli",
 		TicketSource:  "shortcut",
 		GithubOrgs:    nil,
 		Shortcut:      ShortcutConfig{},

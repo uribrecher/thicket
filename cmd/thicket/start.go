@@ -38,14 +38,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 
-	// Password manager (cached for the lifetime of this command).
-	mgr, err := buildSecretManager(cmd.Context(), cfg)
-	if err != nil {
-		return err
-	}
-
-	// 1. Ticket source + ID parsing
-	src, err := buildTicketSource(cmd.Context(), cfg, mgr)
+	// 1. Ticket source + ID parsing (fetches its own secret).
+	src, err := buildTicketSource(cmd.Context(), cfg)
 	if err != nil {
 		return err
 	}
@@ -70,7 +64,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(out, "catalog: %d active repos across %v\n", len(repos), cfg.GithubOrgs)
 
 	// 4. Detect involved repos
-	picks, err := detectRepos(cmd.Context(), cfg, mgr, flags, tk, repos)
+	picks, err := detectRepos(cmd.Context(), cfg, flags, tk, repos)
 	if err != nil {
 		return err
 	}
@@ -158,31 +152,33 @@ func readStartFlags(cmd *cobra.Command) (startFlags, error) {
 	}, nil
 }
 
-func buildSecretManager(ctx context.Context, cfg *config.Config) (secrets.Manager, error) {
+// fetchSecret builds a freshly-scoped Manager for one secret and resolves
+// its value. Each secret can carry its own 1Password account, so we
+// construct on demand instead of sharing a single manager across the
+// whole `start` command.
+func fetchSecret(ctx context.Context, cfg *config.Config, ref, account string) (string, error) {
 	if cfg.Passwords.Manager == "" {
-		return nil, errors.New("no password manager configured — run `thicket init`")
+		return "", errors.New("no password manager configured — run `thicket init`")
 	}
-	m, err := secrets.New(cfg.Passwords.Manager, secrets.Options{
-		OnePasswordAccount: cfg.Passwords.OnePassword.Account,
+	if ref == "" {
+		return "", errors.New("reference not configured — run `thicket init`")
+	}
+	mgr, err := secrets.New(cfg.Passwords.Manager, secrets.Options{
+		OnePasswordAccount: account,
 	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	if err := m.Check(ctx); err != nil {
-		return nil, fmt.Errorf("%s: %w", cfg.Passwords.Manager, err)
-	}
-	return secrets.NewCached(m), nil
+	return mgr.Get(ctx, ref)
 }
 
-func buildTicketSource(ctx context.Context, cfg *config.Config, mgr secrets.Manager) (ticket.Source, error) {
+func buildTicketSource(ctx context.Context, cfg *config.Config) (ticket.Source, error) {
 	switch cfg.TicketSource {
 	case "shortcut":
-		if cfg.Passwords.ShortcutTokenRef == "" {
-			return nil, errors.New("shortcut_token_ref not configured — run `thicket init`")
-		}
-		token, err := mgr.Get(ctx, cfg.Passwords.ShortcutTokenRef)
+		token, err := fetchSecret(ctx, cfg,
+			cfg.Passwords.ShortcutTokenRef, cfg.Passwords.ShortcutTokenAccount)
 		if err != nil {
-			return nil, fmt.Errorf("fetch shortcut token from %s: %w", mgr.Name(), err)
+			return nil, fmt.Errorf("fetch shortcut token: %w", err)
 		}
 		return shortcut.New(token, ""), nil
 	default:
@@ -211,7 +207,7 @@ func loadCatalog(cfg *config.Config) ([]catalog.Repo, error) {
 	return catalog.WithLocalPaths(repos, cfg.ReposRoot), nil
 }
 
-func detectRepos(ctx context.Context, cfg *config.Config, mgr secrets.Manager, flags startFlags,
+func detectRepos(ctx context.Context, cfg *config.Config, flags startFlags,
 	tk ticket.Ticket, repos []catalog.Repo) ([]detector.RepoMatch, error) {
 
 	catRepos := make([]detector.CatalogRepo, len(repos))
@@ -233,24 +229,44 @@ func detectRepos(ctx context.Context, cfg *config.Config, mgr secrets.Manager, f
 		})
 	}
 
-	if cfg.Passwords.AnthropicKeyRef == "" {
-		return nil, errors.New("anthropic_key_ref not configured — run `thicket init`")
-	}
-	key, err := mgr.Get(ctx, cfg.Passwords.AnthropicKeyRef)
+	d, err := buildClaudeDetector(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("fetch anthropic key from %s: %w", mgr.Name(), err)
+		return nil, err
 	}
-	model := anthropic.Model(cfg.ClaudeModel)
-	d := detector.NewAnthropic(key, "", model)
-	picks, err := d.Detect(ctx, detector.Input{
+	return d.Detect(ctx, detector.Input{
 		TicketTitle: tk.Title,
 		TicketBody:  tk.Body,
 		Repos:       catRepos,
 	})
-	if err != nil {
-		return nil, err
+}
+
+// buildClaudeDetector picks between the API-backed detector (uses an
+// Anthropic API key from the password manager) and the CLI-backed
+// detector (shells out to `claude -p`, no API key needed — handy for
+// users on a Claude Enterprise subscription). The choice is driven by
+// cfg.ClaudeBackend; CLI is the default when not set.
+func buildClaudeDetector(ctx context.Context, cfg *config.Config) (detector.Detector, error) {
+	backend := cfg.ClaudeBackend
+	if backend == "" {
+		backend = "cli"
 	}
-	return picks, nil
+	switch backend {
+	case "cli":
+		bin := cfg.ClaudeBinary
+		if bin == "" {
+			bin = "claude"
+		}
+		return detector.NewClaudeCLI(bin, cfg.ClaudeModel), nil
+	case "api":
+		key, err := fetchSecret(ctx, cfg,
+			cfg.Passwords.AnthropicKeyRef, cfg.Passwords.AnthropicKeyAccount)
+		if err != nil {
+			return nil, fmt.Errorf("fetch anthropic key: %w", err)
+		}
+		return detector.NewAnthropic(key, "", anthropic.Model(cfg.ClaudeModel)), nil
+	default:
+		return nil, fmt.Errorf("unknown claude_backend %q (want \"cli\" or \"api\")", backend)
+	}
 }
 
 func pickSelector(noInteractive bool) tui.Selector {
