@@ -68,7 +68,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(out, "catalog: %d active repos across %v\n", len(repos), cfg.GithubOrgs)
 
 	// 4. Detect involved repos
-	picks, err := detectRepos(cmd.Context(), cfg, flags, tk, repos)
+	var picks []detector.RepoMatch
+	err = withProgress(cmd.OutOrStderr(), "looking for relevant repos", func() error {
+		var detErr error
+		picks, detErr = detectRepos(cmd.Context(), cfg, flags, tk, repos)
+		return detErr
+	})
 	if err != nil {
 		return err
 	}
@@ -176,6 +181,43 @@ func envVarFor(k secretKind) string {
 		return "ANTHROPIC_API_KEY"
 	}
 	return ""
+}
+
+// withProgress runs fn while printing a single-line, in-place "label …
+// Ns" elapsed-time spinner. Both keeps the user from thinking the CLI
+// is stuck and gives them a sense of how long the underlying call took
+// (the LLM in particular can take 5–30s). Clears the line on completion
+// so subsequent output starts on a clean row.
+func withProgress(w io.Writer, label string, fn func() error) error {
+	start := time.Now()
+	done := make(chan struct{})
+	// Print the initial frame immediately so the user sees something
+	// even if fn returns in <1s.
+	fmt.Fprintf(w, "%s… 0s", label)
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case t := <-ticker.C:
+				secs := int(t.Sub(start).Seconds())
+				// \r returns to column 0; \033[K clears to end of line
+				// so the previous frame's tail (e.g. when seconds shrink
+				// in digit count) doesn't leak through.
+				fmt.Fprintf(w, "\r\033[K%s… %ds", label, secs)
+			}
+		}
+	}()
+	err := fn()
+	close(done)
+	// Wipe the spinner line so the next print starts clean.
+	fmt.Fprint(w, "\r\033[K")
+	if err == nil {
+		fmt.Fprintf(w, "%s — %.1fs\n", label, time.Since(start).Seconds())
+	}
+	return err
 }
 
 // fetchSecret resolves a secret using the highest-priority source
