@@ -129,7 +129,16 @@ The config looks like:
 manager             = "1password"
 shortcut_token_ref  = "op://Private/Shortcut/credential"
 anthropic_key_ref   = "op://Private/Anthropic/credential"
+
+# 1Password-only — selects which signed-in account to use when more than one
+# is active. Optional; `op`'s default is used when omitted.
+[passwords.onepassword]
+account = "576UUGKY6NCYTDLB42Z2C3XNH4"
 ```
+
+If `op account list` shows more than one account, `thicket init` prompts
+you to pick one and stores the account UUID. Every subsequent `op` call
+is scoped via `--account <uuid>`.
 
 `thicket doctor` verifies the CLI is installed, the vault is unlocked, and
 each reference resolves to a value — without ever showing the value.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -57,6 +58,78 @@ func TestOnePassword_Get_passesOpReadArgs(t *testing.T) {
 	if c.name != "op" || len(c.args) != 3 || c.args[0] != "read" ||
 		c.args[1] != "op://Personal/Shortcut/credential" || c.args[2] != "--no-newline" {
 		t.Errorf("args = %v", c.args)
+	}
+}
+
+func TestOnePassword_Get_prependsAccountFlag(t *testing.T) {
+	fr := &fakeRunner{stdout: []byte("x")}
+	p := OnePassword{Runner: fr, Account: "uri.brecher@gmail.com"}
+	if _, err := p.Get(context.Background(), "op://x/y/z"); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(fr.calls[0].args, " ")
+	want := "--account uri.brecher@gmail.com read op://x/y/z --no-newline"
+	if got != want {
+		t.Errorf("args = %q, want %q", got, want)
+	}
+}
+
+func TestOnePassword_Check_prependsAccountFlag(t *testing.T) {
+	fr := &fakeRunner{}
+	p := OnePassword{Runner: fr, LookPath: alwaysFound, Account: "576UUGKY"}
+	if err := p.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(fr.calls[0].args, " ")
+	want := "--account 576UUGKY vault list"
+	if got != want {
+		t.Errorf("args = %q, want %q", got, want)
+	}
+}
+
+func TestListOnePasswordAccounts_parsesOpJSON(t *testing.T) {
+	fr := &fakeRunner{stdout: []byte(`[
+		{"url":"my.1password.com","email":"a@x.com","user_uuid":"U1","account_uuid":"A1"},
+		{"url":"sentra.1password.com","email":"b@y.com","user_uuid":"U2","account_uuid":"A2"}
+	]`)}
+	accs, err := listOnePasswordAccounts(context.Background(), fr, alwaysFound)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(accs) != 2 {
+		t.Fatalf("got %d", len(accs))
+	}
+	if accs[0].Email != "a@x.com" || accs[0].AccountUUID != "A1" {
+		t.Errorf("first row mismatched: %+v", accs[0])
+	}
+	if accs[1].URL != "sentra.1password.com" {
+		t.Errorf("second row mismatched: %+v", accs[1])
+	}
+	got := strings.Join(fr.calls[0].args, " ")
+	if got != "account list --format json" {
+		t.Errorf("args = %q", got)
+	}
+}
+
+func TestListOnePasswordAccounts_cliMissing(t *testing.T) {
+	notFound := func(string) (string, error) { return "", errors.New("not found") }
+	_, err := listOnePasswordAccounts(context.Background(), &fakeRunner{}, notFound)
+	if !errors.Is(err, ErrCLIMissing) {
+		t.Errorf("want ErrCLIMissing, got %v", err)
+	}
+}
+
+func TestNew_withOptions_threadsOnePasswordAccount(t *testing.T) {
+	m, err := New("1password", Options{OnePasswordAccount: "uuid-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, ok := m.(*OnePassword)
+	if !ok {
+		t.Fatalf("expected *OnePassword, got %T", m)
+	}
+	if op.Account != "uuid-123" {
+		t.Errorf("Account = %q", op.Account)
 	}
 }
 

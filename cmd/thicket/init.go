@@ -153,19 +153,70 @@ func chooseAndVerifyManager(ctx context.Context, cfg *config.Config) (secrets.Ma
 	if err := form.Run(); err != nil {
 		return nil, err
 	}
+	cfg.Passwords.Manager = choice
 
-	mgr, err := secrets.New(choice)
+	// 1Password may have multiple signed-in accounts; pick one before
+	// constructing the manager so subsequent op calls scope correctly.
+	var opts secrets.Options
+	if choice == "1password" {
+		account, err := pickOnePasswordAccount(ctx, cfg.Passwords.OnePassword.Account)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Passwords.OnePassword.Account = account
+		opts.OnePasswordAccount = account
+	}
+
+	mgr, err := secrets.New(choice, opts)
 	if err != nil {
 		return nil, err
 	}
-	cfg.Passwords.Manager = choice
-
 	if err := mgr.Check(ctx); err != nil {
 		return nil, fmt.Errorf("%s check failed: %w — install the CLI and sign in, then re-run `thicket init`",
 			choice, err)
 	}
 	fmt.Printf("  ✓ %s CLI is installed and unlocked\n", choice)
 	return mgr, nil
+}
+
+// pickOnePasswordAccount lists 1Password accounts known to the local op
+// CLI and, if more than one exists, presents a picker. Single-account
+// users get an automatic pass-through. Returns the account UUID (stable
+// across email changes), or "" when only one account is signed in and we
+// can let op pick its default.
+func pickOnePasswordAccount(ctx context.Context, current string) (string, error) {
+	accs, err := secrets.ListOnePasswordAccounts(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list 1Password accounts: %w", err)
+	}
+	if len(accs) == 0 {
+		return "", errors.New("no 1Password accounts signed in — run `op signin` first")
+	}
+	if len(accs) == 1 {
+		fmt.Printf("  ✓ 1Password: using account %s (%s)\n", accs[0].Email, accs[0].URL)
+		return accs[0].AccountUUID, nil
+	}
+
+	opts := make([]huh.Option[string], 0, len(accs))
+	for _, a := range accs {
+		opts = append(opts, huh.NewOption(
+			fmt.Sprintf("%s  (%s)", a.Email, a.URL),
+			a.AccountUUID,
+		))
+	}
+	choice := current
+	if choice == "" {
+		choice = accs[0].AccountUUID
+	}
+	if err := huh.NewSelect[string]().
+		Title("Which 1Password account holds your dev tokens?").
+		Description("Pick one. You can change this later by re-running `thicket init`.").
+		Options(opts...).
+		Value(&choice).
+		Run(); err != nil {
+		return "", err
+	}
+	return choice, nil
 }
 
 // ----- Step 3 -----
