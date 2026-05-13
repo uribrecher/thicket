@@ -23,7 +23,11 @@
         crossorigin="anonymous"
         defer></script>
 
-<link rel="stylesheet" href="styles.css">
+<!-- Cache-busting via content-hash query string. Update with:
+       shasum -a 256 docs/styles.css | cut -c1-8
+     whenever styles.css changes — `task pages:cachebust` regenerates
+     this line in place. -->
+<link rel="stylesheet" href="styles.css?v=51c941bf">
 
 <meta property="og:title" content="thicket — one ticket, many repos, zero ceremony">
 <meta property="og:description" content="A CLI that spawns a Claude-ready, multi-repo git workspace from a ticket.">

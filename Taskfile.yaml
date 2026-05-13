@@ -98,6 +98,17 @@ tasks:
     cmds:
       - goreleaser release --clean
 
+  pages:cachebust:
+    desc: Recompute the styles.css cache-busting hash in docs/index.html
+    cmds:
+      - |
+        HASH=$(shasum -a 256 docs/styles.css | cut -c1-8)
+        # Rewrite the styles.css?v=<old> link to the freshly-hashed one.
+        # macOS sed needs an empty -i suffix.
+        sed -E -i '' "s#styles\.css\?v=[a-f0-9]{8}#styles.css?v=${HASH}#" docs/index.html
+        echo "docs/index.html → styles.css?v=${HASH}"
+      - git diff --stat docs/index.html || true
+
   ci:
     desc: Run everything CI runs (test + vet + lint)
     deps: [test, vet, lint]
