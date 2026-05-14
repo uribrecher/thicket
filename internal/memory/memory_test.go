@@ -64,6 +64,90 @@ func TestRender_emptyBodyFallback(t *testing.T) {
 	}
 }
 
+func TestRegenPreservingStatusLog_preservesTail(t *testing.T) {
+	in := Input{
+		TicketID: "sc-1", Title: "T", Body: "b",
+		Branch: "x", WorkspaceDir: "/tmp/x",
+		Repos: []RepoEntry{
+			{Name: "alpha", Branch: "x", WorktreePath: "/tmp/x/alpha", DefaultBranch: "main"},
+		},
+		CreatedAt: time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC),
+	}
+	existing := []byte(`# Ticket sc-1 — Old title
+
+stale top half — should be replaced
+
+## Status log
+
+<!-- comment -->
+
+### 2026-05-13 14:00
+- Investigated grouping pipeline
+- Found root cause in inventories_utils.py
+`)
+	got, preserved, err := RegenPreservingStatusLog(in, existing)
+	if err != nil {
+		t.Fatalf("regen: %v", err)
+	}
+	if !preserved {
+		t.Fatalf("preserved=false, want true")
+	}
+	gotStr := string(got)
+	// New header from the fresh render.
+	if !strings.Contains(gotStr, "Ticket sc-1 — T") {
+		t.Errorf("fresh header missing:\n%s", gotStr)
+	}
+	if strings.Contains(gotStr, "Old title") {
+		t.Errorf("stale title leaked into refreshed file:\n%s", gotStr)
+	}
+	// New repo from the input made it in.
+	if !strings.Contains(gotStr, "| alpha |") {
+		t.Errorf("new repo row missing:\n%s", gotStr)
+	}
+	// Existing status-log entries preserved.
+	if !strings.Contains(gotStr, "### 2026-05-13 14:00") {
+		t.Errorf("status-log heading lost:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "Investigated grouping pipeline") {
+		t.Errorf("status-log entry body lost:\n%s", gotStr)
+	}
+	// Exactly one "## Status log" heading — splice didn't duplicate it.
+	if c := strings.Count(gotStr, "## Status log"); c != 1 {
+		t.Errorf("status-log heading count = %d, want 1\n%s", c, gotStr)
+	}
+}
+
+func TestRegenPreservingStatusLog_emptyExistingFallsBackToRender(t *testing.T) {
+	in := Input{TicketID: "sc-1", Title: "T", Body: "b", Branch: "x",
+		WorkspaceDir: "/tmp/x", CreatedAt: time.Now()}
+	got, preserved, err := RegenPreservingStatusLog(in, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preserved {
+		t.Errorf("preserved=true for empty existing")
+	}
+	if !strings.Contains(string(got), "## Status log") {
+		t.Errorf("fallback should be a full render:\n%s", got)
+	}
+}
+
+func TestRegenPreservingStatusLog_missingMarkerFallsBack(t *testing.T) {
+	in := Input{TicketID: "sc-1", Title: "T", Body: "b", Branch: "x",
+		WorkspaceDir: "/tmp/x", CreatedAt: time.Now()}
+	existing := []byte("# Ticket sc-1 — Old title\n\nuser deleted everything below\n")
+	got, preserved, err := RegenPreservingStatusLog(in, existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preserved {
+		t.Errorf("preserved=true when marker is absent")
+	}
+	if !strings.Contains(string(got), "## Status log") {
+		t.Errorf("fresh render expected when fallback triggered:\n%s", got)
+	}
+}
+
 func TestRender_omitsOptionalFields(t *testing.T) {
 	out, err := Render(Input{TicketID: "sc-1", Title: "T", Body: "b",
 		Branch: "x", WorkspaceDir: "/tmp/x", CreatedAt: time.Now()})

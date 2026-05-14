@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`thicket edit`: add repos to an existing workspace.** New command
+  that opens a 3-page Bubble Tea wizard (Workspace → Repos → Submit)
+  for attaching more git worktrees to a workspace you've already
+  created. Solves the "I forgot a repo at start time" recovery case
+  without destroying the workspace and its uncommitted work.
+  - **Workspace page** picks from `workspace.ListManaged`, the same
+    source `thicket rm` uses. Columns: Slug · Ticket · Branch ·
+    Created · Repos. Workspaces without a state manifest are
+    filtered out (can't safely add without knowing the branch).
+  - **Repos page** is start's catalog picker minus the LLM suggestion
+    section. Repos already in the workspace render as dim `[locked]`
+    rows that ignore Enter/space — MVP doesn't support repo removal
+    (use `thicket rm` + `thicket start` for that). New picks land in
+    an "Adding" group; fuzzy search re-ranks the catalog the same way
+    `thicket start` does.
+  - **Submit page** mirrors `start`'s Plan page: builds an `AddPlan`,
+    shows what will be cloned + what worktrees will be attached, runs
+    clones in-page with the same proceed-without-failed-repo policy
+    on failure.
+  - **`thicket edit <slug>`** preselects the workspace and skips the
+    first page — parallel to `thicket start <id>`.
+  - **CLAUDE.local.md is regenerated** with the union of old + new
+    repos via a new `memory.RegenPreservingStatusLog` helper that
+    splits the file at the `## Status log` heading and preserves
+    everything below it verbatim. So past Status-log entries an agent
+    appended across sessions survive the edit. On parse failure
+    (existing file lacks the marker, e.g. user heavily edited it) we
+    fall back to a fresh render and warn on stderr.
+  - **State manifest writes are now atomic** (temp + rename) so a
+    crash mid-edit can't leave the workspace with a corrupt
+    `.thicket/state.json`.
+
 - **`thicket start`: real LLM-generated ticket summary.** The
   three-line "summary" block at the top of the Repos page used to
   be the literal first three non-empty lines of the description —

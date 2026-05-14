@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -422,6 +423,206 @@ func writeFakeState(t *testing.T, dir string, st State) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, ".thicket", "state.json"), b, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// ----- Add -----
+
+// createBasePlanWorkspace runs Create against basePlan(root) and
+// returns the live root. Used as the starting point for Add tests:
+// the workspace already has alpha + beta as worktrees on branch
+// u/sc-1-x, with a real CLAUDE.local.md + state.json on disk.
+func createBasePlanWorkspace(t *testing.T) (string, Plan) {
+	t.Helper()
+	root := t.TempDir()
+	p := basePlan(root)
+	initRepo(t, p.Repos[0].SourcePath)
+	initRepo(t, p.Repos[1].SourcePath)
+	if err := New(git.New()).Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	return root, p
+}
+
+func TestAdd_attachesNewWorktreesAndAppendsState(t *testing.T) {
+	root, p := createBasePlanWorkspace(t)
+
+	srcG := filepath.Join(root, "src", "gamma")
+	initRepo(t, srcG)
+	wtG := filepath.Join(p.WorkspaceDir, "gamma")
+
+	ap := AddPlan{
+		WorkspaceDir: p.WorkspaceDir,
+		NewRepos: []PlanRepo{
+			{Name: "gamma", SourcePath: srcG, WorktreePath: wtG, BranchExists: false},
+		},
+		Memory: memory.Input{
+			TicketID: "sc-1", Title: "X", Body: "body",
+			Branch: "u/sc-1-x", WorkspaceDir: p.WorkspaceDir,
+			Repos: []memory.RepoEntry{
+				{Name: "alpha", Branch: "u/sc-1-x", WorktreePath: filepath.Join(p.WorkspaceDir, "alpha"), DefaultBranch: "main"},
+				{Name: "beta", Branch: "u/sc-1-x", WorktreePath: filepath.Join(p.WorkspaceDir, "beta"), DefaultBranch: "main"},
+				{Name: "gamma", Branch: "u/sc-1-x", WorktreePath: wtG, DefaultBranch: "main"},
+			},
+			CreatedAt: time.Date(2026, 5, 13, 12, 30, 0, 0, time.UTC),
+		},
+	}
+
+	res, err := New(git.New()).Add(ap)
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if len(res.Added) != 1 || res.Added[0].Name != "gamma" {
+		t.Errorf("Added = %+v", res.Added)
+	}
+	if len(res.Skipped) != 0 {
+		t.Errorf("Skipped = %+v", res.Skipped)
+	}
+
+	// Worktree is real and on the right branch.
+	got, err := git.New().CurrentBranch(wtG)
+	if err != nil || got != "u/sc-1-x" {
+		t.Errorf("gamma worktree branch = %q (err=%v)", got, err)
+	}
+
+	// state.json now lists 3 repos.
+	st, err := ReadState(p.WorkspaceDir)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if len(st.Repos) != 3 {
+		t.Fatalf("state repos = %d, want 3 (%+v)", len(st.Repos), st.Repos)
+	}
+	names := []string{st.Repos[0].Name, st.Repos[1].Name, st.Repos[2].Name}
+	if !reflect.DeepEqual(names, []string{"alpha", "beta", "gamma"}) {
+		t.Errorf("state repo order = %v, want [alpha beta gamma]", names)
+	}
+
+	// CLAUDE.local.md mentions gamma now.
+	body, err := os.ReadFile(filepath.Join(p.WorkspaceDir, memory.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "| gamma |") {
+		t.Errorf("gamma row missing from CLAUDE.local.md:\n%s", body)
+	}
+}
+
+func TestAdd_preservesStatusLog(t *testing.T) {
+	root, p := createBasePlanWorkspace(t)
+
+	// Append a status-log entry the way an agent would.
+	memPath := filepath.Join(p.WorkspaceDir, memory.FileName)
+	orig, err := os.ReadFile(memPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appended := string(orig) + "\n### 2026-05-13 13:00\n- Triaged the regression\n"
+	if err := os.WriteFile(memPath, []byte(appended), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	srcG := filepath.Join(root, "src", "gamma")
+	initRepo(t, srcG)
+	ap := AddPlan{
+		WorkspaceDir: p.WorkspaceDir,
+		NewRepos: []PlanRepo{
+			{Name: "gamma", SourcePath: srcG, WorktreePath: filepath.Join(p.WorkspaceDir, "gamma")},
+		},
+		Memory: memory.Input{
+			TicketID: "sc-1", Title: "X", Body: "body",
+			Branch: "u/sc-1-x", WorkspaceDir: p.WorkspaceDir,
+			Repos: []memory.RepoEntry{
+				{Name: "alpha", Branch: "u/sc-1-x", WorktreePath: filepath.Join(p.WorkspaceDir, "alpha"), DefaultBranch: "main"},
+				{Name: "beta", Branch: "u/sc-1-x", WorktreePath: filepath.Join(p.WorkspaceDir, "beta"), DefaultBranch: "main"},
+				{Name: "gamma", Branch: "u/sc-1-x", WorktreePath: filepath.Join(p.WorkspaceDir, "gamma"), DefaultBranch: "main"},
+			},
+			CreatedAt: time.Date(2026, 5, 13, 12, 30, 0, 0, time.UTC),
+		},
+	}
+	if _, err := New(git.New()).Add(ap); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	body, err := os.ReadFile(memPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bs := string(body)
+	if !strings.Contains(bs, "### 2026-05-13 13:00") {
+		t.Errorf("status-log heading lost:\n%s", bs)
+	}
+	if !strings.Contains(bs, "Triaged the regression") {
+		t.Errorf("status-log body lost:\n%s", bs)
+	}
+	if !strings.Contains(bs, "| gamma |") {
+		t.Errorf("new repo row not in refreshed file:\n%s", bs)
+	}
+}
+
+func TestAdd_rejectsDuplicateRepo(t *testing.T) {
+	_, p := createBasePlanWorkspace(t)
+	ap := AddPlan{
+		WorkspaceDir: p.WorkspaceDir,
+		NewRepos: []PlanRepo{
+			// "alpha" is already in the workspace.
+			{Name: "alpha", SourcePath: p.Repos[0].SourcePath,
+				WorktreePath: p.Repos[0].WorktreePath},
+		},
+		Memory: p.Memory,
+	}
+	_, err := New(git.New()).Add(ap)
+	if err == nil {
+		t.Fatal("want error for duplicate repo, got nil")
+	}
+	if !strings.Contains(err.Error(), "already in this workspace") {
+		t.Errorf("error doesn't mention duplicate: %v", err)
+	}
+}
+
+func TestAdd_partialFailureLeavesStateConsistent(t *testing.T) {
+	root, p := createBasePlanWorkspace(t)
+
+	srcG := filepath.Join(root, "src", "gamma")
+	initRepo(t, srcG)
+	// "delta" intentionally points at a non-existent source — AddWorktree will fail.
+	ap := AddPlan{
+		WorkspaceDir: p.WorkspaceDir,
+		NewRepos: []PlanRepo{
+			{Name: "gamma", SourcePath: srcG, WorktreePath: filepath.Join(p.WorkspaceDir, "gamma")},
+			{Name: "delta", SourcePath: filepath.Join(root, "src", "no-such-repo"),
+				WorktreePath: filepath.Join(p.WorkspaceDir, "delta")},
+		},
+		Memory: memory.Input{
+			TicketID: "sc-1", Title: "X", Body: "body",
+			Branch: "u/sc-1-x", WorkspaceDir: p.WorkspaceDir,
+			Repos: []memory.RepoEntry{
+				{Name: "alpha", Branch: "u/sc-1-x", WorktreePath: filepath.Join(p.WorkspaceDir, "alpha"), DefaultBranch: "main"},
+				{Name: "beta", Branch: "u/sc-1-x", WorktreePath: filepath.Join(p.WorkspaceDir, "beta"), DefaultBranch: "main"},
+				{Name: "gamma", Branch: "u/sc-1-x", WorktreePath: filepath.Join(p.WorkspaceDir, "gamma"), DefaultBranch: "main"},
+			},
+			CreatedAt: time.Date(2026, 5, 13, 12, 30, 0, 0, time.UTC),
+		},
+	}
+
+	res, err := New(git.New()).Add(ap)
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if len(res.Added) != 1 || res.Added[0].Name != "gamma" {
+		t.Errorf("Added = %+v", res.Added)
+	}
+	if len(res.Skipped) != 1 || res.Skipped[0].Name != "delta" {
+		t.Errorf("Skipped = %+v", res.Skipped)
+	}
+
+	// State has 3 repos: original 2 + gamma. delta was dropped.
+	st, err := ReadState(p.WorkspaceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Repos) != 3 {
+		t.Errorf("state repos = %d, want 3", len(st.Repos))
 	}
 }
 

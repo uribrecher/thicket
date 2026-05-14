@@ -51,6 +51,7 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().Bool("no-update-check", false,
 		"skip the daily self-update probe (also: THICKET_NO_UPDATE_CHECK=1)")
 	root.AddCommand(newStartCmd())
+	root.AddCommand(newEditCmd())
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newListCmd())
 	root.AddCommand(newRmCmd())
@@ -74,6 +75,21 @@ func newUpdateCmd() *cobra.Command {
 			return updater.CheckAndApplyNow(v, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
+}
+
+func newEditCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "edit [slug]",
+		Short: "Add repos to an existing workspace (interactive picker if no slug)",
+		Long: "Opens a 3-page wizard (Workspace -> Repos -> Submit) that lets you\n" +
+			"add more git worktrees to a workspace you've already created.\n" +
+			"Pre-existing repos are shown as locked rows on the Repos page —\n" +
+			"removing repos isn't supported yet; use `thicket rm` + `thicket start`\n" +
+			"for that.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: runEdit,
+	}
+	return c
 }
 
 func newStartCmd() *cobra.Command {
