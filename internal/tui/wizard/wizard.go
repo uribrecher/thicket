@@ -44,8 +44,13 @@ type Deps struct {
 	Lister ticket.Lister // may be nil; callers that wired non-listers get an error page
 	Repos  []catalog.Repo
 	Detect func(ctx context.Context, tk ticket.Ticket, repos []catalog.Repo) ([]detector.RepoMatch, error)
-	Git    *gitops.Git
-	Flags  Flags
+	// Summarize, when set, returns up to detector.SummaryLines short
+	// summary lines for the picked ticket. May be nil — the wizard
+	// falls back to the first non-empty lines of the description so
+	// the panel always renders something useful.
+	Summarize func(ctx context.Context, tk ticket.Ticket) ([]string, error)
+	Git       *gitops.Git
+	Flags     Flags
 
 	// FindExistingWorkspace returns the path of an already-managed
 	// workspace for the given ticket id, or "" if none exists. The
@@ -110,6 +115,7 @@ type Model struct {
 	ticket       ticket.Ticket // last committed ticket
 	ticketID     string        // cache key; "" before page 0 commits
 	llmCache     map[string][]detector.RepoMatch
+	summaryCache map[string][]string // ticketID → LLM-generated summary lines
 	chosen       []catalog.Repo
 	cloneInclude map[string]bool
 
@@ -150,6 +156,7 @@ func newModel(deps Deps) *Model {
 	m := &Model{
 		deps:         deps,
 		llmCache:     make(map[string][]detector.RepoMatch),
+		summaryCache: make(map[string][]string),
 		cloneInclude: make(map[string]bool),
 	}
 	m.pages = [3]Page{
@@ -243,6 +250,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// state so we don't carry over picks/toggles from the old id.
 		if v.tk.SourceID != m.ticketID {
 			delete(m.llmCache, m.ticketID)
+			delete(m.summaryCache, m.ticketID)
 			m.chosen = nil
 			m.cloneInclude = make(map[string]bool)
 		}
@@ -255,6 +263,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.llmCache[v.ticketID] = v.picks
 		}
 		// Fall through so the Repos page can render the result.
+
+	case summarizedMsg:
+		// Cache wins-once-set. Summary failures are silent: the
+		// renderer falls back to the dumb first-N-lines view, so we
+		// just drop the message. Returning here keeps the active page
+		// out of summarized-state plumbing entirely.
+		if v.err == nil && v.ticketID == m.ticketID && len(v.lines) > 0 {
+			m.summaryCache[v.ticketID] = v.lines
+		}
+		return m, nil
 
 	case reposCommittedMsg:
 		m.chosen = append(m.chosen[:0], v.chosen...)
@@ -422,21 +440,26 @@ func fmtErr(err error) string {
 }
 
 // renderTicketSummary draws a short header for the picked ticket:
-// "<id> — <title>" plus up to 3 description lines, requester, and
-// the first 3 labels. Used by the Repos page (where the user needs
-// the context to evaluate repo picks) and the Ticket page's
-// preselected-mode view (where the summary IS the content).
+// "<id> — <title>" plus an up-to-3-line summary, requester, and the
+// first 3 labels. `summary` is the LLM-generated summary when available
+// (nil while the call is in flight or when no Summarizer is wired);
+// in that case the renderer falls back to the first non-empty lines of
+// the description so the panel always shows context.
 //
 // Returns "" when there is no ticket to summarize so callers can
 // skip the surrounding padding.
-func renderTicketSummary(tk ticket.Ticket) string {
+func renderTicketSummary(tk ticket.Ticket, summary []string) string {
 	if tk.SourceID == "" && tk.Title == "" {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString(warnStyle.Render(fmt.Sprintf("%s — %s", tk.SourceID, tk.Title)))
 	b.WriteString("\n")
-	for _, line := range firstNonEmptyLines(tk.Body, 3) {
+	lines := summary
+	if len(lines) == 0 {
+		lines = firstNonEmptyLines(tk.Body, 3)
+	}
+	for _, line := range lines {
 		b.WriteString("  " + line + "\n")
 	}
 	if tk.Requester != "" {

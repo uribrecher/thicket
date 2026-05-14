@@ -51,6 +51,16 @@ type picksLoadedMsg struct {
 	err      error
 }
 
+// summarizedMsg carries the LLM-generated short summary for the
+// current ticket. Empty lines means "no summarizer wired" or "call
+// failed" — the renderer silently falls back to the dumb first-N-
+// description-lines view, so an error here is non-fatal.
+type summarizedMsg struct {
+	ticketID string
+	lines    []string
+	err      error
+}
+
 // reposCommittedMsg fires when the user advances past the Repos page.
 type reposCommittedMsg struct {
 	chosen []catalog.Repo
