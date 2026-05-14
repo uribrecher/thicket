@@ -100,6 +100,65 @@ func TestFetch_happyPath(t *testing.T) {
 	}
 }
 
+func TestFetch_surfacesLabelsAndResolvesRequester(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v3/stories/123":
+			fmt.Fprint(w, `{
+				"id": 123,
+				"name": "x",
+				"requested_by_id": "user-uuid-1",
+				"labels": [{"name": "infra"}, {"name": "p1"}, {"name": "tech-debt"}]
+			}`)
+		case "/api/v3/members/user-uuid-1":
+			fmt.Fprint(w, `{"profile": {"name": "Alice Example", "mention_name": "alice"}}`)
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	tk, err := New("tok", srv.URL).Fetch(ID(123))
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if tk.Requester != "Alice Example" {
+		t.Errorf("Requester = %q, want %q", tk.Requester, "Alice Example")
+	}
+	wantLabels := []string{"infra", "p1", "tech-debt"}
+	if fmt.Sprint(tk.Labels) != fmt.Sprint(wantLabels) {
+		t.Errorf("Labels = %v, want %v", tk.Labels, wantLabels)
+	}
+}
+
+// Member lookup failures must not abort Fetch — the rest of the ticket
+// is still valuable, so Requester just stays empty.
+func TestFetch_requesterLookupFailureIsTolerated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v3/stories/123":
+			fmt.Fprint(w, `{"id": 123, "name": "x", "requested_by_id": "user-uuid-1"}`)
+		case "/api/v3/members/user-uuid-1":
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	tk, err := New("tok", srv.URL).Fetch(ID(123))
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if tk.Requester != "" {
+		t.Errorf("Requester = %q, want empty", tk.Requester)
+	}
+}
+
 func TestFetch_notFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

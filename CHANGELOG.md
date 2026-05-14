@@ -7,7 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **`thicket start`: interactive wizard with tab navigation.** The
+  interactive TTY path now runs as a single Bubble Tea program with
+  three pages — `Ticket`, `Repos`, `Plan` — rendered as a horizontal
+  tab bar at the top of the screen. The active step is bold yellow,
+  completed steps are green with a leading ✓, untouched steps are
+  dim. `←/→` move between completed steps; `Esc` cancels. Each
+  page binds `Enter` to its own commit action (pick / toggle /
+  create) so it never lies about what Enter does. The Ticket page
+  shows the picked ticket's first three description lines,
+  requester, and labels on the Repos page so you can sanity-check
+  context before deciding on repos. The Repos page seeds the
+  catalog eagerly so fuzzy search works immediately while a charm
+  spinner runs the LLM call in parallel; the LLM's picks land at
+  the bottom of the match list under a "Suggested for this ticket"
+  divider with `LLM N% — <reason>` tags, and you decide what to
+  select (no auto-selection). LLM picks are cached by ticket id —
+  going back to peek at the ticket and forward again skips the
+  15-30s re-fetch. The Plan page lists the cloned-on-create repos
+  ahead of the workspace summary, with checkboxes for any missing
+  clones (default checked; uncheck to drop the repo). When you hit
+  `Create`, clones stream in-page with ✓/✗ lines; a clone failure
+  drops the failed repo from the workspace and continues with the
+  rest (skipped repos are surfaced on stderr after the wizard
+  exits).
+- **`thicket start <id>`: pre-selected ticket flow.** Passing a
+  ticket id on the command line short-circuits the picker — the
+  wizard lands on the Repos page, with the Ticket page rendering a
+  read-only summary you can still peek at via `←`.
+- **Shortcut: ticket body, requester, and labels.** `Ticket.Body`,
+  `Ticket.Requester` (resolved via `/api/v3/members/{id}`), and
+  `Ticket.Labels` are now populated on fetch and surfaced inline by
+  the wizard's Repos page summary block. Best-effort: a failed
+  member lookup leaves `Requester` empty rather than aborting the
+  flow.
+
+### Changed
+
+- **`thicket start` falls back to the pre-wizard CLI flow when the
+  wizard can't run** — `--no-interactive`, `--dry-run`, and non-TTY
+  stdin (CI, pipes) keep today's line-oriented output. `thicket rm`
+  and `thicket init` are unchanged; they still use `tui.PickOne`
+  for their own pickers.
 
 ## [0.1.4] - 2026-05-14
 
