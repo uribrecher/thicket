@@ -457,7 +457,13 @@ func renderTicketSummary(tk ticket.Ticket, summary []string) string {
 	b.WriteString("\n")
 	lines := summary
 	if len(lines) == 0 {
-		lines = firstNonEmptyLines(tk.Body, 3)
+		lines = firstNonEmptyLines(tk.Body, detector.SummaryLines)
+	}
+	// Defensive clamp — Summarize promises "up to SummaryLines", but a
+	// future backend that ignores the cap shouldn't be able to blow
+	// out the summary panel.
+	if len(lines) > detector.SummaryLines {
+		lines = lines[:detector.SummaryLines]
 	}
 	for _, line := range lines {
 		b.WriteString("  " + line + "\n")
