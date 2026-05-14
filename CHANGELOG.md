@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.2.0] - 2026-05-14
+
+`thicket start` now runs as a three-page Bubble Tea wizard (Ticket →
+Repos → Plan) with tab navigation, a unified match list that puts
+every repo in exactly one place, in-page clone progress, and a
+substring-preferring fuzzy search. The Shortcut client surfaces
+ticket body / requester / labels inline. `thicket rm` and
+`thicket init` are unchanged.
+
 ### Added
 
 - **`thicket start`: interactive wizard with tab navigation.** The
