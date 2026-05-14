@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/uribrecher/thicket/internal/ticket"
 )
@@ -286,6 +287,35 @@ func TestListAssigned_unauthorizedSurfacesClearError(t *testing.T) {
 	_, err := New("bad", srv.URL).ListAssigned(context.Background())
 	if err == nil || !contains(err.Error(), "401") {
 		t.Fatalf("want 401 error, got %v", err)
+	}
+}
+
+func TestListAssigned_sortsByUpdatedAtDescending(t *testing.T) {
+	member := memberResponse{ID: "u"}
+	workflows := []workflowResponse{{
+		States: []workflowStateResponse{{ID: 1, Name: "Dev", Type: "started"}},
+	}}
+	t0 := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
+	stories := []storyResponse{
+		{ID: 1, Name: "oldest", WorkflowStateID: 1, UpdatedAt: t0},
+		{ID: 2, Name: "newest", WorkflowStateID: 1, UpdatedAt: t0.Add(48 * time.Hour)},
+		{ID: 3, Name: "middle", WorkflowStateID: 1, UpdatedAt: t0.Add(24 * time.Hour)},
+	}
+	srv := listAssignedServer(t, member, workflows, stories)
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	want := []string{"sc-2", "sc-3", "sc-1"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d tickets, want %d", len(got), len(want))
+	}
+	for i, w := range want {
+		if got[i].SourceID != w {
+			t.Errorf("position %d: got %s, want %s", i, got[i].SourceID, w)
+		}
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -126,6 +127,7 @@ type storyResponse struct {
 	RequestedByID          string          `json:"requested_by_id"`
 	Labels                 []labelResponse `json:"labels"`
 	Archived               bool            `json:"archived"`
+	UpdatedAt              time.Time       `json:"updated_at"`
 }
 
 // labelResponse is the slice of the Shortcut label payload we surface.
@@ -308,6 +310,12 @@ func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 		searchBody{OwnerIDs: []string{me.ID}, Archived: false}, &stories); err != nil {
 		return nil, fmt.Errorf("search stories: %w", err)
 	}
+
+	// Most-recently-touched first. Stable so stories with identical
+	// (or zero) updated_at keep the order Shortcut returned them in.
+	sort.SliceStable(stories, func(i, j int) bool {
+		return stories[i].UpdatedAt.After(stories[j].UpdatedAt)
+	})
 
 	out := make([]ticket.Ticket, 0, len(stories))
 	for _, sr := range stories {
