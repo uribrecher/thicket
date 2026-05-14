@@ -2,15 +2,20 @@
 // `thicket start`. The flow is three pages — Ticket, Repos, Plan —
 // rendered as horizontal tabs at the top of the screen with the
 // active step highlighted, completed steps marked with ✓, and untouched
-// steps dim. Left/right arrow keys move between completed steps,
-// Enter advances, Esc cancels.
+// steps dim. Left/right arrow keys move between completed steps; Esc
+// cancels. Enter is deliberately NOT a wizard-level binding — each
+// page binds it to its own commit action (Ticket picks a row, Repos
+// toggles, Plan triggers Create) so the footer never lies about what
+// Enter does.
 //
 // The wizard owns:
 //   - a unified Bubble Tea Model that routes messages to the active page
-//   - shared cross-page state (picked ticket, LLM picks cache, chosen repos, clone toggles)
-//   - the post-Create clone + workspace.Create execution (the wizard
-//     stays alive until everything is materialized so progress lines
-//     render inside the UI instead of leaking after exit)
+//   - shared cross-page state (picked ticket, LLM picks cache, chosen repos)
+//   - the in-page clone phase (a clone failure drops that repo from
+//     the workspace; the rest proceed). workspace.Create itself runs
+//     in plain stdout AFTER the wizard exits — bubbletea has torn
+//     down its UI by then, so its progress lines render as normal
+//     terminal output.
 package wizard
 
 import (
@@ -365,12 +370,21 @@ type navLocker interface {
 // Pages also see the message that triggered the advance via their
 // Update — the page emits its own commit message in response, which
 // the wizard's Update intercepts before bouncing back here.
+//
+// If the page set m.done synchronously (e.g. Ticket page detecting
+// an existing workspace and short-circuiting to "reuse"), we skip
+// the active++ + init cmd entirely. Otherwise we'd kick off the next
+// page's expensive setup (LLM detect on Repos, plan build on Plan)
+// only to throw it away when the program quits.
 func (m *Model) advance() (tea.Model, tea.Cmd) {
 	// Let the current page collect its commit message before we move on.
 	// We achieve this by routing a synthetic goNextMsg to the page;
 	// the page returns a cmd that yields the appropriate commit msg.
 	page, cmd := m.pages[m.active].Update(m, goNextMsg{})
 	m.pages[m.active] = page
+	if m.done {
+		return m, cmd
+	}
 	if m.active < len(m.pages)-1 {
 		m.active++
 		// Fire init cmd for the newly-active page if it has one.

@@ -3,6 +3,7 @@ package wizard
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/sahilm/fuzzy"
 
 	"github.com/uribrecher/thicket/internal/ticket"
-	"github.com/uribrecher/thicket/internal/workspace"
 )
 
 const ticketVisibleRows = 12
@@ -123,18 +123,17 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		}
 		p.rows = make([]ticketRow, len(v.tickets))
 		p.haystack = make([]string, len(v.tickets))
-		// Annotate with existing-workspace slugs so the user can spot
-		// in-flight work at a glance — same data as today's picker.
-		// Caller passes a FindExistingWorkspace closure that scans
-		// workspace_root once per call. To avoid scanning N times we
-		// cheat: scan each row, but the closure itself caches via
-		// ListManaged at call site.
+		// Annotate with existing-workspace dir names so the user can
+		// spot in-flight work at a glance. The cell value comes from
+		// the actual workspace directory name (filepath.Base(path)),
+		// not from Slug(tk.SourceID, tk.Title) — a renamed ticket
+		// keeps its original workspace dir on disk and we want the
+		// column to match what `thicket rm` / `ls` would show.
 		for i, tk := range v.tickets {
 			ws := ""
 			if m.deps.FindExistingWorkspace != nil {
 				if path := m.deps.FindExistingWorkspace(tk.SourceID); path != "" {
-					ws = workspace.Slug(tk.SourceID, tk.Title)
-					_ = path
+					ws = filepath.Base(path)
 				}
 			}
 			p.rows[i] = ticketRow{
@@ -183,10 +182,6 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 			return p, nil
 		}
 		tk := p.fetchedTk
-		// Cache + chosen invalidation: same policy the wizard's
-		// ticketCommittedMsg handler applied. Doing it here too keeps
-		// behavior consistent regardless of when (or whether) that
-		// async msg lands.
 		if tk.SourceID != m.ticketID {
 			delete(m.llmCache, m.ticketID)
 			m.chosen = nil
@@ -195,8 +190,14 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		m.ticket = tk
 		m.ticketID = tk.SourceID
 		if p.existingDir != "" {
-			dir := p.existingDir
-			return p, func() tea.Msg { return existingWorkspaceMsg{path: dir} }
+			// Reuse path: set the final result synchronously and ask
+			// the program to quit. advance() inspects m.done before
+			// bumping `active`, so we won't fire the Repos page's LLM
+			// detect cmd just to throw it away when the quit lands.
+			m.result.ReuseDir = p.existingDir
+			m.result.Ticket = tk
+			m.done = true
+			return p, tea.Quit
 		}
 		// Still emit ticketCommittedMsg for observers (tests, future
 		// listeners). Wizard's handler is a no-op once state is
@@ -204,9 +205,9 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		return p, func() tea.Msg { return ticketCommittedMsg{tk: tk} }
 
 	case tea.KeyMsg:
-		// The wizard's global handler already ate "esc", "left",
-		// "right", and "enter" (when the page is complete and not on
-		// the last page). The page only sees keys that fell through.
+		// The wizard's global handler eats "esc", "ctrl+c", "left",
+		// and "right". Enter is page-local — we use it here to pick
+		// a row (Fetch + auto-advance).
 		switch v.String() {
 		case "up":
 			if p.cursor > 0 {

@@ -31,6 +31,7 @@ type planPage struct {
 	// info pulled from the actual local repos.
 	built       bool
 	buildErr    error
+	builtForID  string // ticket id the current cloneInclude state belongs to
 	branch      string
 	workspace   string
 	allRepos    []catalog.Repo // chosen, ordered (cloned + to-clone)
@@ -38,7 +39,9 @@ type planPage struct {
 	branchExist map[string]bool
 
 	// "Missing clones" checkbox state: name → include in workspace.
-	// Defaults to true for every to-clone repo.
+	// Defaults to true for every to-clone repo. Wiped on ticket
+	// change (see initCmd) so a repo unchecked for ticket A doesn't
+	// silently start unchecked when the user moves to ticket B.
 	cloneInclude map[string]bool
 	cursor       int  // index into a flat cursor space: 0..len(toClone)-1
 	focusBtn     bool // true when the cursor is on the Create button (no toggleable rows or below the list)
@@ -76,6 +79,13 @@ func (p *planPage) locked() bool { return p.creating }
 // answer, and so on. Rebuilding is cheap (a few BranchExists calls)
 // so we always rebuild and trust the latest state.
 func (p *planPage) initCmd(m *Model) tea.Cmd {
+	// Drop checkbox state when the ticket changed — a repo unchecked
+	// for ticket A would otherwise start unchecked for ticket B if
+	// both happen to need it cloned, which is surprising.
+	if p.builtForID != m.ticketID {
+		p.cloneInclude = make(map[string]bool)
+		p.builtForID = m.ticketID
+	}
 	p.built = false
 	p.buildErr = nil
 	return buildPlanCmd(m)

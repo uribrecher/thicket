@@ -104,16 +104,22 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		return detectRepos(ctx, cfg, errOut, flags, tk, repos)
 	}
 
-	// FindExistingWorkspace closure: scans workspace_root and returns
-	// the path of any workspace whose manifest matches the given
-	// ticket id. Wired through Deps so the wizard's Ticket page can
-	// short-circuit without re-implementing the lookup.
-	findExisting := func(id string) string {
-		if ws := findWorkspaceForTicket(cfg, id, errOut); ws != nil {
-			return ws.Path
+	// FindExistingWorkspace closure: returns the path of any
+	// managed workspace whose manifest matches the given ticket id,
+	// or "" if none. The Ticket page calls this once per listed
+	// ticket to populate the "Workspace" column, so we precompute a
+	// single ticketID→path map from one `workspace.ListManaged`
+	// scan instead of re-scanning workspace_root per row.
+	existingByTicket := make(map[string]string)
+	if wsList, warnings, listErr := workspace.ListManaged(cfg.WorkspaceRoot); listErr == nil {
+		for _, w := range wsList {
+			existingByTicket[w.State.TicketID] = w.Path
 		}
-		return ""
+		for _, warn := range warnings {
+			fmt.Fprintf(errOut, "warning: %v\n", warn)
+		}
 	}
+	findExisting := func(id string) string { return existingByTicket[id] }
 
 	deps := wizard.Deps{
 		Ctx:                   cmd.Context(),
