@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.0] - 2026-05-14
+
+Adds `thicket edit` for attaching repos to an existing workspace, an
+LLM-generated 3-line ticket summary on the Repos page (replacing the
+dumb first-3-lines-of-description view), and a most-recently-touched
+sort on the Shortcut ticket picker.
+
 ### Added
 
 - **`thicket edit`: add repos to an existing workspace.** New command
