@@ -58,6 +58,9 @@ func newTicketPage() *ticketPage {
 	ti.Placeholder = "type to filter…"
 	ti.Focus()
 	ti.CharLimit = 80
+	// See page_repos.go: bubbles textinput's placeholder is
+	// truncated to its first character when Width = 0.
+	ti.Width = 60
 	ti.Prompt = "› "
 	return &ticketPage{input: ti, loading: true, startAt: time.Now()}
 }
@@ -74,6 +77,8 @@ func (p *ticketPage) preseed(tk ticket.Ticket) {
 }
 
 func (p *ticketPage) Title() string { return "Ticket" }
+
+func (p *ticketPage) Hints() string { return "↑/↓ navigate · enter picks" }
 
 // Complete is true once we have a fetched ticket — the page has all
 // the info downstream needs.
@@ -310,13 +315,15 @@ func (p *ticketPage) View(m *Model) string {
 		return indent(b.String(), 2)
 	}
 
-	// Search box + status.
+	// Search box + status. The textinput's placeholder ("type to
+	// filter…") already conveys the affordance, so this line just
+	// summarizes the result set — no second "type to filter" hint.
 	b.WriteString("  " + p.input.View())
 	b.WriteString("\n")
 	q := strings.TrimSpace(p.input.Value())
 	switch {
 	case q == "":
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("showing first %d of %d — type to filter",
+		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("showing first %d of %d",
 			len(p.matches), len(p.rows))))
 	case len(p.matches) == 0:
 		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("no match for %q", q)))
@@ -350,12 +357,10 @@ func (p *ticketPage) View(m *Model) string {
 	for vi, ri := range p.matches {
 		row := p.rows[ri]
 		marker := " "
-		var style = dimStyle
+		style := dimStyle // unfocused rows; pendingTabStyle has padding which would break column alignment
 		if vi == p.cursor {
 			marker = cursorStyle.Render("▶")
 			style = cursorStyle
-		} else {
-			style = pendingTabStyle // dim-ish for unfocused rows
 		}
 		b.WriteString(marker + "  ")
 		b.WriteString(style.Render(padRight(truncate(row.tk.SourceID, idW), idW)))
@@ -382,8 +387,6 @@ func (p *ticketPage) View(m *Model) string {
 		b.WriteString("  " + errStyle.Render(fmtErr(p.fetchErr)))
 		b.WriteString("\n")
 	}
-	b.WriteString("\n")
-	b.WriteString("  " + hintStyle.Render("↑/↓ navigate · enter picks · type to filter"))
 	return indent(b.String(), 2)
 }
 

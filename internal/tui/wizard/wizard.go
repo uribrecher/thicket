@@ -1,9 +1,9 @@
 // Package wizard implements the multi-page Bubble Tea UI for
 // `thicket start`. The flow is three pages — Ticket, Repos, Plan —
-// rendered as horizontal tabs at the top of the screen with the
-// active step highlighted, completed steps marked with ✓, and untouched
-// steps dim. Left/right arrow keys move between completed steps; Esc
-// cancels. Enter is deliberately NOT a wizard-level binding — each
+// rendered as horizontal tabs at the top of the screen. The active
+// step is a filled pill (black on yellow), completed steps are green,
+// and untouched steps are dim gray. Left/right arrow keys move between
+// completed steps; Esc cancels. Enter is deliberately NOT a wizard-level binding — each
 // page binds it to its own commit action (Ticket picks a row, Repos
 // toggles, Plan triggers Create) so the footer never lies about what
 // Enter does.
@@ -92,6 +92,10 @@ type Page interface {
 	View(m *Model) string
 	Title() string
 	Complete() bool
+	// Hints returns the page-local key hint string ("↑/↓ navigate ·
+	// enter picks", etc.) that the wizard footer prepends to its
+	// global hints (←/→/esc). Pages return "" to opt out entirely.
+	Hints() string
 }
 
 // Model is the unified tea.Model. The wizard runs as a single Bubble
@@ -286,56 +290,43 @@ func (m *Model) View() string {
 	return b.String()
 }
 
-// renderHeader draws the horizontal tab bar with each step labeled
-// and the active step underlined. Completed steps are green and
-// prefixed with ✓.
+// renderHeader draws the horizontal tab bar. The active step is a
+// filled pill (black text on yellow bg); completed steps are green;
+// pending steps are dim gray. No underline row, no ✓ glyphs —
+// foreground/background contrast does the wayfinding.
 func (m *Model) renderHeader() string {
-	var cells []string
+	cells := make([]string, len(m.pages))
 	for i, p := range m.pages {
 		label := p.Title()
 		switch {
 		case i == m.active:
-			cells = append(cells, "  "+activeTabStyle.Render(label)+"  ")
+			cells[i] = activeTabStyle.Render(label)
 		case i < m.active:
-			cells = append(cells, "  "+completedTabStyle.Render("✓ "+label)+"  ")
+			cells[i] = completedTabStyle.Render(label)
 		default:
-			cells = append(cells, "  "+pendingTabStyle.Render(label)+"  ")
+			cells[i] = pendingTabStyle.Render(label)
 		}
 	}
-	bar := strings.Join(cells, tabSepStyle.Render(" "))
-
-	// Underline only beneath the active tab.
-	var under strings.Builder
-	for i, p := range m.pages {
-		// Same width as the rendered cell — 4 padding spaces + label
-		// glyphs (✓ + space added for completed). Doesn't need to be
-		// pixel-perfect; the underline is a visual hint, not a measure.
-		width := 4 + visualLen(p.Title())
-		if i < m.active {
-			width += 2 // for "✓ "
-		}
-		if i == m.active {
-			under.WriteString(underlineStyle.Render(strings.Repeat("─", width)))
-		} else {
-			under.WriteString(strings.Repeat(" ", width))
-		}
-		if i < len(m.pages)-1 {
-			under.WriteString(" ")
-		}
-	}
-	return bar + "\n" + under.String()
+	return "  " + strings.Join(cells, tabSepStyle.Render(" "))
 }
 
+// renderFooter draws a single hint line combining the active page's
+// local key hints (↑/↓, enter, space …) with the wizard-level nav
+// keys (←/→/esc). One line, dedup-free — the page's bottom-of-View
+// hint block is gone so we never repeat ourselves.
 func (m *Model) renderFooter() string {
-	hints := []string{}
+	parts := []string{}
+	if pageHints := m.pages[m.active].Hints(); pageHints != "" {
+		parts = append(parts, pageHints)
+	}
 	if m.canGoPrev() {
-		hints = append(hints, "← back")
+		parts = append(parts, "← back")
 	}
 	if m.canGoNext() {
-		hints = append(hints, "→ next")
+		parts = append(parts, "→ next")
 	}
-	hints = append(hints, "esc cancel")
-	return "  " + hintStyle.Render(strings.Join(hints, " · "))
+	parts = append(parts, "esc cancel")
+	return "  " + hintStyle.Render(strings.Join(parts, " · "))
 }
 
 // canGoPrev reports whether ← should be honored. Disabled while the
@@ -405,16 +396,6 @@ func (m *Model) gotoPage(idx int) (tea.Model, tea.Cmd) {
 	}
 	m.active = idx
 	return m, nil
-}
-
-// visualLen returns the rune count (good-enough proxy for display
-// width since we don't render emoji-heavy labels).
-func visualLen(s string) int {
-	n := 0
-	for range s {
-		n++
-	}
-	return n
 }
 
 // Render-time helper shared by page bodies: indent each line by `n`

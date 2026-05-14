@@ -209,6 +209,27 @@ func TestReposCommitStoresChosen(t *testing.T) {
 	}
 }
 
+// TestRankFuzzyPrefersSubstringOverScattered guards against the
+// `sahilm/fuzzy` scoring quirk where a scattered match starting at
+// index 0 outranks a contiguous substring match deeper in the
+// string. Users typing "setup" expect "*setup*" hits at the top.
+func TestRankFuzzyPrefersSubstringOverScattered(t *testing.T) {
+	names := []string{
+		"sentra-user-ops",       // scattered: s-e-(n)-t-(r-a-)-u-(s-e-r-)-p ... matches at 0,1,3,7,13
+		"sentra-setup-service",  // contiguous substring at index 7
+		"sentra-grouping-job",   // also scattered-ish
+		"sentra-support-agent",  // scattered
+		"sentra-simple-grouping", // scattered
+	}
+	matches := rankFuzzy("setup", names)
+	if len(matches) == 0 {
+		t.Fatalf("no matches for %q", "setup")
+	}
+	if matches[0].Str != "sentra-setup-service" {
+		t.Errorf("top match = %q, want sentra-setup-service (substring should beat scattered)", matches[0].Str)
+	}
+}
+
 // TestPlanCloneFailureProceeds: after a Create with one failed clone,
 // finalizeCmd must drop the failed repo from the plan but keep the
 // others. Mirrors the user's "proceed without failed repo" choice.

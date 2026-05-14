@@ -61,6 +61,19 @@ func newPlanPage() *planPage {
 
 func (p *planPage) Title() string { return "Plan" }
 
+// Hints renders dynamically: while clones run we lock input and show
+// nothing; otherwise show ↑/↓, and space if there are toggleable
+// missing-clone rows, and enter for the Create action.
+func (p *planPage) Hints() string {
+	if p.creating {
+		return ""
+	}
+	if len(p.toClone) > 0 {
+		return "↑/↓ cursor · space toggles clone · enter creates"
+	}
+	return "enter creates"
+}
+
 // Complete is true once the plan is built without error. The page is
 // its own commit gate via the Create button; → / Enter at the wizard
 // level don't advance past Plan (it's the last page).
@@ -463,7 +476,7 @@ func (p *planPage) View(m *Model) string {
 			}
 			b.WriteString("  " + line + "\n")
 		}
-		b.WriteString("  " + hintStyle.Render("space toggles · ↑/↓ moves cursor") + "\n\n")
+		b.WriteString("\n")
 	}
 
 	// Plan preview (when not in the middle of cloning).
@@ -502,12 +515,6 @@ func (p *planPage) View(m *Model) string {
 			btn = createBtnStyle.Render("Create workspace")
 		}
 		b.WriteString("  " + btn + "\n")
-		hint := "↑/↓ cursor"
-		if len(p.toClone) > 0 {
-			hint += " · space toggles clone"
-		}
-		hint += " · enter creates"
-		b.WriteString("  " + hintStyle.Render(hint) + "\n")
 	} else {
 		// Clone log.
 		b.WriteString("  " + sectionStyle.Render("Cloning…") + "\n")
