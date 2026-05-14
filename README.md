@@ -143,17 +143,18 @@ share the `.git` of their source clone (storage cheap, no double-fetch).
 
 The interactive TTY flow is one Bubble Tea program with three pages
 rendered as a horizontal tab bar across the top. The active step is
-yellow + bold, completed steps are green with a leading `✓`, untouched
-steps are dim.
+a filled pink pill (black on bright pink), completed steps are
+green, and untouched steps are dim gray.
 
 ```
-✓ Ticket    ✓ Repos    Plan
-                       ────
+ Ticket  ▮ Repos ▮  Plan
 ```
 
 Global keys: `←/→` move between completed steps, `Esc` cancels.
 Each page binds `Enter` to its own commit action (picks / toggles /
-creates) so it never lies about what Enter does.
+creates) so the footer never lies about what Enter does. A single
+consolidated hint line at the bottom combines the active page's
+local keys with the wizard's nav keys.
 
 1. **Ticket** — fuzzy-search your open assigned Shortcut tickets in a
    tabular view (`Ticket | State | Title | Workspace`). Existing
@@ -163,21 +164,31 @@ creates) so it never lies about what Enter does.
    to Repos.
 2. **Repos** — catalog is seeded eagerly so fuzzy search works
    immediately; the LLM call runs in parallel with a charm spinner
-   under "looking for relevant repos…". When the LLM lands its picks
-   appear at the bottom of the match list under a "Suggested for this
-   ticket" divider with `LLM N% — <reason>` tags. **Picks are never
-   auto-selected** — Enter on any row toggles it. The cumulative
-   selection lives in a "Selected (N)" block above the search.
+   under "looking for relevant repos…". The match list is one
+   unified view with three groups — `Selected` at the top (✓ marker,
+   plus `relevance N% — <reason>` tags preserved when the item came
+   from the model), `Available` fuzzy matches in the middle, and
+   `Suggested for this ticket` (the LLM's picks, sorted by descending
+   confidence) at the bottom. Every repo appears in exactly one
+   place; toggling on/off is `↑/↓` to the row + `Enter`. **Picks are
+   never auto-selected** — you decide. Substring matches are ranked
+   ahead of scattered fuzzy hits (`setup` lands `sentra-setup-service`
+   first).
 3. **Plan** — workspace dir, branch, the worktrees to create, and a
    "Missing clones" checklist for any selected repos that aren't yet
-   cloned locally (default checked; space toggles). On Create, clones
-   stream in-page with `✓`/`✗` lines. A failed clone is dropped from
-   the workspace and the wizard proceeds with the rest; skipped repos
-   are surfaced on stderr after the wizard exits.
+   cloned locally (default checked; space toggles). The cloned-on-
+   create repos are also listed above the workspace summary so you
+   know exactly what'll land in `repos_root` before the workspace
+   itself. On Create, clones stream in-page with `✓`/`✗` lines. A
+   failed clone is dropped from the workspace and the wizard
+   proceeds with the rest; skipped repos are surfaced on stderr
+   after the wizard exits.
 
 `thicket start <id>` short-circuits the picker — the wizard lands on
 Repos with the Ticket page rendering a read-only summary you can still
-peek at via `←`.
+peek at via `←`. If a workspace already exists for that ticket, the
+wizard short-circuits even further and opens Claude in the existing
+dir (no LLM call wasted).
 
 `--no-interactive`, `--dry-run`, and non-TTY stdin (CI, pipes) drop
 back to the pre-wizard line-oriented flow so scripts keep working

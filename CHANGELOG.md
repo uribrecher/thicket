@@ -12,21 +12,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **`thicket start`: interactive wizard with tab navigation.** The
   interactive TTY path now runs as a single Bubble Tea program with
   three pages — `Ticket`, `Repos`, `Plan` — rendered as a horizontal
-  tab bar at the top of the screen. The active step is bold yellow,
-  completed steps are green with a leading ✓, untouched steps are
-  dim. `←/→` move between completed steps; `Esc` cancels. Each
-  page binds `Enter` to its own commit action (pick / toggle /
-  create) so it never lies about what Enter does. The Ticket page
-  shows the picked ticket's first three description lines,
-  requester, and labels on the Repos page so you can sanity-check
-  context before deciding on repos. The Repos page seeds the
-  catalog eagerly so fuzzy search works immediately while a charm
-  spinner runs the LLM call in parallel; the LLM's picks land at
-  the bottom of the match list under a "Suggested for this ticket"
-  divider with `LLM N% — <reason>` tags, and you decide what to
-  select (no auto-selection). LLM picks are cached by ticket id —
-  going back to peek at the ticket and forward again skips the
-  15-30s re-fetch. The Plan page lists the cloned-on-create repos
+  tab bar at the top of the screen. The active step is a filled
+  pink pill (black on bright pink), completed steps are green, and
+  untouched steps are dim gray — pure foreground/background
+  contrast does the wayfinding, no extra underline row. `←/→` move
+  between completed steps; `Esc` cancels. Each page binds `Enter`
+  to its own commit action (pick / toggle / create) so it never
+  lies about what Enter does. A single consolidated footer line
+  combines the active page's local key hints with the wizard-level
+  nav keys — no duplicate "type to filter" between the placeholder
+  and the footer. The Ticket page picks from your open assigned
+  tickets in a fuzzy-searchable table. After you pick a ticket the
+  Repos page shows its body, requester, and labels at the top so
+  you can sanity-check context before deciding on repos; it seeds
+  the catalog eagerly so fuzzy search works immediately while a
+  charm spinner runs the LLM call in parallel. The match list is
+  one unified view with three groups — Selected at the top (with
+  `relevance N% — <reason>` tags preserved when the item came from
+  the model), Available fuzzy matches in the middle, and Suggested
+  LLM picks at the bottom — so every repo appears in exactly one
+  place and toggling on/off is just `↑/↓` to the row + `Enter`.
+  Suggestions are sorted by descending confidence, and the fuzzy
+  search re-ranks `sahilm/fuzzy` output so contiguous substring
+  matches beat scattered character-pluck matches (typing `setup`
+  surfaces `sentra-setup-service` first, not the scattered hits in
+  `sentra-user-ops`). LLM picks are cached by ticket id — going
+  back to peek at the ticket and forward again skips the 15-30s
+  re-fetch. The Plan page lists the cloned-on-create repos
   ahead of the workspace summary, with checkboxes for any missing
   clones (default checked; uncheck to drop the repo). When you hit
   `Create`, clones stream in-page with ✓/✗ lines; a clone failure

@@ -3,6 +3,7 @@ package wizard
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,12 +22,15 @@ const (
 	maxLLMRows     = 8 // cap on LLM-suggestion rows shown at the bottom
 )
 
-// matchItem is one row in the live match list. The `llm` bit tells the
-// renderer to put it under the "LLM suggestions" divider and tag it
-// with the LLM confidence + reason.
+// matchItem is one row in the unified match list. `selected` puts it
+// under the "Selected" header at the top; `llm` flags it as
+// LLM-origin (renders a "relevance N%" tag whether selected or not, and
+// when unselected groups it under the "Suggested for this ticket"
+// header at the bottom).
 type matchItem struct {
-	name string
-	llm  bool
+	name     string
+	selected bool
+	llm      bool
 }
 
 type reposPage struct {
@@ -68,9 +72,15 @@ type reposPage struct {
 
 func newReposPage() *reposPage {
 	ti := textinput.New()
-	ti.Placeholder = "type to fuzzy-search the catalog"
+	ti.Placeholder = "type to filter the catalog"
 	ti.Focus()
 	ti.CharLimit = 80
+	// textinput.New() defaults Width to 0, and at Width=0 the
+	// placeholderView in bubbles only renders the first character of
+	// the placeholder (the rest is short-circuited at line 716 of
+	// textinput.go). Setting an explicit Width that comfortably
+	// exceeds the placeholder length makes the whole hint render.
+	ti.Width = 60
 	ti.Prompt = "› "
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
@@ -83,6 +93,8 @@ func newReposPage() *reposPage {
 }
 
 func (p *reposPage) Title() string { return "Repos" }
+
+func (p *reposPage) Hints() string { return "↑/↓ navigate · enter toggles" }
 
 func (p *reposPage) Complete() bool { return len(p.selectedOrder) > 0 }
 
@@ -155,12 +167,23 @@ func (p *reposPage) seedCatalog(m *Model) {
 
 // setLLMPicks records the LLM's suggestions for rendering at the
 // bottom of the match list. It does NOT auto-select anything — the
-// user makes the call manually. Setting these completes the load
+// user makes the call manually. Picks are sorted by confidence
+// descending so the strongest suggestions show first regardless of
+// what order the model emitted. Setting these completes the load
 // (loadFinishedAt) so the status line dims to gray.
 func (p *reposPage) setLLMPicks(picks []detector.RepoMatch) {
-	p.picks = make(map[string]detector.RepoMatch, len(picks))
+	// Stable sort by descending confidence — keeps a deterministic
+	// order for equally-confident picks (the LLM's original order
+	// wins the tie).
+	sorted := make([]detector.RepoMatch, len(picks))
+	copy(sorted, picks)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].Confidence > sorted[j].Confidence
+	})
+
+	p.picks = make(map[string]detector.RepoMatch, len(sorted))
 	p.pickOrder = p.pickOrder[:0]
-	for _, pk := range picks {
+	for _, pk := range sorted {
 		if _, dup := p.picks[pk.Name]; dup {
 			continue
 		}
@@ -246,10 +269,21 @@ func (p *reposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 			return p, nil
 		case "enter":
 			if p.cursor < len(p.matches) {
-				p.toggle(p.matches[p.cursor].name)
+				toggled := p.matches[p.cursor].name
+				p.toggle(toggled)
 				p.input.SetValue("")
-				p.status = ""
 				p.recompute()
+				// Follow the toggled item to its new position so the
+				// cursor doesn't lurch back to row 0 on every action.
+				// If the item dropped out of the visible list entirely
+				// (capped Suggested overflow), the prior cap+0 clamp
+				// in recompute keeps us in a valid range.
+				for i, it := range p.matches {
+					if it.name == toggled {
+						p.cursor = i
+						break
+					}
+				}
 			} else if strings.TrimSpace(p.input.Value()) != "" {
 				p.status = fmt.Sprintf("no match for %q", p.input.Value())
 			}
@@ -279,32 +313,34 @@ func (p *reposPage) toggle(name string) {
 	p.status = "+ added " + name
 }
 
-// recompute rebuilds the match list:
-//
-//  1. Regular section (top): when the query is empty, this is the
-//     user's current non-LLM selection (so they can drop items they
-//     don't want). When the query is non-empty, it's the fuzzy
-//     matches against catalog names, excluding LLM picks (which
-//     always have their own dedicated section below).
-//  2. LLM section (bottom): every LLM-suggested name present in the
-//     catalog, in the order the LLM returned them. Shown even when
-//     the regular section is empty.
+// recompute rebuilds the unified match list as three contiguous
+// groups: Selected (top), Available fuzzy matches (middle, only
+// when the query is non-empty), and Suggested LLM picks (bottom).
+// Every repo appears in exactly one group — selected items are not
+// re-rendered inside the Suggested block — so the user never sees
+// the same row twice.
 func (p *reposPage) recompute() {
 	q := strings.TrimSpace(p.input.Value())
 	p.matches = p.matches[:0]
 
-	// Regular matches.
-	switch {
-	case q == "":
-		for _, n := range p.selectedOrder {
-			if _, isLLM := p.picks[n]; isLLM {
-				continue // LLM picks render below; don't duplicate
-			}
-			p.matches = append(p.matches, matchItem{name: n})
-		}
-	default:
+	// Group 1: Selected. Always shown when non-empty, independent of
+	// the typed query — filtering it would feel like items vanished.
+	for _, n := range p.selectedOrder {
+		_, isLLM := p.picks[n]
+		p.matches = append(p.matches, matchItem{name: n, selected: true, llm: isLLM})
+	}
+
+	// Group 2: Available fuzzy matches. Empty query → skip (today's
+	// "empty query echoes the selection" is redundant now that
+	// Selected is right above). Non-empty query → fuzzy results
+	// re-ranked (see rankFuzzy) so contiguous substring matches beat
+	// scattered ones, excluding both selected and LLM picks.
+	if q != "" {
 		count := 0
-		for _, mm := range fuzzy.Find(q, p.names) {
+		for _, mm := range rankFuzzy(q, p.names) {
+			if p.selected[mm.Str] {
+				continue
+			}
 			if _, isLLM := p.picks[mm.Str]; isLLM {
 				continue
 			}
@@ -316,13 +352,15 @@ func (p *reposPage) recompute() {
 		}
 	}
 
-	// LLM-suggested matches at the bottom — always shown when the
-	// catalog has them, regardless of query, so the user can always
-	// see what the LLM recommended.
+	// Group 3: Suggested (unselected LLM picks). Shown regardless of
+	// query so the user can always see the LLM's recommendations.
 	count := 0
 	for _, n := range p.pickOrder {
 		if !p.nameSet[n] {
 			continue // LLM hallucination — name not in catalog
+		}
+		if p.selected[n] {
+			continue // already rendered in Selected group above
 		}
 		p.matches = append(p.matches, matchItem{name: n, llm: true})
 		count++
@@ -349,34 +387,24 @@ func (p *reposPage) View(m *Model) string {
 		b.WriteString("\n")
 	}
 
-	// Selected section: only when non-empty, above the search so the
-	// user can see their cumulative state at a glance.
-	if len(p.selectedOrder) > 0 {
-		b.WriteString("  " + sectionStyle.Render(fmt.Sprintf("Selected (%d)", len(p.selectedOrder))))
-		b.WriteString("\n")
-		b.WriteString(p.renderSelected())
-		b.WriteString("\n")
-	}
-
-	// Search section: input first, then the match list.
-	b.WriteString("  " + sectionStyle.Render("Search"))
-	b.WriteString("\n")
+	// Search input. The unified match list below has Selected,
+	// Available, and Suggested groups all in one place so each repo
+	// appears exactly once — toggling on or off is just ↑/↓ to the
+	// row and Enter.
 	b.WriteString("  " + p.input.View())
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 	b.WriteString(p.renderMatches())
 
 	if p.status != "" {
 		b.WriteString("\n  " + warnStyle.Render(p.status) + "\n")
 	}
 
-	// Two-line gap, then the LLM status (red pulse / dim done / red
-	// error). Sits below the match list so the search remains the
-	// primary visual focus while the LLM works in parallel.
+	// Two-line gap, then the LLM status (spinner while in flight,
+	// dim summary when done). Sits below the match list so the
+	// search remains the primary visual focus while the LLM works
+	// in parallel.
 	b.WriteString("\n\n")
 	b.WriteString(p.renderLLMStatus(m))
-
-	b.WriteString("\n")
-	b.WriteString("  " + hintStyle.Render("↑/↓ navigate · enter toggles · type to filter"))
 	return indent(b.String(), 2)
 }
 
@@ -401,48 +429,61 @@ func (p *reposPage) renderLLMStatus(m *Model) string {
 	}
 }
 
-func (p *reposPage) renderSelected() string {
-	const nameW = 38
-	const reasonW = 70
-	var b strings.Builder
-	for _, n := range p.selectedOrder {
-		mark := selectedTagStyle.Render("✓")
-		name := padRight(n, nameW)
-		var reason string
-		if pk, ok := p.picks[n]; ok && pk.Reason != "" {
-			reason = llmTagStyle.Render(fmt.Sprintf("LLM %.0f%% ", pk.Confidence*100)) +
-				truncate(pk.Reason, reasonW-12)
-		} else if d := p.descByName[n]; d != "" {
-			reason = dimStyle.Render(truncate(d, reasonW))
-		}
-		b.WriteString(fmt.Sprintf("    %s %s %s\n", mark, name, reason))
+// groupOf classifies a matchItem into one of the three rendering
+// groups so renderMatches can emit a header line at each boundary.
+type matchGroup int
+
+const (
+	groupSelected matchGroup = iota
+	groupAvailable
+	groupSuggested
+)
+
+func (it matchItem) group() matchGroup {
+	switch {
+	case it.selected:
+		return groupSelected
+	case it.llm:
+		return groupSuggested
+	default:
+		return groupAvailable
 	}
-	return b.String()
 }
 
-// renderMatches walks the unified match list, inserting a dim
-// "─── LLM suggestions ───" divider before the first LLM-flagged
-// item. Cursor highlighting and (selected) tagging work uniformly
-// across both sections.
+// renderMatches walks the unified match list and emits a section
+// header whenever the group changes. Every repo appears in exactly
+// one group:
+//   - Selected (top): ✓ marker, LLM tag if it came from a pick
+//   - Available (middle, query-only): plain fuzzy matches
+//   - Suggested (bottom): LLM picks the user hasn't toggled yet
+//
+// Cursor highlighting is uniform across groups — navigation doesn't
+// care about boundaries.
 func (p *reposPage) renderMatches() string {
 	if len(p.matches) == 0 {
-		// Empty list: distinguish "still loading" from "no matches for query".
 		q := strings.TrimSpace(p.input.Value())
 		if q != "" {
 			return "    " + dimStyle.Render(fmt.Sprintf("no match for %q", q)) + "\n"
 		}
-		return "    " + dimStyle.Render("type to filter the catalog") + "\n"
+		// Empty list + empty query: the textinput's own placeholder
+		// ("type to filter the catalog") is already visible above,
+		// so don't duplicate the hint here.
+		return ""
 	}
 
 	const nameW = 38
 	const descW = 70
 	var b strings.Builder
-	dividerEmitted := false
+	var prevGroup matchGroup = -1
 	for i, it := range p.matches {
-		if it.llm && !dividerEmitted {
-			b.WriteString("    " + dimStyle.Render("─── Suggested for this ticket ───") + "\n")
-			dividerEmitted = true
+		if g := it.group(); g != prevGroup {
+			if prevGroup != -1 {
+				b.WriteString("\n")
+			}
+			b.WriteString("  " + sectionStyle.Render(headerFor(g, p)) + "\n")
+			prevGroup = g
 		}
+
 		var marker, name string
 		if i == p.cursor {
 			marker = cursorStyle.Render("▶")
@@ -451,22 +492,76 @@ func (p *reposPage) renderMatches() string {
 			marker = " "
 			name = padRight(it.name, nameW)
 		}
-		tail := ""
-		if p.selected[it.name] {
-			tail = selectedTagStyle.Render(" (selected)")
+
+		// ✓ only on selected rows; plain space otherwise.
+		check := " "
+		if it.selected {
+			check = selectedTagStyle.Render("✓")
 		}
+
+		// Meta column: LLM tag + reason whenever the row originated
+		// from a pick (preserves provenance on selected LLM rows),
+		// otherwise the catalog description.
 		var meta string
 		if it.llm {
 			if pk, ok := p.picks[it.name]; ok {
-				meta = llmTagStyle.Render(fmt.Sprintf("LLM %.0f%% ", pk.Confidence*100)) +
+				meta = relevanceTagStyle.Render(fmt.Sprintf("relevance %.0f%% ", pk.Confidence*100)) +
 					dimStyle.Render(truncate(pk.Reason, descW-12))
 			}
 		} else if d := p.descByName[it.name]; d != "" {
 			meta = dimStyle.Render(truncate(d, descW))
 		}
-		b.WriteString(fmt.Sprintf("    %s %s %s%s\n", marker, name, meta, tail))
+		b.WriteString(fmt.Sprintf("    %s %s %s %s\n", marker, check, name, meta))
 	}
 	return b.String()
+}
+
+// headerFor returns the section header text for a group. Selected
+// header carries the count so the user has a running total without
+// the old standalone Selected block.
+func headerFor(g matchGroup, p *reposPage) string {
+	switch g {
+	case groupSelected:
+		return fmt.Sprintf("Selected (%d)", len(p.selectedOrder))
+	case groupAvailable:
+		return "Available"
+	case groupSuggested:
+		return "Suggested for this ticket"
+	}
+	return ""
+}
+
+// rankFuzzy wraps fuzzy.Find with a custom two-tier ranking so the
+// results match user intuition: anything containing the query as a
+// substring comes first (sorted by where the substring lands —
+// earlier wins), and only THEN does the library's score-based
+// ranking kick in for scattered matches.
+//
+// Why this exists: `sahilm/fuzzy` scores firstCharMatchBonus (+10)
+// for matching at index 0, which means a scattered match starting
+// at position 0 ("s-e-t-u-p" plucked out of "sentra-user-ops" →
+// score 35) outranks a tight contiguous run starting later ("setup"
+// inside "sentra-setup-service" → score 25, because the 7-char
+// leading penalty caps at -15). Users typing "setup" overwhelmingly
+// expect "*setup*" hits at the top.
+func rankFuzzy(query string, names []string) fuzzy.Matches {
+	matches := fuzzy.Find(query, names)
+	qLower := strings.ToLower(query)
+	sort.SliceStable(matches, func(i, j int) bool {
+		ai := strings.Index(strings.ToLower(matches[i].Str), qLower)
+		aj := strings.Index(strings.ToLower(matches[j].Str), qLower)
+		// Substring matches beat scattered ones.
+		if (ai == -1) != (aj == -1) {
+			return ai != -1
+		}
+		// Both substring: earlier index wins.
+		if ai != -1 && aj != -1 && ai != aj {
+			return ai < aj
+		}
+		// Otherwise fall back to fuzzy's own descending score.
+		return matches[i].Score > matches[j].Score
+	})
+	return matches
 }
 
 // removeFromSlice mirrors the helper in internal/tui — duplicated so
