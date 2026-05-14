@@ -21,8 +21,8 @@ import (
 // synthetic messages directly.
 type stubSource struct{}
 
-func (stubSource) Name() string                       { return "stub" }
-func (stubSource) Parse(s string) (ticket.ID, error)  { return stubID(s), nil }
+func (stubSource) Name() string                      { return "stub" }
+func (stubSource) Parse(s string) (ticket.ID, error) { return stubID(s), nil }
 func (stubSource) Fetch(_ ticket.ID) (ticket.Ticket, error) {
 	return ticket.Ticket{}, errors.New("fetch not stubbed")
 }
@@ -265,4 +265,3 @@ func TestPlanCloneFailureProceeds(t *testing.T) {
 		t.Errorf("skipped = %s, want beta", got)
 	}
 }
-

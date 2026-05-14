@@ -9,9 +9,10 @@ import (
 	"github.com/uribrecher/thicket/internal/workspace"
 )
 
-// goPrevMsg / goNextMsg are emitted by the wizard's own key router so
-// page logic and tab nav share the same advance/back path.
-type goPrevMsg struct{}
+// goNextMsg is emitted when the user advances past the current page
+// (via →, or auto-advance after a page's own commit work finishes).
+// The wizard intercepts it to trigger advance(); back-nav is handled
+// inline in the wizard's key router so no symmetric goPrevMsg exists.
 type goNextMsg struct{}
 
 // ticketsLoadedMsg lands when the initial ListAssigned call returns
@@ -58,9 +59,9 @@ type reposCommittedMsg struct {
 // planBuiltMsg carries the plan and the list of repos that still need
 // cloning. Built once on entry into the Plan page.
 type planBuiltMsg struct {
-	plan     workspace.Plan
-	toClone  []catalog.Repo
-	err      error
+	plan    workspace.Plan
+	toClone []catalog.Repo
+	err     error
 }
 
 // cloneStartedMsg / cloneDoneMsg stream clone progress for the Plan page.
@@ -70,9 +71,6 @@ type cloneDoneMsg struct {
 	localPath string
 	err       error
 }
-
-// createProgressMsg streams workspace.Create's per-step progress lines.
-type createProgressMsg struct{ line string }
 
 // createDoneMsg signals the workspace is fully materialized.
 type createDoneMsg struct {

@@ -24,7 +24,6 @@ type cloneState struct {
 	started   time.Time
 	done      bool
 	err       error
-	output    string // captured git output on failure
 }
 
 type planPage struct {
