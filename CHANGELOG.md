@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **`thicket start` ticket picker is now sorted by last-modified
+  descending.** The Shortcut `ListAssigned` source orders the
+  authenticated user's open assigned stories by `updated_at` (most
+  recently touched first) before handing them to the wizard, so the
+  tickets you've been actively poking at land at the top of the
+  picker instead of in whatever order `/stories/search` returned
+  them in. Stable sort — stories with identical timestamps keep
+  Shortcut's relative order.
 
 ## [0.2.0] - 2026-05-14
 
