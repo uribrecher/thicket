@@ -104,6 +104,17 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		return detectRepos(ctx, cfg, errOut, flags, tk, repos)
 	}
 
+	// Build the summarizer once and wrap as a closure for the wizard.
+	// On builder error we skip wiring it (Summarize stays nil); the
+	// wizard renderer then keeps its dumb first-N-lines fallback —
+	// a missing/misconfigured backend shouldn't break the picker.
+	var summarizeFn func(ctx context.Context, tk ticket.Ticket) ([]string, error)
+	if sum, sumErr := buildClaudeSummarizer(cmd.Context(), cfg); sumErr == nil && sum != nil {
+		summarizeFn = func(ctx context.Context, tk ticket.Ticket) ([]string, error) {
+			return sum.Summarize(ctx, tk.Title, tk.Body)
+		}
+	}
+
 	// FindExistingWorkspace closure: returns the path of any
 	// managed workspace whose manifest matches the given ticket id,
 	// or "" if none. The Ticket page calls this once per listed
@@ -127,6 +138,7 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		Src:                   src,
 		Repos:                 repos,
 		Detect:                detectFn,
+		Summarize:             summarizeFn,
 		Git:                   gitops.New(),
 		Flags:                 wizard.Flags{Branch: flags.branch},
 		FindExistingWorkspace: findExisting,
@@ -601,6 +613,32 @@ func buildClaudeDetector(ctx context.Context, cfg *config.Config) (detector.Dete
 			return nil, fmt.Errorf("fetch anthropic key: %w", err)
 		}
 		return detector.NewAnthropic(key, "", anthropic.Model(cfg.ClaudeModel)), nil
+	default:
+		return nil, fmt.Errorf("unknown claude_backend %q (want \"cli\" or \"api\")", backend)
+	}
+}
+
+// buildClaudeSummarizer mirrors buildClaudeDetector — same backend
+// selection, same secret-fetch path, same defaults. Kept separate from
+// the detector builder so an interface change to one doesn't cascade.
+func buildClaudeSummarizer(ctx context.Context, cfg *config.Config) (detector.Summarizer, error) {
+	backend := cfg.ClaudeBackend
+	if backend == "" {
+		backend = "cli"
+	}
+	switch backend {
+	case "cli":
+		bin := cfg.ClaudeBinary
+		if bin == "" {
+			bin = "claude"
+		}
+		return detector.NewClaudeCLISummarizer(bin, cfg.ClaudeModel), nil
+	case "api":
+		key, err := fetchSecret(ctx, cfg, secretAnthropic)
+		if err != nil {
+			return nil, fmt.Errorf("fetch anthropic key: %w", err)
+		}
+		return detector.NewAnthropicSummarizer(key, "", anthropic.Model(cfg.ClaudeModel)), nil
 	default:
 		return nil, fmt.Errorf("unknown claude_backend %q (want \"cli\" or \"api\")", backend)
 	}

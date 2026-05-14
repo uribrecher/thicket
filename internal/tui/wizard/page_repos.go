@@ -113,15 +113,30 @@ func (p *reposPage) initCmd(m *Model) tea.Cmd {
 	p.loadedForID = m.ticketID
 	p.recompute()
 
+	// Fire the summarize cmd unconditionally (when wired + uncached) —
+	// even if LLM picks are cached, the user might have wiped the
+	// summary cache or arrived via a different path. Cheap to skip
+	// when already present.
+	cmds := []tea.Cmd{}
+	if m.deps.Summarize != nil {
+		if _, ok := m.summaryCache[m.ticketID]; !ok {
+			cmds = append(cmds, summarizeCmd(m))
+		}
+	}
+
 	if cached, ok := m.llmCache[m.ticketID]; ok {
 		p.setLLMPicks(cached)
-		return nil
+		if len(cmds) == 0 {
+			return nil
+		}
+		return tea.Batch(cmds...)
 	}
 	p.loading = true
 	p.loadErr = nil
 	p.loadStartAt = time.Now()
 	p.loadFinishedAt = time.Time{}
-	return tea.Batch(p.spinner.Tick, detectCmd(m))
+	cmds = append(cmds, p.spinner.Tick, detectCmd(m))
+	return tea.Batch(cmds...)
 }
 
 // resetForNewTicket clears the page-local state so the next ticket's
@@ -206,6 +221,22 @@ func detectCmd(m *Model) tea.Cmd {
 		}
 		picks, err := m.deps.Detect(ctx, tk, m.deps.Repos)
 		return picksLoadedMsg{ticketID: id, picks: picks, err: err}
+	}
+}
+
+// summarizeCmd runs the (optional) Summarize closure for the current
+// ticket. Failures aren't fatal — the renderer silently falls back to
+// the first-N-lines view.
+func summarizeCmd(m *Model) tea.Cmd {
+	tk := m.ticket
+	id := m.ticketID
+	return func() tea.Msg {
+		ctx := m.deps.Ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		lines, err := m.deps.Summarize(ctx, tk)
+		return summarizedMsg{ticketID: id, lines: lines, err: err}
 	}
 }
 
@@ -382,7 +413,7 @@ func (p *reposPage) View(m *Model) string {
 	b.WriteString("\n\n")
 
 	// Ticket summary directly under the title.
-	if s := renderTicketSummary(m.ticket); s != "" {
+	if s := renderTicketSummary(m.ticket, m.summaryCache[m.ticketID]); s != "" {
 		b.WriteString(s)
 		b.WriteString("\n")
 	}

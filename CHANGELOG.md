@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`thicket start`: real LLM-generated ticket summary.** The
+  three-line "summary" block at the top of the Repos page used to
+  be the literal first three non-empty lines of the description —
+  fine for short tickets, useless when the body opens with a
+  markdown heading or a fenced code block. The wizard now calls
+  Claude (via whichever backend `claude_backend` is set to — same
+  CLI or API path the repo detector uses) to produce an actual
+  3-line summary of the ticket and caches it per ticket id. The
+  call runs in parallel with the repo-detection call so it doesn't
+  add to perceived latency; while it's in flight (or if the
+  summarizer fails / isn't wired) the renderer falls back to the
+  old first-N-lines view so the panel always shows something.
+
 ### Changed
 
 - **`thicket start` ticket picker is now sorted by last-modified

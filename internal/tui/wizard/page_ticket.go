@@ -189,6 +189,7 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		tk := p.fetchedTk
 		if tk.SourceID != m.ticketID {
 			delete(m.llmCache, m.ticketID)
+			delete(m.summaryCache, m.ticketID)
 			m.chosen = nil
 			m.cloneInclude = make(map[string]bool)
 		}
@@ -305,7 +306,7 @@ func (p *ticketPage) View(m *Model) string {
 	if len(p.rows) == 0 {
 		// Preselected-ticket mode: no list to render, just the summary.
 		if p.fetchedID != "" {
-			b.WriteString(renderTicketSummary(p.fetchedTk))
+			b.WriteString(renderTicketSummary(p.fetchedTk, m.summaryCache[m.ticketID]))
 			b.WriteString("\n  " + hintStyle.Render(
 				"ticket was supplied on the command line — → to continue") + "\n")
 			return indent(b.String(), 2)
