@@ -1,0 +1,424 @@
+package wizard
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/sahilm/fuzzy"
+
+	"github.com/uribrecher/thicket/internal/ticket"
+	"github.com/uribrecher/thicket/internal/workspace"
+)
+
+const ticketVisibleRows = 12
+
+// ticketRow is one prepared row from a Ticket result.
+type ticketRow struct {
+	tk        ticket.Ticket
+	filter    string
+	workspace string // existing workspace slug, if any
+}
+
+type ticketPage struct {
+	// Async load state.
+	loading bool
+	loadErr error
+	startAt time.Time
+
+	// Once tickets land, these populate.
+	rows     []ticketRow
+	haystack []string
+
+	// Filter / cursor.
+	input   textinput.Model
+	matches []int
+	cursor  int
+
+	// Per-row Fetch state — Fetch is fired when user presses Enter; the
+	// result is stored on the page so going back & forward shows the
+	// summary without re-fetching.
+	fetching     bool
+	fetchedTk    ticket.Ticket
+	fetchedID    string // ticket id we last fetched
+	fetchErr     error
+	fetchStartAt time.Time
+
+	// Cached existence check for the last fetched ticket — non-empty
+	// means a managed workspace already exists; the wizard short-
+	// circuits when the user advances.
+	existingDir string
+}
+
+func newTicketPage() *ticketPage {
+	ti := textinput.New()
+	ti.Placeholder = "type to filter…"
+	ti.Focus()
+	ti.CharLimit = 80
+	ti.Prompt = "› "
+	return &ticketPage{input: ti, loading: true, startAt: time.Now()}
+}
+
+// preseed flips the page into "preselected" mode: no list fetch, no
+// picker — just the ticket summary the user can peek at via ←. Used
+// by `thicket start <id>` where the args path already named the
+// ticket so the picker would be busywork.
+func (p *ticketPage) preseed(tk ticket.Ticket) {
+	p.loading = false
+	p.rows = []ticketRow{} // non-nil so initCmd's guard treats us as "loaded"
+	p.fetchedTk = tk
+	p.fetchedID = tk.SourceID
+}
+
+func (p *ticketPage) Title() string { return "Ticket" }
+
+// Complete is true once we have a fetched ticket — the page has all
+// the info downstream needs.
+func (p *ticketPage) Complete() bool { return p.fetchedID != "" && p.fetchErr == nil }
+
+// initCmd fires the ListAssigned call on first activation.
+func (p *ticketPage) initCmd(m *Model) tea.Cmd {
+	if p.rows != nil || p.loadErr != nil {
+		return nil // already loaded — going-back/forward shouldn't re-fetch
+	}
+	return tea.Batch(p.tickCmd(), listTicketsCmd(m))
+}
+
+func listTicketsCmd(m *Model) tea.Cmd {
+	return func() tea.Msg {
+		if m.deps.Lister == nil {
+			return ticketsLoadedMsg{err: errors.New("ticket source does not support listing — pass a ticket id explicitly")}
+		}
+		tks, err := m.deps.Lister.ListAssigned(m.deps.Ctx)
+		return ticketsLoadedMsg{tickets: tks, err: err}
+	}
+}
+
+func fetchTicketCmd(m *Model, id ticket.ID) tea.Cmd {
+	return func() tea.Msg {
+		tk, err := m.deps.Src.Fetch(id)
+		return ticketFetchedMsg{tk: tk, err: err}
+	}
+}
+
+// tickCmd schedules the next 1-second tick to refresh elapsed-time
+// counters. Returns nil when no async work is in flight.
+func (p *ticketPage) tickCmd() tea.Cmd {
+	if !p.loading && !p.fetching {
+		return nil
+	}
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
+
+func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
+	switch v := msg.(type) {
+	case ticketsLoadedMsg:
+		p.loading = false
+		if v.err != nil {
+			p.loadErr = v.err
+			return p, nil
+		}
+		p.rows = make([]ticketRow, len(v.tickets))
+		p.haystack = make([]string, len(v.tickets))
+		// Annotate with existing-workspace slugs so the user can spot
+		// in-flight work at a glance — same data as today's picker.
+		// Caller passes a FindExistingWorkspace closure that scans
+		// workspace_root once per call. To avoid scanning N times we
+		// cheat: scan each row, but the closure itself caches via
+		// ListManaged at call site.
+		for i, tk := range v.tickets {
+			ws := ""
+			if m.deps.FindExistingWorkspace != nil {
+				if path := m.deps.FindExistingWorkspace(tk.SourceID); path != "" {
+					ws = workspace.Slug(tk.SourceID, tk.Title)
+					_ = path
+				}
+			}
+			p.rows[i] = ticketRow{
+				tk:        tk,
+				filter:    tk.SourceID + " " + tk.State + " " + tk.Title + " " + ws,
+				workspace: ws,
+			}
+			p.haystack[i] = p.rows[i].filter
+		}
+		p.recompute()
+		return p, nil
+
+	case ticketFetchedMsg:
+		p.fetching = false
+		if v.err != nil {
+			p.fetchErr = v.err
+			return p, nil
+		}
+		p.fetchedTk = v.tk
+		p.fetchedID = v.tk.SourceID
+		// Probe for an existing workspace now so advancing can short-
+		// circuit without an extra round-trip.
+		if m.deps.FindExistingWorkspace != nil {
+			p.existingDir = m.deps.FindExistingWorkspace(v.tk.SourceID)
+		}
+		// Auto-advance: the user already committed by pressing Enter
+		// on a row. Forcing them to press Enter again to step past a
+		// completed page is dead weight, so emit goNextMsg and let
+		// the wizard's advance flow handle it.
+		return p, func() tea.Msg { return goNextMsg{} }
+
+	case tickMsg:
+		return p, p.tickCmd()
+
+	case goNextMsg:
+		// User is advancing past Ticket. We must update the model's
+		// shared ticket state SYNCHRONOUSLY here — `wizard.advance()`
+		// fires the next page's `initCmd` immediately after this
+		// returns, and that initCmd reads `m.ticketID` to decide
+		// whether to fire the LLM detect call. If we deferred the
+		// state update via a cmd (ticketCommittedMsg), the Repos
+		// page's initCmd would see an empty ticketID and short-circuit
+		// to "nothing to load" — which is exactly the bug that
+		// silently broke the Repos page.
+		if !p.Complete() {
+			return p, nil
+		}
+		tk := p.fetchedTk
+		// Cache + chosen invalidation: same policy the wizard's
+		// ticketCommittedMsg handler applied. Doing it here too keeps
+		// behavior consistent regardless of when (or whether) that
+		// async msg lands.
+		if tk.SourceID != m.ticketID {
+			delete(m.llmCache, m.ticketID)
+			m.chosen = nil
+			m.cloneInclude = make(map[string]bool)
+		}
+		m.ticket = tk
+		m.ticketID = tk.SourceID
+		if p.existingDir != "" {
+			dir := p.existingDir
+			return p, func() tea.Msg { return existingWorkspaceMsg{path: dir} }
+		}
+		// Still emit ticketCommittedMsg for observers (tests, future
+		// listeners). Wizard's handler is a no-op once state is
+		// already current, so this stays safe.
+		return p, func() tea.Msg { return ticketCommittedMsg{tk: tk} }
+
+	case tea.KeyMsg:
+		// The wizard's global handler already ate "esc", "left",
+		// "right", and "enter" (when the page is complete and not on
+		// the last page). The page only sees keys that fell through.
+		switch v.String() {
+		case "up":
+			if p.cursor > 0 {
+				p.cursor--
+			}
+			return p, nil
+		case "down":
+			if p.cursor < len(p.matches)-1 {
+				p.cursor++
+			}
+			return p, nil
+		case "enter":
+			// Fetch the row under the cursor. This is what locks in a
+			// ticket on this page — the resulting ticketFetchedMsg
+			// arms Complete() so the next Enter / → advances.
+			if p.cursor >= len(p.matches) {
+				return p, nil
+			}
+			row := p.rows[p.matches[p.cursor]]
+			// If we're already fetched for this row, no-op (avoids
+			// re-Fetching when the user toggles back to the picker).
+			if p.fetchedID == row.tk.SourceID && p.fetchErr == nil {
+				return p, nil
+			}
+			p.fetching = true
+			p.fetchErr = nil
+			p.fetchedID = ""
+			p.fetchStartAt = time.Now()
+			id, err := m.deps.Src.Parse(row.tk.SourceID)
+			if err != nil {
+				p.fetching = false
+				p.fetchErr = err
+				return p, nil
+			}
+			return p, tea.Batch(p.tickCmd(), fetchTicketCmd(m, id))
+		}
+	}
+
+	// Forward to text input for filter changes.
+	prev := p.input.Value()
+	var cmd tea.Cmd
+	p.input, cmd = p.input.Update(msg)
+	if p.input.Value() != prev {
+		p.recompute()
+	}
+	return p, cmd
+}
+
+func (p *ticketPage) recompute() {
+	q := strings.TrimSpace(p.input.Value())
+	p.matches = p.matches[:0]
+	if q == "" {
+		for i := range p.rows {
+			if i >= ticketVisibleRows {
+				break
+			}
+			p.matches = append(p.matches, i)
+		}
+	} else {
+		fm := fuzzy.Find(q, p.haystack)
+		for i, mm := range fm {
+			if i >= ticketVisibleRows {
+				break
+			}
+			p.matches = append(p.matches, mm.Index)
+		}
+	}
+	if p.cursor >= len(p.matches) {
+		p.cursor = 0
+	}
+}
+
+func (p *ticketPage) View(m *Model) string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("Pick a ticket to start a workspace for"))
+	b.WriteString("\n\n")
+
+	if p.loading {
+		secs := int(time.Since(p.startAt).Seconds())
+		b.WriteString(hintStyle.Render(fmt.Sprintf("  fetching your open assigned tickets… %ds", secs)))
+		b.WriteString("\n")
+		return indent(b.String(), 2)
+	}
+	if p.loadErr != nil {
+		b.WriteString(errStyle.Render("  " + fmtErr(p.loadErr)))
+		b.WriteString("\n")
+		return indent(b.String(), 2)
+	}
+	if len(p.rows) == 0 {
+		// Preselected-ticket mode: no list to render, just the summary.
+		if p.fetchedID != "" {
+			b.WriteString(renderTicketSummary(p.fetchedTk))
+			b.WriteString("\n  " + hintStyle.Render(
+				"ticket was supplied on the command line — → to continue") + "\n")
+			return indent(b.String(), 2)
+		}
+		b.WriteString(hintStyle.Render("  no open assigned tickets found"))
+		b.WriteString("\n")
+		return indent(b.String(), 2)
+	}
+
+	// Search box + status.
+	b.WriteString("  " + p.input.View())
+	b.WriteString("\n")
+	q := strings.TrimSpace(p.input.Value())
+	switch {
+	case q == "":
+		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("showing first %d of %d — type to filter",
+			len(p.matches), len(p.rows))))
+	case len(p.matches) == 0:
+		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("no match for %q", q)))
+	default:
+		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("%d match(es)", len(p.matches))))
+	}
+	b.WriteString("\n\n")
+
+	// Table.
+	const (
+		idW    = 10
+		stateW = 18
+		titleW = 50
+		wsW    = 36
+	)
+	b.WriteString("   ")
+	for _, col := range []struct {
+		t string
+		w int
+	}{{"Ticket", idW}, {"State", stateW}, {"Title", titleW}, {"Workspace", wsW}} {
+		b.WriteString(sectionStyle.Render(padRight(col.t, col.w)))
+		b.WriteString("  ")
+	}
+	b.WriteString("\n   ")
+	for _, w := range []int{idW, stateW, titleW, wsW} {
+		b.WriteString(hintStyle.Render(strings.Repeat("─", w)))
+		b.WriteString("  ")
+	}
+	b.WriteString("\n")
+
+	for vi, ri := range p.matches {
+		row := p.rows[ri]
+		marker := " "
+		var style = dimStyle
+		if vi == p.cursor {
+			marker = cursorStyle.Render("▶")
+			style = cursorStyle
+		} else {
+			style = pendingTabStyle // dim-ish for unfocused rows
+		}
+		b.WriteString(marker + "  ")
+		b.WriteString(style.Render(padRight(truncate(row.tk.SourceID, idW), idW)))
+		b.WriteString("  ")
+		b.WriteString(style.Render(padRight(truncate(row.tk.State, stateW), stateW)))
+		b.WriteString("  ")
+		b.WriteString(style.Render(padRight(truncate(row.tk.Title, titleW), titleW)))
+		b.WriteString("  ")
+		b.WriteString(style.Render(padRight(truncate(row.workspace, wsW), wsW)))
+		b.WriteString("\n")
+	}
+
+	// Brief fetching / error status below the table. The full
+	// summary (description / requester / labels) lives on the Repos
+	// page now — by the time it's worth reading, the user has moved
+	// on from picking and is reviewing repos.
+	if p.fetching {
+		secs := int(time.Since(p.fetchStartAt).Seconds())
+		b.WriteString("\n")
+		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("loading ticket details… %ds", secs)))
+		b.WriteString("\n")
+	} else if p.fetchErr != nil {
+		b.WriteString("\n")
+		b.WriteString("  " + errStyle.Render(fmtErr(p.fetchErr)))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	b.WriteString("  " + hintStyle.Render("↑/↓ navigate · enter picks · type to filter"))
+	return indent(b.String(), 2)
+}
+
+// firstNonEmptyLines returns up to n trimmed non-empty lines from s.
+func firstNonEmptyLines(s string, n int) []string {
+	var out []string
+	for _, raw := range strings.Split(s, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		out = append(out, line)
+		if len(out) == n {
+			break
+		}
+	}
+	return out
+}
+
+// padRight/truncate are duplicated here (cheap) instead of exported
+// from internal/tui — keeps the wizard's surface area small.
+func padRight(s string, n int) string {
+	r := []rune(s)
+	if len(r) >= n {
+		return s
+	}
+	return s + strings.Repeat(" ", n-len(r))
+}
+
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if n < 1 {
+		return ""
+	}
+	return string(r[:n-1]) + "…"
+}

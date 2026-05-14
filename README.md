@@ -19,10 +19,12 @@
 `thicket` is a CLI that turns one ticket into an isolated, ready-to-code
 multi-repo workspace. Given a Shortcut ticket id it:
 
-1. Fetches the ticket from your tracker
+1. Fetches the ticket from your tracker (with body, requester, and labels)
 2. Asks Claude which repos in your GitHub org(s) need code changes
-3. Opens a bubbletea picker so you can fuzzy-search the catalog and
-   refine the LLM's pre-selection (type-ahead, ↑/↓, Enter toggles)
+3. Walks you through a three-page wizard — `Ticket` → `Repos` → `Plan` —
+   with tab navigation across the top, `←/→` to step back and forward,
+   live fuzzy search of your repo catalog, and the LLM's picks rendered
+   inline as suggestions you can accept or ignore
 4. Materializes a workspace folder with one git worktree per repo on a
    ticket-id-prefixed branch (slug is always `<lower-ticket-id>-<title>`,
    so two tickets with the same title never collide on disk)
@@ -33,7 +35,7 @@ multi-repo workspace. Given a Shortcut ticket id it:
    labelled in the prompt box, `/resume` picker, and terminal title —
    handy for distinguishing several open workspaces
 
-End result: `thicket start sc-12345` → fuzzy-pick repos → you're coding.
+End result: `thicket start` → pick a ticket → review LLM picks → you're coding.
 
 > **Unofficial, community-built. Not affiliated with or endorsed by
 > Anthropic.** "Claude" is a trademark of Anthropic, PBC.
@@ -137,23 +139,62 @@ share the `.git` of their source clone (storage cheap, no double-fetch).
 
 ## Interactive UX
 
-Most of the interactive flows are bubbletea + lipgloss views with live
-fuzzy search:
+### `thicket start` — three-page wizard
 
-- **Repo picker** (`thicket start`) — type a partial name, see top
-  matches ranked by `sahilm/fuzzy`, Enter toggles selection. Empty
-  query shows your current selection so you can drop entries quickly.
+The interactive TTY flow is one Bubble Tea program with three pages
+rendered as a horizontal tab bar across the top. The active step is
+yellow + bold, completed steps are green with a leading `✓`, untouched
+steps are dim.
+
+```
+✓ Ticket    ✓ Repos    Plan
+                       ────
+```
+
+Global keys: `←/→` move between completed steps, `Esc` cancels.
+Each page binds `Enter` to its own commit action (picks / toggles /
+creates) so it never lies about what Enter does.
+
+1. **Ticket** — fuzzy-search your open assigned Shortcut tickets in a
+   tabular view (`Ticket | State | Title | Workspace`). Existing
+   workspaces for a ticket appear in the rightmost column so switching
+   back to in-flight work is a single Enter. Pressing Enter on a row
+   fetches the full ticket (body, requester, labels) and auto-advances
+   to Repos.
+2. **Repos** — catalog is seeded eagerly so fuzzy search works
+   immediately; the LLM call runs in parallel with a charm spinner
+   under "looking for relevant repos…". When the LLM lands its picks
+   appear at the bottom of the match list under a "Suggested for this
+   ticket" divider with `LLM N% — <reason>` tags. **Picks are never
+   auto-selected** — Enter on any row toggles it. The cumulative
+   selection lives in a "Selected (N)" block above the search.
+3. **Plan** — workspace dir, branch, the worktrees to create, and a
+   "Missing clones" checklist for any selected repos that aren't yet
+   cloned locally (default checked; space toggles). On Create, clones
+   stream in-page with `✓`/`✗` lines. A failed clone is dropped from
+   the workspace and the wizard proceeds with the rest; skipped repos
+   are surfaced on stderr after the wizard exits.
+
+`thicket start <id>` short-circuits the picker — the wizard lands on
+Repos with the Ticket page rendering a read-only summary you can still
+peek at via `←`.
+
+`--no-interactive`, `--dry-run`, and non-TTY stdin (CI, pipes) drop
+back to the pre-wizard line-oriented flow so scripts keep working
+unchanged.
+
+### Other pickers
+
 - **1Password item picker** (`thicket init` under 1Password) — tabular
   view: `Item | Vault | Type`, live filter, ↑/↓ + Enter.
 - **Workspace picker** (`thicket rm`) — tabular view:
   `Slug | Ticket | Created | Repos`, newest first.
 
-Slow operations show a single-line in-place elapsed-time spinner so
-the CLI never looks stuck:
+Slow non-wizard operations show a single-line in-place elapsed-time
+spinner so the CLI never looks stuck:
 
 ```
 fetching repo catalog from GitHub ([acme]) — 2.4s
-looking for relevant repos — 6.8s
 cloning git@github.com:acme/acme-foo.git → /Users/uri/code/acme-foo — 5.1s
 ```
 

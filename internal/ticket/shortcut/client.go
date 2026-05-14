@@ -116,14 +116,30 @@ func (s *Source) BranchName(t ticket.Ticket) string {
 
 // storyResponse is the subset of the Shortcut story payload thicket consumes.
 type storyResponse struct {
-	ID                     int      `json:"id"`
-	Name                   string   `json:"name"`
-	Description            string   `json:"description"`
-	AppURL                 string   `json:"app_url"`
-	FormattedVCSBranchName string   `json:"formatted_vcs_branch_name"`
-	WorkflowStateID        int      `json:"workflow_state_id"`
-	OwnerIDs               []string `json:"owner_ids"`
-	Archived               bool     `json:"archived"`
+	ID                     int             `json:"id"`
+	Name                   string          `json:"name"`
+	Description            string          `json:"description"`
+	AppURL                 string          `json:"app_url"`
+	FormattedVCSBranchName string          `json:"formatted_vcs_branch_name"`
+	WorkflowStateID        int             `json:"workflow_state_id"`
+	OwnerIDs               []string        `json:"owner_ids"`
+	RequestedByID          string          `json:"requested_by_id"`
+	Labels                 []labelResponse `json:"labels"`
+	Archived               bool            `json:"archived"`
+}
+
+// labelResponse is the slice of the Shortcut label payload we surface.
+type labelResponse struct {
+	Name string `json:"name"`
+}
+
+// memberProfileResponse is the subset of GET /api/v3/members/{id} that we
+// use to render a requester display name.
+type memberProfileResponse struct {
+	Profile struct {
+		Name        string `json:"name"`
+		MentionName string `json:"mention_name"`
+	} `json:"profile"`
 }
 
 // doRequest is the shared HTTP helper. method ∈ {GET, POST}; body may be nil.
@@ -176,21 +192,53 @@ func (s *Source) Fetch(id ticket.ID) (ticket.Ticket, error) {
 	if !ok {
 		return ticket.Ticket{}, fmt.Errorf("shortcut.Fetch: id has wrong type %T", id)
 	}
+	ctx := context.Background()
 	var sr storyResponse
-	if err := s.doRequest(context.Background(), http.MethodGet,
+	if err := s.doRequest(ctx, http.MethodGet,
 		fmt.Sprintf("/api/v3/stories/%d", int(scID)), nil, &sr); err != nil {
 		return ticket.Ticket{}, err
 	}
-	return s.toTicket(sr, ""), nil
+	tk := s.toTicket(sr, "")
+	// Best-effort requester name resolution — a failed lookup just
+	// leaves Requester empty so the ticket summary skips that line.
+	// We don't want a flaky members endpoint to abort `thicket start`.
+	if sr.RequestedByID != "" {
+		if name := s.fetchMemberName(ctx, sr.RequestedByID); name != "" {
+			tk.Requester = name
+		}
+	}
+	return tk, nil
+}
+
+// fetchMemberName resolves a member UUID to a human-readable display
+// name (full name, falling back to mention handle). Returns "" on any
+// error — callers should treat that as "unresolved".
+func (s *Source) fetchMemberName(ctx context.Context, id string) string {
+	var m memberProfileResponse
+	if err := s.doRequest(ctx, http.MethodGet,
+		fmt.Sprintf("/api/v3/members/%s", id), nil, &m); err != nil {
+		return ""
+	}
+	if m.Profile.Name != "" {
+		return m.Profile.Name
+	}
+	return m.Profile.MentionName
 }
 
 func (s *Source) toTicket(sr storyResponse, stateName string) ticket.Ticket {
+	var labels []string
+	for _, l := range sr.Labels {
+		if l.Name != "" {
+			labels = append(labels, l.Name)
+		}
+	}
 	return ticket.Ticket{
 		SourceID: ID(sr.ID).String(),
 		Title:    sr.Name,
 		Body:     sr.Description,
 		URL:      sr.AppURL,
 		State:    stateName,
+		Labels:   labels,
 		Extra: map[string]string{
 			"formatted_vcs_branch_name": sr.FormattedVCSBranchName,
 			"workflow_state_id":         strconv.Itoa(sr.WorkflowStateID),

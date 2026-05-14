@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -27,6 +26,7 @@ import (
 	"github.com/uribrecher/thicket/internal/ticket"
 	"github.com/uribrecher/thicket/internal/ticket/shortcut"
 	"github.com/uribrecher/thicket/internal/tui"
+	"github.com/uribrecher/thicket/internal/tui/wizard"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
 
@@ -48,24 +48,137 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// The wizard needs a TTY for bubbletea. --no-interactive and
+	// --dry-run keep today's plain-stdout flow since callers in those
+	// modes are typically scripted and benefit from line-oriented
+	// output. Non-TTY stdin (CI, pipes) also drops to legacy because
+	// bubbletea can't read input.
+	useWizard := !flags.noInteractive && !flags.dryRun && term.IsTerminal(int(os.Stdin.Fd()))
+	if !useWizard {
+		return runStartLegacy(cmd, cfg, flags, src, args, out, errOut)
+	}
+	return runStartWizard(cmd, cfg, flags, src, args, out, errOut)
+}
+
+// runStartWizard is the interactive TTY path: a single Bubble Tea
+// wizard with three pages (Ticket / Repos / Plan) replaces the old
+// stack of sequential prompts.
+func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
+	src ticket.Source, args []string, out, errOut io.Writer) error {
+
+	// Pre-load the catalog OUTSIDE the wizard so the catalog-refresh
+	// spinner doesn't fight bubbletea for the terminal.
+	repos, err := loadCatalog(cfg, errOut)
+	if err != nil {
+		return err
+	}
+
+	// Args-path: parse + fetch + existing-workspace short-circuit
+	// before entering the wizard. The wizard's Ticket page is
+	// pre-completed in this case so the user lands on Repos.
+	var preselected *ticket.Ticket
+	if len(args) > 0 {
+		id, err := src.Parse(args[0])
+		if err != nil {
+			return err
+		}
+		var tk ticket.Ticket
+		err = withProgress(errOut, fmt.Sprintf("fetching ticket %s", id), func() error {
+			var fetchErr error
+			tk, fetchErr = src.Fetch(id)
+			return fetchErr
+		})
+		if err != nil {
+			return err
+		}
+		if existing := findWorkspaceForTicket(cfg, tk.SourceID, errOut); existing != nil {
+			fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
+			return launchClaudeIn(out, cfg, tk, existing.Path, flags.noLaunch)
+		}
+		preselected = &tk
+	}
+
+	// Build the per-ticket Detect closure once so the wizard doesn't
+	// import cmd/thicket.
+	detectFn := func(ctx context.Context, tk ticket.Ticket, repos []catalog.Repo) ([]detector.RepoMatch, error) {
+		return detectRepos(ctx, cfg, errOut, flags, tk, repos)
+	}
+
+	// FindExistingWorkspace closure: scans workspace_root and returns
+	// the path of any workspace whose manifest matches the given
+	// ticket id. Wired through Deps so the wizard's Ticket page can
+	// short-circuit without re-implementing the lookup.
+	findExisting := func(id string) string {
+		if ws := findWorkspaceForTicket(cfg, id, errOut); ws != nil {
+			return ws.Path
+		}
+		return ""
+	}
+
+	deps := wizard.Deps{
+		Ctx:                   cmd.Context(),
+		Cfg:                   cfg,
+		Src:                   src,
+		Repos:                 repos,
+		Detect:                detectFn,
+		Git:                   gitops.New(),
+		Flags:                 wizard.Flags{Branch: flags.branch},
+		FindExistingWorkspace: findExisting,
+	}
+	if l, ok := src.(ticket.Lister); ok {
+		deps.Lister = l
+	}
+	if preselected != nil {
+		deps.Preselected = preselected
+	}
+
+	res, err := wizard.Run(deps)
+	if err != nil {
+		if errors.Is(err, tui.ErrCancelled) {
+			fmt.Fprintln(out, "cancelled.")
+			return nil
+		}
+		return err
+	}
+
+	// Reuse exit (wizard short-circuited because an existing workspace
+	// matched the picked ticket): launch Claude in the existing dir.
+	if res.ReuseDir != "" {
+		fmt.Fprintf(out, "reusing existing workspace at %s\n", res.ReuseDir)
+		return launchClaudeIn(out, cfg, res.Ticket, res.ReuseDir, flags.noLaunch)
+	}
+
+	// Surface any skipped/failed clones from the wizard's clone phase
+	// (proceed-without-failed-repo policy).
+	for _, s := range res.Skipped {
+		fmt.Fprintf(errOut, "skipped %s: %s\n", s.Name, s.Reason)
+	}
+
+	// workspace.Create runs in plain stdout (the wizard has already
+	// exited and torn down its UI), streaming ✓ lines for each
+	// worktree + memory file + state manifest.
+	plan := res.Plan
+	plan.Progress = out
+	w := workspace.New(gitops.New())
+	if err := w.Create(plan); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "\nworkspace ready at %s\n", plan.WorkspaceDir)
+	return launchClaudeIn(out, cfg, res.Ticket, plan.WorkspaceDir, flags.noLaunch)
+}
+
+// runStartLegacy preserves the pre-wizard CLI flow for the cases
+// where bubbletea can't run: --no-interactive, --dry-run, and non-TTY
+// stdin. Same behavior thicket has had since 0.1; just split out so
+// the wizard path can stay focused.
+func runStartLegacy(cmd *cobra.Command, cfg *config.Config, flags startFlags,
+	src ticket.Source, args []string, out, errOut io.Writer) error {
+
 	var tk ticket.Ticket
 	if len(args) == 0 {
-		// Interactive picker over the user's active assigned tickets.
-		// The picker uses the slim search-results payload (title +
-		// state) — it does NOT carry the Markdown description that
-		// the LLM repo-detector needs. Re-fetch the full story by id
-		// after the user picks so downstream code sees a complete
-		// ticket. Without this the "ticket has no description"
-		// warning fires for stories that DO have descriptions —
-		// because Shortcut's /stories/search response is slim.
-		//
-		// Fetch + ListAssigned have asymmetric coverage: the search
-		// path resolves the workflow-state NAME (via
-		// /api/v3/workflows) and the fetch path doesn't, while the
-		// fetch path carries the full description and the search
-		// path doesn't. We need both, so preserve whatever the
-		// picker resolved on top of the fetch result.
-		picked, err := pickAssignedTicket(cmd.Context(), src, cfg, errOut)
+		// Legacy interactive picker — still uses tui.PickOne under the
+		// hood. Reached when the user passes --dry-run on a TTY.
+		picked, err := pickAssignedTicketLegacy(cmd.Context(), src, cfg, errOut)
 		if err != nil {
 			if errors.Is(err, tui.ErrCancelled) {
 				fmt.Fprintln(out, "cancelled.")
@@ -91,31 +204,24 @@ func runStart(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		fmt.Fprintf(out, "fetching ticket %s...\n", id)
-		tk, err = src.Fetch(id)
-		if err != nil {
-			return err
+		var err2 error
+		tk, err2 = src.Fetch(id)
+		if err2 != nil {
+			return err2
 		}
 		fmt.Fprintf(out, "  %s — %s\n", tk.SourceID, tk.Title)
 	}
-	// If a workspace already exists for this ticket, skip creation and
-	// open Claude on it directly — this is the "I'm switching back to
-	// in-flight work" path. Lookup is by ticket id (not slug) so a
-	// renamed ticket still resolves to its original workspace.
 	if existing := findWorkspaceForTicket(cfg, tk.SourceID, errOut); existing != nil {
 		fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
 		return launchClaudeIn(out, cfg, tk, existing.Path, flags.noLaunch)
-	}
-
-	if strings.TrimSpace(tk.Body) == "" {
-		fmt.Fprintln(out, "  ⚠ ticket has no description — LLM routing will lack context;\n"+
-			"    consider \"thicket start <ticket> --only repo1,repo2\" instead.")
 	}
 
 	repos, err := loadCatalog(cfg, errOut)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "catalog: %d active repos across %v\n", len(repos), cfg.GithubOrgs)
+	fmt.Fprintf(out, "\n%s %d active repos across %v\n",
+		catalogLabelStyle.Render("catalog:"), len(repos), cfg.GithubOrgs)
 
 	var picks []detector.RepoMatch
 	err = withProgress(errOut, "looking for relevant repos", func() error {
@@ -140,7 +246,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return errors.New("no repos selected — nothing to do")
 	}
 
-	chosen, err := resolveOrClone(cmd.Context(), cfg, errOut, repos, chosenNames, selector, flags.dryRun)
+	chosen, err := resolveOrCloneLegacy(cmd.Context(), cfg, errOut, repos, chosenNames, selector, flags.dryRun)
 	if err != nil {
 		return err
 	}
@@ -148,65 +254,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return errors.New("no repos remain after the clone gate")
 	}
 
-	plan, err := buildPlan(cfg, flags, src, tk, chosen)
+	plan, err := buildPlanLegacy(cfg, flags, src, tk, chosen)
 	if err != nil {
 		return err
 	}
-
-	printPlan(out, plan, flags.dryRun)
+	printPlanLegacy(out, plan, flags.dryRun)
 	if flags.dryRun {
 		return nil
 	}
 
-	// Last gate before we touch disk. --no-interactive skips
-	// (scripts/CI explicitly opted out of prompts upstream); a TTY
-	// confirm wraps the same huh widget as `thicket rm` so the
-	// muscle memory carries over.
-	if !flags.noInteractive {
-		// Non-TTY stdin (CI, piped input) → huh's bubbletea program
-		// can't open the alt-screen and would fail with a confusing
-		// error. Skip the prompt with a clear notice and proceed —
-		// the user already passed every preceding interactive gate,
-		// so we know they intend to create. `--no-interactive` is
-		// the explicit way to silence this notice.
-		if !term.IsTerminal(int(os.Stdin.Fd())) {
-			fmt.Fprintln(errOut, "stdin is not a TTY — skipping the create-workspace prompt "+
-				"(pass --no-interactive to silence this notice).")
-		} else {
-			// Default to Yes (Enter accepts) — the user already typed
-			// through ticket pick → repo pick → clone gate to get here;
-			// requiring an extra explicit click on Yes is friction.
-			// `huh.NewConfirm` uses the bound variable's initial value
-			// as the highlighted option.
-			confirmed := true
-			err := huh.NewConfirm().
-				Title("Create this workspace?").
-				Description("Creates the worktrees and seeds CLAUDE.local.md.").
-				Affirmative("Yes, create").
-				Negative("No, cancel").
-				Value(&confirmed).
-				Run()
-			// Ctrl+C / Esc through huh returns ErrUserAborted; treat
-			// the same as "No, cancel" — friendly exit, not a hard
-			// error. Mirrors the picker / repo-selector cancellation
-			// paths above.
-			if errors.Is(err, huh.ErrUserAborted) {
-				fmt.Fprintln(out, "cancelled.")
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			if !confirmed {
-				fmt.Fprintln(out, "cancelled.")
-				return nil
-			}
-		}
-	}
-
-	// Stream per-step ✓ lines while Create runs.
 	plan.Progress = out
-
 	w := workspace.New(gitops.New())
 	if err := w.Create(plan); err != nil {
 		return err
@@ -314,19 +371,13 @@ func envVarFor(k secretKind) string {
 }
 
 // withProgress runs fn while printing a single-line, in-place "label …
-// Ns" elapsed-time spinner. Keeps the user from thinking the CLI is
-// stuck and gives them a sense of how long the underlying call took
-// (the LLM in particular can take 5–30s). Clears the line on completion
-// so subsequent output starts on a clean row.
-//
-// The spinner goroutine acks shutdown via `stopped` so the final clear
-// line can't race with one last in-flight tick frame.
+// Ns" elapsed-time spinner. Used by the legacy path and by the
+// wizard's pre-flight (catalog refresh) where bubbletea isn't running
+// yet.
 func withProgress(w io.Writer, label string, fn func() error) error {
 	start := time.Now()
 	done := make(chan struct{})
 	stopped := make(chan struct{})
-	// Print the initial frame immediately so the user sees something
-	// even if fn returns in <1s.
 	fmt.Fprintf(w, "%s… 0s", label)
 	go func() {
 		defer close(stopped)
@@ -338,17 +389,13 @@ func withProgress(w io.Writer, label string, fn func() error) error {
 				return
 			case t := <-ticker.C:
 				secs := int(t.Sub(start).Seconds())
-				// \r returns to column 0; \033[K clears to end of line
-				// so the previous frame's tail (e.g. when seconds shrink
-				// in digit count) doesn't leak through.
 				fmt.Fprintf(w, "\r\033[K%s… %ds", label, secs)
 			}
 		}
 	}()
 	err := fn()
 	close(done)
-	<-stopped // ensure the goroutine is done before we finalize the line
-	// Wipe the spinner line so the next print starts clean.
+	<-stopped
 	fmt.Fprint(w, "\r\033[K")
 	if err == nil {
 		fmt.Fprintf(w, "%s — %.1fs\n", label, time.Since(start).Seconds())
@@ -356,12 +403,10 @@ func withProgress(w io.Writer, label string, fn func() error) error {
 	return err
 }
 
-// pickAssignedTicket fetches the user's active assigned tickets from
-// the configured source (if it implements ticket.Lister) and shows a
-// fuzzy-search PickOne over them. Rows are annotated with the
-// existing workspace slug when one already exists on disk — handy for
-// switching back to in-flight work without re-creating the workspace.
-func pickAssignedTicket(ctx context.Context, src ticket.Source, cfg *config.Config,
+// pickAssignedTicketLegacy is the pre-wizard ticket picker, still used
+// by the legacy non-interactive / dry-run path. The wizard's Ticket
+// page replaces it for the main interactive flow.
+func pickAssignedTicketLegacy(ctx context.Context, src ticket.Source, cfg *config.Config,
 	errOut io.Writer) (ticket.Ticket, error) {
 
 	lister, ok := src.(ticket.Lister)
@@ -384,16 +429,8 @@ func pickAssignedTicket(ctx context.Context, src ticket.Source, cfg *config.Conf
 		return ticket.Ticket{}, errors.New("no open assigned tickets found")
 	}
 
-	// Cross-reference with existing managed workspaces so the picker
-	// can surface 'already has a workspace' inline. We tolerate
-	// per-manifest read errors here (the picker still works without
-	// the column) but warn so the user knows their workspace_root is
-	// dodgy before workspace.Create eventually trips on the same issue.
 	workspaces, warnings, listErr := workspace.ListManaged(cfg.WorkspaceRoot)
 	if listErr != nil {
-		// Non-fatal here — the picker can still function without the
-		// cross-reference column. Surface the cause so the user knows
-		// before workspace.Create eventually trips on the same issue.
 		fmt.Fprintf(errOut, "warning: could not enumerate existing workspaces: %v\n", listErr)
 	}
 	for _, w := range warnings {
@@ -438,9 +475,7 @@ func isDir(path string) bool {
 }
 
 // fetchSecret resolves a secret using the highest-priority source
-// available: env var → password manager. Each manager call is
-// constructed fresh with the secret's own 1Password account so different
-// secrets can live in different accounts.
+// available: env var → password manager.
 func fetchSecret(ctx context.Context, cfg *config.Config, kind secretKind) (string, error) {
 	if v := os.Getenv(envVarFor(kind)); v != "" {
 		return v, nil
@@ -487,8 +522,6 @@ func loadCatalog(cfg *config.Config, errOut io.Writer) ([]catalog.Repo, error) {
 		return nil, err
 	}
 	repos, age, err := catalog.Load(cachePath)
-	// Refresh if cache is missing, expired, or — defensively — empty
-	// (an earlier version of thicket could cache `repos: null`).
 	needsRefresh := errors.Is(err, catalog.ErrNoCache) ||
 		age >= catalog.DefaultCacheTTL || len(repos) == 0
 	if needsRefresh {
@@ -544,11 +577,6 @@ func detectRepos(ctx context.Context, cfg *config.Config, _ io.Writer, flags sta
 	})
 }
 
-// buildClaudeDetector picks between the API-backed detector (uses an
-// Anthropic API key from the password manager) and the CLI-backed
-// detector (shells out to `claude -p`, no API key needed — handy for
-// users on a Claude Enterprise subscription). The choice is driven by
-// cfg.ClaudeBackend; CLI is the default when not set.
 func buildClaudeDetector(ctx context.Context, cfg *config.Config) (detector.Detector, error) {
 	backend := cfg.ClaudeBackend
 	if backend == "" {
@@ -579,7 +607,11 @@ func pickSelector(noInteractive bool) tui.Selector {
 	return tui.HuhSelector{}
 }
 
-func resolveOrClone(_ context.Context, cfg *config.Config, errOut io.Writer,
+// resolveOrCloneLegacy walks the chosen names, surfaces a per-repo
+// clone confirmation, and clones any missing locals. Wizard mode does
+// this in-page with concurrent cmds; this lives on for --no-interactive
+// and --dry-run.
+func resolveOrCloneLegacy(_ context.Context, cfg *config.Config, errOut io.Writer,
 	repos []catalog.Repo, chosen []string, selector tui.Selector, dryRun bool) ([]catalog.Repo, error) {
 
 	byName := make(map[string]catalog.Repo, len(repos))
@@ -612,9 +644,6 @@ func resolveOrClone(_ context.Context, cfg *config.Config, errOut io.Writer,
 			out = append(out, r)
 			continue
 		}
-		// Buffer git's output so the spinner has the line to itself,
-		// then dump the buffered output only on error so failed clones
-		// stay diagnosable.
 		var gitOut bytes.Buffer
 		err = withProgress(errOut, fmt.Sprintf("cloning %s → %s", r.CloneURL, target),
 			func() error {
@@ -630,7 +659,10 @@ func resolveOrClone(_ context.Context, cfg *config.Config, errOut io.Writer,
 	return out, nil
 }
 
-func buildPlan(cfg *config.Config, flags startFlags, src ticket.Source, tk ticket.Ticket,
+// buildPlanLegacy mirrors the wizard's plan-build logic for the
+// legacy path. Kept separate so behavioral changes inside the wizard
+// don't leak into --dry-run output and vice versa.
+func buildPlanLegacy(cfg *config.Config, flags startFlags, src ticket.Source, tk ticket.Ticket,
 	chosen []catalog.Repo) (workspace.Plan, error) {
 
 	branch := flags.branch
@@ -638,12 +670,8 @@ func buildPlan(cfg *config.Config, flags startFlags, src ticket.Source, tk ticke
 		branch = src.BranchName(tk)
 	}
 	if branch == "" {
-		// Last-resort default if the source has no opinion.
 		branch = workspace.Slug(tk.SourceID, tk.Title)
 	}
-	// Slug is always ticket-id-prefixed, decoupled from the branch name.
-	// Branch may come from Shortcut as e.g. "uri/freshness" (no id) —
-	// we still want the workspace folder to carry "sc-65825-freshness".
 	slug := workspace.Slug(tk.SourceID, tk.Title)
 	wsDir := filepath.Join(cfg.WorkspaceRoot, slug)
 
@@ -651,11 +679,6 @@ func buildPlan(cfg *config.Config, flags startFlags, src ticket.Source, tk ticke
 	planRepos := make([]workspace.PlanRepo, 0, len(chosen))
 	memRepos := make([]memory.RepoEntry, 0, len(chosen))
 	for _, r := range chosen {
-		// In --dry-run, repos that the user agreed to clone have
-		// r.LocalPath set to the *would-be* target — there's no git
-		// repo there yet, so BranchExists would fail and abort the
-		// preview. Treat them as branch-doesn't-exist for plan
-		// rendering; the real run probes for real after cloning.
 		var exists bool
 		if !flags.dryRun || isDir(r.LocalPath) {
 			var err error
@@ -697,14 +720,16 @@ func buildPlan(cfg *config.Config, flags startFlags, src ticket.Source, tk ticke
 	}, nil
 }
 
-// planTitleStyle highlights the "plan:" header so it stands out
-// from the surrounding prose. lipgloss auto-degrades to no-color on
-// non-TTY stdout (CI, pipes), so this is safe to apply unconditionally.
+// planTitleStyle highlights the "plan:" header in legacy output.
 var planTitleStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("214")).
 	Bold(true)
 
-func printPlan(w io.Writer, p workspace.Plan, dryRun bool) {
+// catalogLabelStyle paints the "catalog:" label yellow in legacy output.
+var catalogLabelStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("214"))
+
+func printPlanLegacy(w io.Writer, p workspace.Plan, dryRun bool) {
 	label := "plan:"
 	if dryRun {
 		label = "(dry-run) plan:"
@@ -724,9 +749,7 @@ func printPlan(w io.Writer, p workspace.Plan, dryRun bool) {
 	fmt.Fprintln(w)
 }
 
-// abbrevHome collapses an absolute path under $HOME to a leading `~`
-// so the plan preview stays readable. Falls through unchanged for
-// paths that aren't under $HOME (or when $HOME isn't resolvable).
+// abbrevHome collapses an absolute path under $HOME to a leading `~`.
 func abbrevHome(path string) string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -740,3 +763,4 @@ func abbrevHome(path string) string {
 	}
 	return path
 }
+

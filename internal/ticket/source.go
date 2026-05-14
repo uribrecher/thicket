@@ -45,13 +45,15 @@ type Source interface {
 
 // Ticket is the source-agnostic projection of one issue/story/whatever.
 type Ticket struct {
-	SourceID string            // e.g. "sc-12345"
-	Title    string            // single-line title
-	Body     string            // markdown description
-	URL      string            // canonical web URL
-	State    string            // workflow state name; "" if not resolved
-	Owner    string            // mention name / handle; "" if not resolved
-	Extra    map[string]string // source-specific extras
+	SourceID  string            // e.g. "sc-12345"
+	Title     string            // single-line title
+	Body      string            // markdown description
+	URL       string            // canonical web URL
+	State     string            // workflow state name; "" if not resolved
+	Owner     string            // mention name / handle; "" if not resolved
+	Requester string            // display name of whoever filed the ticket; "" if not resolved
+	Labels    []string          // ticket labels in source order; nil if none
+	Extra     map[string]string // source-specific extras
 }
 
 // ErrUnparseable indicates the raw input could not be parsed as a ticket
