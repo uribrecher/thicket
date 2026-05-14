@@ -1,7 +1,7 @@
 // Package wizard implements the multi-page Bubble Tea UI for
 // `thicket start`. The flow is three pages — Ticket, Repos, Plan —
 // rendered as horizontal tabs at the top of the screen. The active
-// step is a filled pill (black on yellow), completed steps are green,
+// step is a filled pill (black on bright pink), completed steps are green,
 // and untouched steps are dim gray. Left/right arrow keys move between
 // completed steps; Esc cancels. Enter is deliberately NOT a wizard-level binding — each
 // page binds it to its own commit action (Ticket picks a row, Repos
@@ -291,7 +291,7 @@ func (m *Model) View() string {
 }
 
 // renderHeader draws the horizontal tab bar. The active step is a
-// filled pill (black text on yellow bg); completed steps are green;
+// filled pill (black text on bright pink bg); completed steps are green;
 // pending steps are dim gray. No underline row, no ✓ glyphs —
 // foreground/background contrast does the wayfinding.
 func (m *Model) renderHeader() string {

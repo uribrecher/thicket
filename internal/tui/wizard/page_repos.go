@@ -24,7 +24,7 @@ const (
 
 // matchItem is one row in the unified match list. `selected` puts it
 // under the "Selected" header at the top; `llm` flags it as
-// LLM-origin (renders an LLM N% tag whether selected or not, and
+// LLM-origin (renders a "relevance N%" tag whether selected or not, and
 // when unselected groups it under the "Suggested for this ticket"
 // header at the bottom).
 type matchItem struct {
