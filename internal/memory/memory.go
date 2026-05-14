@@ -97,3 +97,39 @@ func Render(in Input) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+// statusLogMarker is the heading the template emits at the top of the
+// "Status log" section. Used by RegenPreservingStatusLog to splice the
+// freshly-rendered top half of the file with the existing file's
+// status-log tail. The leading "\n" anchors it to a line start so an
+// accidental substring inside the ticket body can't accidentally match.
+const statusLogMarker = "\n## Status log\n"
+
+// RegenPreservingStatusLog re-renders the memory file from `in` while
+// preserving the existing file's `## Status log` section verbatim.
+// `thicket edit` calls this so that adding a repo to a workspace
+// refreshes the repos table (and any other top-half data the template
+// produces) without throwing away the agent's prior progress notes.
+//
+// preserved is true when the existing file contained the marker and
+// its tail was spliced in. When false, body is the unmodified full
+// render (the caller should log a soft warning so the user knows the
+// status log they may have appended was rolled over).
+func RegenPreservingStatusLog(in Input, existing []byte) (body []byte, preserved bool, err error) {
+	fresh, err := Render(in)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(existing) == 0 {
+		return fresh, false, nil
+	}
+	freshPrefix, _, ok := strings.Cut(string(fresh), statusLogMarker)
+	if !ok {
+		return fresh, false, nil
+	}
+	_, existingTail, ok := strings.Cut(string(existing), statusLogMarker)
+	if !ok {
+		return fresh, false, nil
+	}
+	return []byte(freshPrefix + statusLogMarker + existingTail), true, nil
+}

@@ -9,6 +9,46 @@ import (
 	"github.com/uribrecher/thicket/internal/workspace"
 )
 
+// ----- edit-flow messages -----
+
+// workspacesLoadedMsg carries the result of the ListManaged call that
+// the Workspace page fires on first activation. Sync read, but routed
+// through a tea.Cmd to keep the page's render loop clean.
+type workspacesLoadedMsg struct {
+	workspaces []workspace.ManagedWorkspace
+	err        error
+}
+
+// workspaceCommittedMsg fires when the user advances past the
+// Workspace page with a chosen workspace. The wizard intercepts to
+// update shared state.
+type workspaceCommittedMsg struct {
+	ws *workspace.ManagedWorkspace
+}
+
+// additionsCommittedMsg fires when the user advances past the Repos
+// page with their chosen additions.
+type additionsCommittedMsg struct {
+	additions []catalog.Repo
+}
+
+// editPlanBuiltMsg carries the post-init result of the submit page's
+// plan build (BranchExists probes + clone-needed split).
+type editPlanBuiltMsg struct {
+	addPlan workspace.AddPlan
+	toClone []catalog.Repo
+	branch  string
+	err     error
+}
+
+// editDoneMsg signals the submit page has finished its clone phase
+// and the AddPlan is ready to execute. workspace.Add itself runs
+// AFTER the wizard exits — same pattern as createDoneMsg.
+type editDoneMsg struct {
+	result EditResult
+	err    error
+}
+
 // goNextMsg is emitted when the user advances past the current page
 // (via →, or auto-advance after a page's own commit work finishes).
 // The wizard intercepts it to trigger advance(); back-nav is handled

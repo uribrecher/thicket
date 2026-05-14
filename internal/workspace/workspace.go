@@ -229,6 +229,132 @@ func (w *Workspace) removeWithState(workspaceDir string, st State, force bool, p
 	return nil
 }
 
+// AddPlan describes the worktrees `thicket edit` is about to attach
+// to an already-materialized workspace. The branch is the existing
+// workspace's branch (read from state.json) — Add does not change the
+// workspace's branch. Memory carries the refreshed ticket header used
+// to regenerate CLAUDE.local.md; the post-add file will splice in the
+// existing Status log via memory.RegenPreservingStatusLog so the
+// agent's prior progress notes survive.
+type AddPlan struct {
+	WorkspaceDir string
+	NewRepos     []PlanRepo
+	Memory       memory.Input // refreshed header + the FULL repo set (old+new)
+	Progress     io.Writer    // optional, see Plan.Progress
+}
+
+// AddResult reports how Add went: which adds succeeded, which were
+// skipped (one entry per failure with the underlying error), and the
+// final state manifest that was written.
+type AddResult struct {
+	Added   []PlanRepo
+	Skipped []AddSkip
+	Final   State
+}
+
+// AddSkip is one repo Add couldn't attach, with the reason.
+type AddSkip struct {
+	Name   string
+	Reason error
+}
+
+// Add attaches NewRepos to an existing workspace. Per-repo failure is
+// non-fatal (proceed-without-failed-repo policy mirrors start). The
+// state manifest is rewritten atomically only AFTER all attempts —
+// partial success rewrites with what landed; total failure leaves the
+// manifest as-is. CLAUDE.local.md regen runs at the end with the
+// final repo set; a Status log preserve failure is logged via
+// Progress but doesn't fail Add.
+func (w *Workspace) Add(p AddPlan) (AddResult, error) {
+	if p.WorkspaceDir == "" {
+		return AddResult{}, errors.New("workspace dir is required")
+	}
+	if len(p.NewRepos) == 0 {
+		return AddResult{}, errors.New("AddPlan has no new repos")
+	}
+	if _, err := os.Stat(p.WorkspaceDir); err != nil {
+		return AddResult{}, fmt.Errorf("stat workspace: %w", err)
+	}
+	st, err := ReadState(p.WorkspaceDir)
+	if err != nil {
+		return AddResult{}, fmt.Errorf("read state: %w", err)
+	}
+	// Reject duplicates up front — a repo already in state shouldn't
+	// be passed in. The wizard's locked-row UX prevents this; the
+	// guard here is a safety net for non-wizard callers.
+	have := make(map[string]bool, len(st.Repos))
+	for _, r := range st.Repos {
+		have[r.Name] = true
+	}
+	for _, r := range p.NewRepos {
+		if have[r.Name] {
+			return AddResult{}, fmt.Errorf("repo %s is already in this workspace", r.Name)
+		}
+	}
+
+	var res AddResult
+	for _, r := range p.NewRepos {
+		err := w.Git.AddWorktree(r.SourcePath, r.WorktreePath, st.Branch, !r.BranchExists)
+		if err != nil {
+			progressf(p.Progress, "%s could not add worktree %s: %v\n", crossMark, r.Name, err)
+			res.Skipped = append(res.Skipped, AddSkip{Name: r.Name, Reason: err})
+			continue
+		}
+		progressf(p.Progress, "%s worktree: %s\n", checkMark, r.Name)
+		res.Added = append(res.Added, r)
+		st.Repos = append(st.Repos, StateRepo{
+			Name:         r.Name,
+			SourcePath:   r.SourcePath,
+			WorktreePath: r.WorktreePath,
+		})
+	}
+
+	if len(res.Added) == 0 {
+		// Nothing landed — don't touch the manifest or the memory file.
+		return res, errors.New("no worktrees could be added (see ✗ lines above)")
+	}
+
+	// Refresh CLAUDE.local.md, preserving the existing Status log if
+	// one is there. A regen failure does NOT roll back the worktrees
+	// we just added — the agent's view of the world being slightly
+	// stale is preferable to dangling worktrees that survive a
+	// re-run.
+	memPath := filepath.Join(p.WorkspaceDir, memory.FileName)
+	existing, readErr := os.ReadFile(memPath)
+	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
+		progressf(p.Progress, "%s could not read existing %s: %v (worktrees still attached)\n",
+			crossMark, memory.FileName, readErr)
+	} else {
+		body, preserved, regenErr := memory.RegenPreservingStatusLog(p.Memory, existing)
+		switch {
+		case regenErr != nil:
+			progressf(p.Progress, "%s could not refresh %s: %v (worktrees still attached)\n",
+				crossMark, memory.FileName, regenErr)
+		case len(existing) > 0 && !preserved:
+			progressf(p.Progress, "(refreshed %s; could not locate `## Status log` in the existing file, prior notes may have been overwritten)\n",
+				memory.FileName)
+			if writeErr := os.WriteFile(memPath, body, 0o644); writeErr != nil {
+				progressf(p.Progress, "%s could not write %s: %v\n", crossMark, memory.FileName, writeErr)
+			}
+		default:
+			if writeErr := os.WriteFile(memPath, body, 0o644); writeErr != nil {
+				progressf(p.Progress, "%s could not write %s: %v\n", crossMark, memory.FileName, writeErr)
+			} else {
+				progressf(p.Progress, "%s refreshed %s\n", checkMark, memory.FileName)
+			}
+		}
+	}
+
+	// Atomic manifest rewrite reflects every successful add.
+	if err := writeStateAtomic(p.WorkspaceDir, st); err != nil {
+		return res, fmt.Errorf("write state: %w", err)
+	}
+	progressf(p.Progress, "%s updated .thicket/state.json (now %d worktree(s))\n",
+		checkMark, len(st.Repos))
+	res.Final = st
+	return res, nil
+}
+
 // Progress glyphs. Inline constants so a future "ascii-only" mode
 // is a one-line flip.
 const (
@@ -318,7 +444,16 @@ func writeState(p Plan) error {
 			WorktreePath: r.WorktreePath,
 		})
 	}
-	dir := filepath.Join(p.WorkspaceDir, ".thicket")
+	return writeStateAtomic(p.WorkspaceDir, st)
+}
+
+// writeStateAtomic serializes st into <workspaceDir>/.thicket/state.json
+// via a temp-write-then-rename so a crash mid-write can't corrupt the
+// manifest. `thicket edit` requires this — appending a repo to an
+// already-live workspace must not be able to leave the user with a
+// half-written manifest and orphaned worktrees.
+func writeStateAtomic(workspaceDir string, st State) error {
+	dir := filepath.Join(workspaceDir, ".thicket")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -326,7 +461,22 @@ func writeState(p Plan) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "state.json"), b, 0o644)
+	final := filepath.Join(dir, "state.json")
+	tmp, err := os.CreateTemp(dir, "state.*.json")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	// Best-effort cleanup if anything below fails after CreateTemp.
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, final)
 }
 
 // ReadState loads the manifest for a workspace directory.

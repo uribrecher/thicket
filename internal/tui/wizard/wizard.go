@@ -127,6 +127,18 @@ type Model struct {
 	err    error
 	done   bool
 	result Result
+
+	// ----- edit-flow state -----
+	// editMode flips the wizard into "thicket edit" plumbing. The
+	// start-flow fields above are then unused (and editDeps replaces
+	// deps for the page callbacks that need it). Pages can dispatch
+	// on this flag, though most edit pages live in their own files
+	// and never look at it.
+	editMode          bool
+	editDeps          EditDeps
+	selectedWorkspace *workspace.ManagedWorkspace
+	additions         []catalog.Repo // repos the user picked to add
+	editResult        EditResult
 }
 
 // Run shows the wizard. Returns the Result on success, tui.ErrCancelled
@@ -285,6 +297,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.result = v.result
 		m.result.Ticket = m.ticket
+		m.done = true
+		return m, tea.Quit
+
+	case workspaceCommittedMsg:
+		m.selectedWorkspace = v.ws
+		// Fall through so the active page sees the message too.
+
+	case additionsCommittedMsg:
+		m.additions = append(m.additions[:0], v.additions...)
+		// Fall through.
+
+	case editDoneMsg:
+		if v.err != nil {
+			m.err = v.err
+			return m, tea.Quit
+		}
+		m.editResult = v.result
+		if m.selectedWorkspace != nil {
+			m.editResult.Workspace = *m.selectedWorkspace
+		}
 		m.done = true
 		return m, tea.Quit
 	}

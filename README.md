@@ -101,6 +101,13 @@ thicket doctor
 thicket start sc-12345
 ```
 
+Forgot a repo at start time? Edit the workspace in place:
+
+```sh
+thicket edit                  # picker over active workspaces, then add repos
+thicket edit sc-12345-fix-x   # skip the picker for a specific workspace
+```
+
 When you're done with a workspace:
 
 ```sh
@@ -193,6 +200,43 @@ dir (no LLM call wasted).
 `--no-interactive`, `--dry-run`, and non-TTY stdin (CI, pipes) drop
 back to the pre-wizard line-oriented flow so scripts keep working
 unchanged.
+
+### `thicket edit` — three-page wizard
+
+When you realize a workspace is missing a repo, `thicket edit` lets
+you attach more worktrees to it without destroying the existing ones
+(and the uncommitted work inside them).
+
+```
+ Workspace  ▮ Repos ▮  Submit
+```
+
+1. **Workspace** — fuzzy-search your managed workspaces in a tabular
+   view (`Slug | Ticket | Branch | Created | Repos`), newest first.
+   Workspaces without a state manifest are filtered out — `edit`
+   needs to know the branch to attach worktrees safely.
+2. **Repos** — same fuzzy catalog picker the start flow uses, minus
+   the LLM suggestion section (by this point you already know what
+   was missed). Repos already in the workspace render as a static
+   `Already in workspace (N)` block at the top — informational, not
+   navigable; the cursor only walks the Adding / Available rows.
+   Toggle additions with `Enter`.
+3. **Submit** — review the workspace path + branch + the new
+   worktrees to attach, plus a "Missing clones" checklist for any
+   selected repos that aren't yet cloned locally. On `Add to
+   workspace`, clones stream in-page with `✓`/`✗`. Failed clones
+   are dropped and the wizard proceeds with the rest.
+
+After the wizard exits, `thicket edit` re-fetches the ticket so the
+regenerated `CLAUDE.local.md` carries fresh title / body / state, and
+splices the new repos table on top of your existing `## Status log`
+section — past progress notes survive the edit.
+
+`thicket edit <slug>` skips the Workspace picker.
+
+**MVP scope:** removing repos from a workspace isn't supported yet —
+use `thicket rm` + `thicket start` for that. `thicket edit` requires
+a TTY (no `--no-interactive` path).
 
 ### Other pickers
 
@@ -309,6 +353,11 @@ thicket start <ticket>  Spawn a workspace.
    --no-interactive     Accept the LLM picks; auto-clone missing repos.
    --no-launch          Don't auto-launch claude after creating.
    --dry-run            Print the plan, change nothing on disk.
+
+thicket edit [slug]     Add repos to an existing workspace.
+                          - No arg: interactive picker.
+                          - Slug: skip the picker.
+                        Removing repos isn't supported yet (use rm + start).
 
 thicket list            Show active workspaces (newest first).
 thicket rm [slug]       Remove a workspace + its worktrees.
