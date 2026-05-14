@@ -215,10 +215,10 @@ func TestReposCommitStoresChosen(t *testing.T) {
 // string. Users typing "setup" expect "*setup*" hits at the top.
 func TestRankFuzzyPrefersSubstringOverScattered(t *testing.T) {
 	names := []string{
-		"sentra-user-ops",       // scattered: s-e-(n)-t-(r-a-)-u-(s-e-r-)-p ... matches at 0,1,3,7,13
-		"sentra-setup-service",  // contiguous substring at index 7
-		"sentra-grouping-job",   // also scattered-ish
-		"sentra-support-agent",  // scattered
+		"sentra-user-ops",        // scattered: s-e-(n)-t-(r-a-)-u-(s-e-r-)-p ... matches at 0,1,3,7,13
+		"sentra-setup-service",   // contiguous substring at index 7
+		"sentra-grouping-job",    // also scattered-ish
+		"sentra-support-agent",   // scattered
 		"sentra-simple-grouping", // scattered
 	}
 	matches := rankFuzzy("setup", names)
