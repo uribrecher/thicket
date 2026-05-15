@@ -7,7 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **`thicket start` ticket picker prioritizes live dev work over
+  stalled tickets.** The Shortcut `ListAssigned` source now sorts
+  by a two-tier key: state-rank descending, then UpdatedAt
+  descending within a tier.
+  - **Top tier:** `In Development`, `Ready for Development`,
+    `Backlog`, `Waiting for R&D` — the states where a developer is
+    most likely to want a fresh workspace.
+  - **Middle tier:** any unrecognized state name (sensible neutral
+    default for custom workflows).
+  - **Bottom tier:** `In Code Review`, `Waiting for CS`, `Paused` —
+    work that's done from the dev's POV or explicitly stalled.
+  - Within a tier the existing most-recently-touched ordering is
+    preserved. Filter (`done`-type states, archived stories, the
+    excluded-by-name list) still runs first.
+
+### Fixed
+
+- **Picker tables align correctly when nicknames contain emoji.**
+  `tui.PadRight` and `tui.Truncate` now measure visible terminal
+  cells via `go-runewidth` instead of rune count, so emoji-bearing
+  cells (2 cells per glyph but only 1 rune) no longer over-fill
+  their column and shift neighbouring columns right. The most
+  visible symptom was `thicket rm` and `thicket list` rows looking
+  misaligned whenever some workspaces had emoji nicknames and
+  others didn't.
+
+- **`thicket rm` search placeholder no longer collapses to "t".**
+  The picker's filter input was missing the `Width = 60` workaround
+  the start/edit wizards already had — bubbles' textinput truncates
+  its placeholder to the first character when `Width == 0`, so
+  "type to filter…" rendered as just "t". Width set explicitly.
+
+- **`thicket config` Git page auto-detects GitHub orgs again.** The
+  v0.1.x behavior — probe `gh api user/orgs` on page entry, auto-
+  fill a single result, surface a checkbox multiselect for two or
+  more — got lost in the wizard refactor and was left as a plain
+  CSV textinput. Restored:
+  - One org returned → silently fills the textinput so the user
+    just hits enter through the page.
+  - Two or more orgs → the field flips into an in-page checkbox
+    picker (↑/↓ moves cursor, space toggles, tab still cycles to
+    the next page-level field). Defaults to all selected; respects
+    a re-run's previously-saved `github_orgs` subset.
+  - gh missing / unauthenticated / no org memberships → the
+    textinput stays as the fallback so the user can type manually.
+  - The textinput is the source of truth in both modes, so the
+    page's Complete-gate and commit logic stay mode-agnostic.
 
 ## [0.5.0] - 2026-05-15
 
