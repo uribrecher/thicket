@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **`thicket start` from inside a workspace skips the ticket picker.**
+  When the working directory is already under an existing thicket
+  workspace (`workspace_root/<slug>/...`, including any worktree
+  subdir like `workspace_root/<slug>/<repo>`), running `thicket
+  start` with no positional id detects the containing workspace and
+  re-launches Claude on it immediately — no ticket fetch, no wizard,
+  no network round-trip. Same end state as the existing
+  "ticket-id-already-has-a-workspace" reuse shortcut, just driven by
+  pwd. Explicit `thicket start <id>` still wins (the user picked a
+  specific ticket; don't second-guess), and `--no-launch` still
+  prints the `cd` line instead of execing claude. Applies to both
+  the interactive wizard path and the legacy non-interactive path —
+  the pwd signal is unambiguous either way.
+
+### Changed
+
+- **`thicket config` runs `op signin` once per account to silence the
+  cascading macOS prompts.** The 1Password walk used to fire a
+  separate "iTerm would like to access data from other apps" dialog
+  on each of `op account list`, `op item list`, and `op item get`.
+  After the user picks an account, the wizard now runs `op signin
+  --account <X>` once for that account; the desktop-app integration
+  warms up, and the item-list + item-get pair runs silently. Signin
+  always passes `--account` so `op` can never fall back to its
+  interactive account picker (which would have stolen `/dev/tty`
+  from the Bubble Tea TUI). Only successful signins are cached —
+  a dismissed biometric prompt leaves the entry absent so the next
+  item-pick attempt retries cleanly within the same wizard run.
+- **Submit page drops the misleading top-level `manager:` line.**
+  Each secret picks its own manager via the per-slot picker, so a
+  single global `manager:` value on the review page was
+  oversimplifying. The `op://` prefix and the `(env var $X)` hint
+  already make each ref's provenance explicit.
 
 ## [0.4.0] - 2026-05-15
 

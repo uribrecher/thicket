@@ -44,6 +44,30 @@ func runStart(cmd *cobra.Command, args []string) error {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
+	// cwd shortcut: if the user runs `thicket start` (no positional id)
+	// from inside an existing workspace, skip the ticket picker
+	// entirely and re-launch Claude on that workspace. Explicit
+	// `thicket start <id>` overrides — it's a direct request to open a
+	// specific ticket's workspace, not whatever happens to be in pwd.
+	// `--dry-run` falls through to no-launch (print the cd line, no
+	// exec) so it stays true to "do nothing externally".
+	if len(args) == 0 {
+		if cwd, getwdErr := os.Getwd(); getwdErr == nil && cwd != "" {
+			ws, findErr := workspace.FindContainingWorkspace(cfg.WorkspaceRoot, cwd)
+			switch {
+			case findErr == nil:
+				fmt.Fprintf(out, "✓ using existing workspace %s\n", ws.Slug)
+				return launchClaudeIn(out, cfg, ws.Slug, ws.Path, flags.noLaunch || flags.dryRun)
+			case errors.Is(findErr, workspace.ErrNoState):
+				// Normal "not in a workspace" — fall through silently.
+			default:
+				// Real error (corrupt manifest, permission denied).
+				// Surface but still fall through to the normal flow.
+				fmt.Fprintf(errOut, "warning: cwd-shortcut check: %v\n", findErr)
+			}
+		}
+	}
+
 	src, err := buildTicketSource(cmd.Context(), cfg)
 	if err != nil {
 		return err
@@ -94,7 +118,7 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		}
 		if existing := findWorkspaceForTicket(cfg, tk.SourceID, errOut); existing != nil {
 			fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
-			return launchClaudeIn(out, cfg, tk, existing.Path, flags.noLaunch)
+			return launchClaudeIn(out, cfg, workspace.Slug(tk.SourceID, tk.Title), existing.Path, flags.noLaunch)
 		}
 		preselected = &tk
 	}
@@ -164,7 +188,7 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 	// matched the picked ticket): launch Claude in the existing dir.
 	if res.ReuseDir != "" {
 		fmt.Fprintf(out, "reusing existing workspace at %s\n", res.ReuseDir)
-		return launchClaudeIn(out, cfg, res.Ticket, res.ReuseDir, flags.noLaunch)
+		return launchClaudeIn(out, cfg, workspace.Slug(res.Ticket.SourceID, res.Ticket.Title), res.ReuseDir, flags.noLaunch)
 	}
 
 	// Surface any skipped/failed clones from the wizard's clone phase
@@ -183,7 +207,7 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		return err
 	}
 	fmt.Fprintf(out, "\nworkspace ready at %s\n", plan.WorkspaceDir)
-	return launchClaudeIn(out, cfg, res.Ticket, plan.WorkspaceDir, flags.noLaunch)
+	return launchClaudeIn(out, cfg, workspace.Slug(res.Ticket.SourceID, res.Ticket.Title), plan.WorkspaceDir, flags.noLaunch)
 }
 
 // runStartLegacy preserves the pre-wizard CLI flow for the cases
@@ -232,7 +256,7 @@ func runStartLegacy(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 	}
 	if existing := findWorkspaceForTicket(cfg, tk.SourceID, errOut); existing != nil {
 		fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
-		return launchClaudeIn(out, cfg, tk, existing.Path, flags.noLaunch)
+		return launchClaudeIn(out, cfg, workspace.Slug(tk.SourceID, tk.Title), existing.Path, flags.noLaunch)
 	}
 
 	repos, err := loadCatalog(cfg, errOut)
@@ -288,7 +312,7 @@ func runStartLegacy(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		return err
 	}
 	fmt.Fprintf(out, "\nworkspace ready at %s\n", plan.WorkspaceDir)
-	return launchClaudeIn(out, cfg, tk, plan.WorkspaceDir, flags.noLaunch)
+	return launchClaudeIn(out, cfg, workspace.Slug(tk.SourceID, tk.Title), plan.WorkspaceDir, flags.noLaunch)
 }
 
 // findWorkspaceForTicket scans the workspace root for a managed
@@ -322,7 +346,11 @@ func findWorkspaceForTicket(cfg *config.Config, ticketID string, errOut io.Write
 // passing `--name <slug>` so the session is distinguishable in
 // Claude's prompt box, /resume picker, and the terminal title.
 // Honors --no-launch by printing the cd line instead.
-func launchClaudeIn(out io.Writer, cfg *config.Config, tk ticket.Ticket,
+//
+// Takes the slug as a string (rather than reconstructing it from a
+// ticket.Ticket) because the cwd-shortcut entry point doesn't have a
+// Ticket — only a workspace directory whose basename IS the slug.
+func launchClaudeIn(out io.Writer, cfg *config.Config, slug,
 	workspaceDir string, noLaunch bool) error {
 
 	if noLaunch {
@@ -330,7 +358,7 @@ func launchClaudeIn(out io.Writer, cfg *config.Config, tk ticket.Ticket,
 		return nil
 	}
 	l := launcher.New(cfg.ClaudeBinary)
-	l.ExtraArgs = []string{"--name", workspace.Slug(tk.SourceID, tk.Title)}
+	l.ExtraArgs = []string{"--name", slug}
 	if err := l.Launch(workspaceDir); err != nil {
 		if errors.Is(err, launcher.ErrMissingBinary) {
 			launcher.PrintFallback(out, workspaceDir)
