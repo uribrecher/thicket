@@ -29,10 +29,10 @@ func runList(cmd *cobra.Command, _ []string) error {
 	}
 
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "SLUG\tTICKET\tBRANCH\tREPOS\tCREATED")
+	fmt.Fprintln(w, "NICKNAME\tSLUG\tTICKET\tBRANCH\tREPOS\tCREATED")
 	for _, ws := range workspaces {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
-			ws.Slug, ws.State.TicketID, ws.State.Branch, len(ws.State.Repos),
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
+			ws.State.Nickname, ws.Slug, ws.State.TicketID, ws.State.Branch, len(ws.State.Repos),
 			ws.State.CreatedAt.Local().Format("2006-01-02 15:04"))
 	}
 	return w.Flush()

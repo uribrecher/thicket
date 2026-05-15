@@ -101,6 +101,7 @@ func newStartCmd() *cobra.Command {
 	}
 	c.Flags().StringSlice("only", nil, "use exactly these repos (skips LLM)")
 	c.Flags().String("branch", "", "override branch name")
+	c.Flags().String("nickname", "", "short workspace label (max 20 chars; overrides LLM suggestion)")
 	c.Flags().Bool("no-interactive", false, "accept LLM suggestion without prompting")
 	c.Flags().Bool("no-launch", false, "do not launch Claude after creating the workspace")
 	c.Flags().Bool("dry-run", false, "print the plan, do not change anything on disk")

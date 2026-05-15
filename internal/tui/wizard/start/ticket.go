@@ -3,7 +3,6 @@ package start
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -130,17 +129,14 @@ func (p *ticketPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd)
 		}
 		p.rows = make([]ticketRow, len(v.Tickets))
 		p.haystack = make([]string, len(v.Tickets))
-		// Annotate with existing-workspace dir names so the user can
-		// spot in-flight work at a glance. The cell value comes from
-		// the actual workspace directory name (filepath.Base(path)),
-		// not from Slug(tk.SourceID, tk.Title) — a renamed ticket
-		// keeps its original workspace dir on disk and we want the
-		// column to match what `thicket rm` / `ls` would show.
+		// Annotate with existing-workspace labels so the user can
+		// spot in-flight work at a glance. Prefer the nickname when
+		// set (short, friendly); fall back to the slug otherwise.
 		for i, tk := range v.Tickets {
 			ws := ""
 			if m.Deps.FindExistingWorkspace != nil {
-				if path := m.Deps.FindExistingWorkspace(tk.SourceID); path != "" {
-					ws = filepath.Base(path)
+				if mws := m.Deps.FindExistingWorkspace(tk.SourceID); mws != nil {
+					ws = mws.DisplayName()
 				}
 			}
 			p.rows[i] = ticketRow{
@@ -164,7 +160,11 @@ func (p *ticketPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd)
 		// Probe for an existing workspace now so advancing can short-
 		// circuit without an extra round-trip.
 		if m.Deps.FindExistingWorkspace != nil {
-			p.existingDir = m.Deps.FindExistingWorkspace(v.Tk.SourceID)
+			if mws := m.Deps.FindExistingWorkspace(v.Tk.SourceID); mws != nil {
+				p.existingDir = mws.Path
+			} else {
+				p.existingDir = ""
+			}
 		}
 		// Auto-advance: the user already committed by pressing Enter
 		// on a row. Forcing them to press Enter again to step past a
@@ -192,6 +192,7 @@ func (p *ticketPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd)
 		if tk.SourceID != m.TicketID {
 			delete(m.LLMCache, m.TicketID)
 			delete(m.SummaryCache, m.TicketID)
+			delete(m.NicknameCache, m.TicketID)
 			m.Chosen = nil
 			m.CloneInclude = make(map[string]bool)
 		}

@@ -535,6 +535,60 @@ func TestListManaged_unreadableRootReturnsFatalError(t *testing.T) {
 	}
 }
 
+func TestState_NicknameRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	st := State{
+		TicketID:  "sc-7",
+		Branch:    "u/sc-7-fix",
+		Nickname:  "🐛 picker fix",
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Repos:     []StateRepo{{Name: "alpha", SourcePath: "/x", WorktreePath: "/y"}},
+	}
+	writeFakeState(t, dir, st)
+	got, err := ReadState(dir)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if got.Nickname != "🐛 picker fix" {
+		t.Errorf("nickname lost on roundtrip: got %q", got.Nickname)
+	}
+}
+
+func TestState_OmitsEmptyNickname(t *testing.T) {
+	dir := t.TempDir()
+	// Empty nickname: omitempty should keep it out of the JSON
+	// entirely so manifests written before this field existed look
+	// identical to those written after.
+	writeFakeState(t, dir, State{TicketID: "sc-8", Branch: "b", CreatedAt: time.Now()})
+	b, err := os.ReadFile(filepath.Join(dir, ".thicket", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "nickname") {
+		t.Errorf("empty nickname should be omitted; got JSON: %s", string(b))
+	}
+}
+
+func TestManagedWorkspace_DisplayName(t *testing.T) {
+	cases := []struct {
+		name     string
+		slug     string
+		nickname string
+		want     string
+	}{
+		{"nickname set", "sc-1-long-slug", "🐛 fix it", "🐛 fix it"},
+		{"nickname empty", "sc-2-other-slug", "", "sc-2-other-slug"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mw := ManagedWorkspace{Slug: tc.slug, State: State{Nickname: tc.nickname}}
+			if got := mw.DisplayName(); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func writeFakeState(t *testing.T, dir string, st State) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(dir, ".thicket"), 0o755); err != nil {

@@ -54,12 +54,13 @@ type Model struct {
 	Active int
 
 	// Shared cross-page state.
-	Ticket       ticket.Ticket // last committed ticket
-	TicketID     string        // cache key; "" before page 0 commits
-	LLMCache     map[string][]detector.RepoMatch
-	SummaryCache map[string][]string // ticketID → LLM-generated summary lines
-	Chosen       []catalog.Repo
-	CloneInclude map[string]bool
+	Ticket        ticket.Ticket // last committed ticket
+	TicketID      string        // cache key; "" before page 0 commits
+	LLMCache      map[string][]detector.RepoMatch
+	SummaryCache  map[string][]string // ticketID → LLM-generated summary lines
+	NicknameCache map[string]string   // ticketID → LLM-suggested short label
+	Chosen        []catalog.Repo
+	CloneInclude  map[string]bool
 
 	// Terminal size — bubbletea sends WindowSizeMsg on resize.
 	Width  int
@@ -187,6 +188,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if v.Tk.SourceID != m.TicketID {
 			delete(m.LLMCache, m.TicketID)
 			delete(m.SummaryCache, m.TicketID)
+			delete(m.NicknameCache, m.TicketID)
 			m.Chosen = nil
 			m.CloneInclude = make(map[string]bool)
 		}
@@ -209,6 +211,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.SummaryCache[v.TicketID] = v.Lines
 		}
 		return m, nil
+
+	case NicknameSuggestedMsg:
+		// Cache wins-once-set, same shape as SummarizedMsg. We fall
+		// through (not return) so the active page — usually the Plan
+		// page — can react: pre-fill its editable input from the new
+		// suggestion if the user hasn't typed yet.
+		if v.Err == nil && v.TicketID == m.TicketID && v.Nickname != "" {
+			if m.NicknameCache == nil {
+				m.NicknameCache = make(map[string]string)
+			}
+			m.NicknameCache[v.TicketID] = v.Nickname
+		}
+		// Fall through.
 
 	case ReposCommittedMsg:
 		m.Chosen = append(m.Chosen[:0], v.Chosen...)

@@ -25,15 +25,21 @@ type Deps struct {
 	// falls back to the first non-empty lines of the description so
 	// the panel always renders something useful.
 	Summarize func(ctx context.Context, tk ticket.Ticket) ([]string, error)
-	Git       *gitops.Git
-	Flags     Flags
+	// Nickname, when set, suggests a short (≤20-char, emoji-friendly)
+	// label for the picked ticket. Used to pre-fill the editable
+	// nickname input on the Plan page. May be nil — the input then
+	// starts empty and the user can type their own (or leave blank).
+	Nickname func(ctx context.Context, tk ticket.Ticket) (string, error)
+	Git      *gitops.Git
+	Flags    Flags
 
-	// FindExistingWorkspace returns the path of an already-managed
-	// workspace for the given ticket id, or "" if none exists. The
-	// wizard calls it after a ticket is committed; a non-empty result
+	// FindExistingWorkspace returns the already-managed workspace
+	// for the given ticket id, or nil if none exists. The wizard
+	// calls it after a ticket is committed; a non-nil result
 	// short-circuits the rest of the flow and triggers a "reuse"
-	// exit.
-	FindExistingWorkspace func(ticketID string) string
+	// exit. Callers also use the returned ManagedWorkspace to
+	// display the workspace's nickname / slug in the Ticket picker.
+	FindExistingWorkspace func(ticketID string) *workspace.ManagedWorkspace
 
 	// Preselected, when non-nil, makes the wizard skip the picker on
 	// the Ticket page and start on Repos. Used by the args-path of

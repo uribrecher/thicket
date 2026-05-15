@@ -34,8 +34,12 @@ type PlanRepo struct {
 type Plan struct {
 	WorkspaceDir string
 	Branch       string
-	Repos        []PlanRepo
-	Memory       memory.Input
+	// Nickname is a short, human-friendly label (max 20 chars,
+	// spaces and emoji allowed, uniqueness not required). Optional —
+	// when empty, display sites fall back to the workspace slug.
+	Nickname string
+	Repos    []PlanRepo
+	Memory   memory.Input
 
 	// Progress, when non-nil, receives one line per materialization
 	// step (`✓ worktree: …`, `✓ wrote CLAUDE.local.md (…)`, etc.).
@@ -48,8 +52,12 @@ type Plan struct {
 // State is the persisted manifest written into <workspace>/.thicket/state.json.
 // It lets `thicket rm` clean up worktrees without scanning every repo.
 type State struct {
-	TicketID  string      `json:"ticket_id"`
-	Branch    string      `json:"branch"`
+	TicketID string `json:"ticket_id"`
+	Branch   string `json:"branch"`
+	// Nickname is the per-workspace display label set at creation
+	// time. `omitempty` so manifests written before this field
+	// existed round-trip cleanly.
+	Nickname  string      `json:"nickname,omitempty"`
 	CreatedAt time.Time   `json:"created_at"`
 	Repos     []StateRepo `json:"repos"`
 }
@@ -379,6 +387,17 @@ type ManagedWorkspace struct {
 	State State
 }
 
+// DisplayName returns the workspace's nickname when set, falling back
+// to the slug. Use in human-facing UI columns and prompts; never use
+// for filesystem paths or unique keys (the slug is the only safe
+// identifier on disk).
+func (m ManagedWorkspace) DisplayName() string {
+	if m.State.Nickname != "" {
+		return m.State.Nickname
+	}
+	return m.Slug
+}
+
 // ListManaged enumerates thicket-managed workspaces under root, newest
 // first by CreatedAt. Three return values keep the failure modes
 // distinct:
@@ -482,6 +501,7 @@ func writeState(p Plan) error {
 	st := State{
 		TicketID:  p.Memory.TicketID,
 		Branch:    p.Branch,
+		Nickname:  p.Nickname,
 		CreatedAt: p.Memory.CreatedAt,
 		Repos:     make([]StateRepo, 0, len(p.Repos)),
 	}
