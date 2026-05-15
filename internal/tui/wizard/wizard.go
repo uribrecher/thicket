@@ -1,94 +1,37 @@
-// Package wizard implements the multi-page Bubble Tea UI for
-// `thicket start`. The flow is three pages — Ticket, Repos, Plan —
-// rendered as horizontal tabs at the top of the screen. The active
-// step is a filled pill (black on bright pink), completed steps are green,
-// and untouched steps are dim gray. Left/right arrow keys move between
-// completed steps; Esc cancels. Enter is deliberately NOT a wizard-level binding — each
-// page binds it to its own commit action (Ticket picks a row, Repos
-// toggles, Plan triggers Create) so the footer never lies about what
-// Enter does.
+// Package wizard hosts the shared Bubble Tea shell that the three
+// per-flow wizards — start, edit, config — all reuse. The shell
+// owns the Model, the Page interface, the tab/footer rendering,
+// global key routing (esc/ctrl+c cancel, ←/→ between completed
+// steps), and the cross-flow message types.
 //
-// The wizard owns:
-//   - a unified Bubble Tea Model that routes messages to the active page
-//   - shared cross-page state (picked ticket, LLM picks cache, chosen repos)
-//   - the in-page clone phase (a clone failure drops that repo from
-//     the workspace; the rest proceed). workspace.Create itself runs
-//     in plain stdout AFTER the wizard exits — bubbletea has torn
-//     down its UI by then, so its progress lines render as normal
-//     terminal output.
+// The actual flows live one directory deeper:
+//
+//	wizard/start/  — Ticket → Repos → Plan
+//	wizard/edit/   — Workspace → Repos → Submit
+//	wizard/config/ — Welcome? → Git → Tickets? → Agent → Submit
+//
+// Each sub-package contributes its own pages + Run entry point and
+// constructs a *wizard.Model with its mode-specific fields set
+// (Deps / EditDeps / ConfigDeps + the appropriate result bucket).
+//
+// Enter is deliberately NOT a wizard-level binding — each page
+// binds it to its own commit action (e.g. Ticket picks a row,
+// Repos toggles, Plan triggers Create) so the footer never lies
+// about what Enter does.
 package wizard
 
 import (
-	"context"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/uribrecher/thicket/internal/catalog"
-	"github.com/uribrecher/thicket/internal/config"
 	"github.com/uribrecher/thicket/internal/detector"
-	gitops "github.com/uribrecher/thicket/internal/git"
 	"github.com/uribrecher/thicket/internal/secrets"
 	"github.com/uribrecher/thicket/internal/ticket"
 	"github.com/uribrecher/thicket/internal/tui"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
-
-// Deps wires the wizard to the rest of thicket without importing
-// cmd/thicket — keeps the dependency graph one-way.
-type Deps struct {
-	Ctx    context.Context
-	Cfg    *config.Config
-	Src    ticket.Source
-	Lister ticket.Lister // may be nil; callers that wired non-listers get an error page
-	Repos  []catalog.Repo
-	Detect func(ctx context.Context, tk ticket.Ticket, repos []catalog.Repo) ([]detector.RepoMatch, error)
-	// Summarize, when set, returns up to detector.SummaryLines short
-	// summary lines for the picked ticket. May be nil — the wizard
-	// falls back to the first non-empty lines of the description so
-	// the panel always renders something useful.
-	Summarize func(ctx context.Context, tk ticket.Ticket) ([]string, error)
-	Git       *gitops.Git
-	Flags     Flags
-
-	// FindExistingWorkspace returns the path of an already-managed
-	// workspace for the given ticket id, or "" if none exists. The
-	// wizard calls it after a ticket is committed; a non-empty result
-	// short-circuits the rest of the flow and triggers a "reuse" exit.
-	FindExistingWorkspace func(ticketID string) string
-
-	// Preselected, when non-nil, makes the wizard skip the picker on
-	// the Ticket page and start on Repos. Used by the args-path of
-	// `thicket start <id>` so the user doesn't have to re-pick a
-	// ticket they already named on the command line.
-	Preselected *ticket.Ticket
-}
-
-// Flags is the subset of CLI flags the wizard needs to honor.
-type Flags struct {
-	Branch string
-	DryRun bool
-}
-
-// SkipReport records one repo the wizard dropped from the workspace
-// because its clone failed. runStart prints these to stderr after the
-// wizard exits so the user sees what was skipped.
-type SkipReport struct {
-	Name   string
-	Reason string
-}
-
-// Result is what wizard.Run hands back to runStart on success.
-type Result struct {
-	Ticket  ticket.Ticket
-	Plan    workspace.Plan
-	Skipped []SkipReport
-
-	// ReuseDir, when non-empty, signals the wizard short-circuited
-	// because the ticket already had a managed workspace. The caller
-	// should skip Create and launch Claude directly in ReuseDir.
-	ReuseDir string
-}
 
 // Page is one screen of the wizard.
 type Page interface {
