@@ -3,10 +3,11 @@ package start
 import (
 	"errors"
 	"fmt"
-	"github.com/uribrecher/thicket/internal/tui/wizard"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/uribrecher/thicket/internal/tui/wizard"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"

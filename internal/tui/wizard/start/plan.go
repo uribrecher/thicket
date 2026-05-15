@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/uribrecher/thicket/internal/tui/wizard"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/uribrecher/thicket/internal/tui/wizard"
 
 	tea "github.com/charmbracelet/bubbletea"
 

@@ -3,9 +3,10 @@ package start
 import (
 	"context"
 	"errors"
-	"github.com/uribrecher/thicket/internal/tui/wizard"
 	"strings"
 	"testing"
+
+	"github.com/uribrecher/thicket/internal/tui/wizard"
 
 	tea "github.com/charmbracelet/bubbletea"
 

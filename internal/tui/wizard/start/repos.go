@@ -3,10 +3,11 @@ package start
 import (
 	"context"
 	"fmt"
-	"github.com/uribrecher/thicket/internal/tui/wizard"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/uribrecher/thicket/internal/tui/wizard"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
