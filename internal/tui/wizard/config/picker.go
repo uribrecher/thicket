@@ -892,10 +892,10 @@ func abbrevAccount(m *wizard.Model, uuid string) string {
 // shortcut available before we know an account), but the heavy
 // per-account flow that follows is consolidated.
 //
-// Only successful signins are cached. A transient failure (dismissed
-// biometric prompt, flaky desktop integration) leaves the entry
-// absent, so the user's next item-pick attempt retries cleanly within
-// the same wizard run.
+// Only successful signin runs are cached. A transient failure
+// (dismissed biometric prompt, flaky desktop integration) leaves the
+// entry absent, so the user's next item-pick attempt retries cleanly
+// within the same wizard run.
 var opAccountSignin struct {
 	sync.Mutex
 	done map[string]bool // account UUID → already signed in this process
