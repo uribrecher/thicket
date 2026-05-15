@@ -461,8 +461,14 @@ func FindContainingWorkspace(root, cwd string) (ManagedWorkspace, error) {
 	}
 	wsDir := filepath.Join(root, slug)
 	st, err := ReadState(wsDir)
-	if err != nil {
+	if errors.Is(err, ErrNoState) {
 		return ManagedWorkspace{}, ErrNoState
+	}
+	if err != nil {
+		// Corrupt manifest or permission error — distinct from
+		// "no thicket workspace here". Surface so the caller can
+		// warn rather than silently falling through to the wizard.
+		return ManagedWorkspace{}, fmt.Errorf("workspace %s: %w", slug, err)
 	}
 	return ManagedWorkspace{Slug: slug, Path: wsDir, State: st}, nil
 }

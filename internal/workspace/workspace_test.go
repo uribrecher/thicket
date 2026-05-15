@@ -468,6 +468,33 @@ func TestFindContainingWorkspace_resolvesSymlinks(t *testing.T) {
 	if got.Slug != slug {
 		t.Errorf("slug = %q, want %q", got.Slug, slug)
 	}
+	// The returned Path must use the user-facing (link) root, not
+	// the resolved real path — so the dir we hand back is the path
+	// the user would type themselves.
+	wantPath := filepath.Join(linkRoot, slug)
+	if got.Path != wantPath {
+		t.Errorf("path = %q, want %q (must use link-root, not resolved)", got.Path, wantPath)
+	}
+}
+
+func TestFindContainingWorkspace_corruptManifestReturnsError(t *testing.T) {
+	root := t.TempDir()
+	slug := "ws-corrupt"
+	corrupt := filepath.Join(root, slug)
+	if err := os.MkdirAll(filepath.Join(corrupt, ".thicket"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(corrupt, ".thicket", "state.json"),
+		[]byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := FindContainingWorkspace(root, corrupt)
+	if err == nil {
+		t.Fatal("want error on corrupt manifest, got nil")
+	}
+	if errors.Is(err, ErrNoState) {
+		t.Errorf("corrupt manifest should NOT be conflated with ErrNoState (got %v)", err)
+	}
 }
 
 func TestFindContainingWorkspace_emptyInputs(t *testing.T) {

@@ -49,11 +49,21 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// entirely and re-launch Claude on that workspace. Explicit
 	// `thicket start <id>` overrides — it's a direct request to open a
 	// specific ticket's workspace, not whatever happens to be in pwd.
+	// `--dry-run` falls through to no-launch (print the cd line, no
+	// exec) so it stays true to "do nothing externally".
 	if len(args) == 0 {
 		if cwd, getwdErr := os.Getwd(); getwdErr == nil && cwd != "" {
-			if ws, findErr := workspace.FindContainingWorkspace(cfg.WorkspaceRoot, cwd); findErr == nil {
+			ws, findErr := workspace.FindContainingWorkspace(cfg.WorkspaceRoot, cwd)
+			switch {
+			case findErr == nil:
 				fmt.Fprintf(out, "✓ using existing workspace %s\n", ws.Slug)
-				return launchClaudeIn(out, cfg, ws.Slug, ws.Path, flags.noLaunch)
+				return launchClaudeIn(out, cfg, ws.Slug, ws.Path, flags.noLaunch || flags.dryRun)
+			case errors.Is(findErr, workspace.ErrNoState):
+				// Normal "not in a workspace" — fall through silently.
+			default:
+				// Real error (corrupt manifest, permission denied).
+				// Surface but still fall through to the normal flow.
+				fmt.Fprintf(errOut, "warning: cwd-shortcut check: %v\n", findErr)
 			}
 		}
 	}
