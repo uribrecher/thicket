@@ -12,18 +12,18 @@ func TestParseNickname(t *testing.T) {
 		raw  string
 		want string
 	}{
-		"plain":                  {"flaky tests", "flaky tests"},
-		"trailing newline":       {"flaky tests\n", "flaky tests"},
-		"with emoji":             {"🐛 flaky tests", "🐛 flaky tests"},
-		"double-quoted":          {`"flaky tests"`, "flaky tests"},
-		"single-quoted":          {"'flaky tests'", "flaky tests"},
-		"backtick-wrapped":       {"`flaky tests`", "flaky tests"},
-		"first line wins": {"flaky tests\nwith more prose", "flaky tests"}, // chatty trailing lines are dropped; preamble removal is the prompt's job
-		"second line ignored":    {"flaky tests\nextra prose\nmore", "flaky tests"},
-		"leading blank lines":    {"\n\n  \nflaky tests\n", "flaky tests"},
-		"empty input":            {"", ""},
-		"whitespace only":        {"   \n\t\n  ", ""},
-		"too long ascii":         {"a very very long nickname that is way past twenty", "a very very long nic"}, // 20 chars
+		"plain":               {"flaky tests", "flaky tests"},
+		"trailing newline":    {"flaky tests\n", "flaky tests"},
+		"with emoji":          {"🐛 flaky tests", "🐛 flaky tests"},
+		"double-quoted":       {`"flaky tests"`, "flaky tests"},
+		"single-quoted":       {"'flaky tests'", "flaky tests"},
+		"backtick-wrapped":    {"`flaky tests`", "flaky tests"},
+		"first line wins":     {"flaky tests\nwith more prose", "flaky tests"}, // chatty trailing lines are dropped; preamble removal is the prompt's job
+		"second line ignored": {"flaky tests\nextra prose\nmore", "flaky tests"},
+		"leading blank lines": {"\n\n  \nflaky tests\n", "flaky tests"},
+		"empty input":         {"", ""},
+		"whitespace only":     {"   \n\t\n  ", ""},
+		"too long ascii":      {"a very very long nickname that is way past twenty", "a very very long nic"}, // 20 chars
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
