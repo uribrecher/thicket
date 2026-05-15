@@ -90,6 +90,11 @@ func newPickOneModel(title string, columns []Column, rows []Row) pickOneModel {
 	ti.Placeholder = "type to filter…"
 	ti.Focus()
 	ti.CharLimit = 80
+	// textinput.New() defaults Width to 0; at Width=0, bubbles'
+	// placeholderView only renders the first character of the
+	// placeholder (so "type to filter…" collapses to "t"). The
+	// edit/start wizard text inputs carry the same workaround.
+	ti.Width = 60
 	ti.Prompt = "› "
 
 	m := pickOneModel{
