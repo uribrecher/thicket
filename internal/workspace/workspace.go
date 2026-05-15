@@ -425,6 +425,48 @@ func ListManaged(root string) ([]ManagedWorkspace, []error, error) {
 	return out, warnings, nil
 }
 
+// FindContainingWorkspace returns the managed workspace whose
+// directory contains `cwd`. Used by `thicket start` to detect "the
+// user is already cd'd inside a workspace" and skip the ticket
+// picker. Returns ErrNoState when cwd is not under `root`, is `root`
+// itself, or is under `root` in a directory that doesn't carry a
+// `.thicket/state.json` manifest.
+//
+// Symlinks are resolved on both inputs so a tmpfs/home symlink can't
+// defeat the prefix check. The returned `Path` uses the user-facing
+// `root` (not the symlink-resolved one) so the workspace dir we hand
+// back is the path the user would type themselves.
+func FindContainingWorkspace(root, cwd string) (ManagedWorkspace, error) {
+	if root == "" || cwd == "" {
+		return ManagedWorkspace{}, ErrNoState
+	}
+	resolvedRoot := root
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		resolvedRoot = r
+	}
+	resolvedCwd := cwd
+	if c, err := filepath.EvalSymlinks(cwd); err == nil {
+		resolvedCwd = c
+	}
+	rel, err := filepath.Rel(resolvedRoot, resolvedCwd)
+	if err != nil {
+		return ManagedWorkspace{}, ErrNoState
+	}
+	if rel == "." || strings.HasPrefix(rel, "..") {
+		return ManagedWorkspace{}, ErrNoState
+	}
+	slug, _, _ := strings.Cut(rel, string(filepath.Separator))
+	if slug == "" {
+		return ManagedWorkspace{}, ErrNoState
+	}
+	wsDir := filepath.Join(root, slug)
+	st, err := ReadState(wsDir)
+	if err != nil {
+		return ManagedWorkspace{}, ErrNoState
+	}
+	return ManagedWorkspace{Slug: slug, Path: wsDir, State: st}, nil
+}
+
 // ----- state manifest -----
 
 // ErrNoState is returned by ReadState when the state file is missing.

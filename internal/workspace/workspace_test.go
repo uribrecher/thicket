@@ -383,6 +383,104 @@ func TestListManaged_skipsNonWorkspacesAndWarnsOnCorruptManifests(t *testing.T) 
 	}
 }
 
+func TestFindContainingWorkspace(t *testing.T) {
+	root := t.TempDir()
+	slug := "sc-1-fix-thing"
+	wsDir := filepath.Join(root, slug)
+	st := State{TicketID: "sc-1", Branch: "u/sc-1-fix-thing", CreatedAt: time.Now()}
+	writeFakeState(t, wsDir, st)
+
+	// A worktree subdir, mimicking `cd workspace/<repo>` — the real
+	// common case.
+	repoSub := filepath.Join(wsDir, "some-repo")
+	if err := os.MkdirAll(repoSub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A sibling under root with no manifest — pwd here must NOT match.
+	bareSibling := filepath.Join(root, "not-a-thicket-ws")
+	if err := os.MkdirAll(bareSibling, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name      string
+		cwd       string
+		wantSlug  string
+		wantMatch bool
+	}{
+		{"cwd is workspace dir", wsDir, slug, true},
+		{"cwd inside worktree", repoSub, slug, true},
+		{"cwd is root itself", root, "", false},
+		{"cwd outside root", t.TempDir(), "", false},
+		{"cwd in sibling without manifest", bareSibling, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := FindContainingWorkspace(root, tc.cwd)
+			if tc.wantMatch {
+				if err != nil {
+					t.Fatalf("want match, got err: %v", err)
+				}
+				if got.Slug != tc.wantSlug {
+					t.Errorf("slug = %q, want %q", got.Slug, tc.wantSlug)
+				}
+				if got.Path != filepath.Join(root, tc.wantSlug) {
+					t.Errorf("path = %q, want %q", got.Path, filepath.Join(root, tc.wantSlug))
+				}
+				if got.State.TicketID != st.TicketID {
+					t.Errorf("state.TicketID = %q, want %q", got.State.TicketID, st.TicketID)
+				}
+			} else {
+				if !errors.Is(err, ErrNoState) {
+					t.Errorf("want ErrNoState, got err=%v ws=%+v", err, got)
+				}
+			}
+		})
+	}
+}
+
+func TestFindContainingWorkspace_resolvesSymlinks(t *testing.T) {
+	// Real root + a symlink that points at it. On macOS, $TMPDIR is
+	// itself usually under /var → /private/var, so EvalSymlinks is
+	// already exercised on the temp dirs themselves — but we also
+	// stand up an explicit symlink to cover the case where the user
+	// configured workspace_root via a symlinked path (e.g. ~/work →
+	// /Volumes/...).
+	realRoot := t.TempDir()
+	slug := "sc-2-x"
+	wsDir := filepath.Join(realRoot, slug)
+	writeFakeState(t, wsDir, State{TicketID: "sc-2", Branch: "b", CreatedAt: time.Now()})
+	// Create the worktree subdir on disk so EvalSymlinks can resolve a
+	// cwd that points into it via the link.
+	repoSub := filepath.Join(wsDir, "repo")
+	if err := os.MkdirAll(repoSub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	linkRoot := filepath.Join(t.TempDir(), "link-to-root")
+	if err := os.Symlink(realRoot, linkRoot); err != nil {
+		t.Skipf("cannot create symlink (likely filesystem restriction): %v", err)
+	}
+	// Look up via the link path (root) + a cwd that goes through the
+	// link.
+	got, err := FindContainingWorkspace(linkRoot, filepath.Join(linkRoot, slug, "repo"))
+	if err != nil {
+		t.Fatalf("want match via symlink, got err: %v", err)
+	}
+	if got.Slug != slug {
+		t.Errorf("slug = %q, want %q", got.Slug, slug)
+	}
+}
+
+func TestFindContainingWorkspace_emptyInputs(t *testing.T) {
+	if _, err := FindContainingWorkspace("", "/some/cwd"); !errors.Is(err, ErrNoState) {
+		t.Errorf("empty root: want ErrNoState, got %v", err)
+	}
+	if _, err := FindContainingWorkspace("/some/root", ""); !errors.Is(err, ErrNoState) {
+		t.Errorf("empty cwd: want ErrNoState, got %v", err)
+	}
+}
+
 func TestListManaged_missingRootIsNotAnError(t *testing.T) {
 	got, warnings, err := ListManaged(filepath.Join(t.TempDir(), "does-not-exist"))
 	if got != nil || warnings != nil || err != nil {
