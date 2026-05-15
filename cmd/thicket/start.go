@@ -499,7 +499,7 @@ func fetchSecret(ctx context.Context, cfg *config.Config, kind secretKind) (stri
 		return v, nil
 	}
 	if cfg.Passwords.Manager == "" {
-		return "", errors.New("no password manager configured — run `thicket init`")
+		return "", errors.New("no password manager configured — run `thicket config`")
 	}
 	var ref, account string
 	switch kind {
@@ -509,7 +509,7 @@ func fetchSecret(ctx context.Context, cfg *config.Config, kind secretKind) (stri
 		ref, account = cfg.Passwords.AnthropicKeyRef, cfg.Passwords.AnthropicKeyAccount
 	}
 	if ref == "" {
-		return "", fmt.Errorf("reference not configured — set $%s or run `thicket init`",
+		return "", fmt.Errorf("reference not configured — set $%s or run `thicket config`",
 			envVarFor(kind))
 	}
 	mgr, err := secrets.New(cfg.Passwords.Manager, secrets.Options{

@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// initGitPage collects the three values that anchor thicket on disk:
+// configGitPage collects the three values that anchor thicket on disk:
 //   - repos_root: where source clones live
 //   - workspace_root: where new workspaces get created
 //   - github_orgs: comma-separated list of orgs to scan for repos
@@ -17,7 +17,7 @@ import (
 // github_orgs is a simple CSV input rather than the multiselect the
 // old huh-based init had — fewer moving parts in the bubbletea page
 // and the user can edit the list later by re-running init.
-type initGitPage struct {
+type configGitPage struct {
 	inputs [3]textinput.Model
 	focus  int
 }
@@ -28,8 +28,8 @@ const (
 	gitFieldOrgs          = 2
 )
 
-func newInitGitPage() *initGitPage {
-	p := &initGitPage{}
+func newConfigGitPage() *configGitPage {
+	p := &configGitPage{}
 	for i := range p.inputs {
 		ti := textinput.New()
 		ti.CharLimit = 200
@@ -46,33 +46,33 @@ func newInitGitPage() *initGitPage {
 // initCmd seeds each input from the working config the first time the
 // page is activated. We do this in initCmd (not the constructor) so
 // late-bound config edits made by earlier pages still apply.
-func (p *initGitPage) initCmd(m *Model) tea.Cmd {
+func (p *configGitPage) initCmd(m *Model) tea.Cmd {
 	if p.inputs[gitFieldReposRoot].Value() == "" {
-		p.inputs[gitFieldReposRoot].SetValue(m.initDeps.Cfg.ReposRoot)
+		p.inputs[gitFieldReposRoot].SetValue(m.configDeps.Cfg.ReposRoot)
 	}
 	if p.inputs[gitFieldWorkspaceRoot].Value() == "" {
-		p.inputs[gitFieldWorkspaceRoot].SetValue(m.initDeps.Cfg.WorkspaceRoot)
+		p.inputs[gitFieldWorkspaceRoot].SetValue(m.configDeps.Cfg.WorkspaceRoot)
 	}
 	if p.inputs[gitFieldOrgs].Value() == "" {
-		p.inputs[gitFieldOrgs].SetValue(strings.Join(m.initDeps.Cfg.GithubOrgs, ", "))
+		p.inputs[gitFieldOrgs].SetValue(strings.Join(m.configDeps.Cfg.GithubOrgs, ", "))
 	}
 	p.inputs[p.focus].Focus()
 	return textinput.Blink
 }
 
-func (p *initGitPage) Title() string { return "Git" }
+func (p *configGitPage) Title() string { return "Git" }
 
-func (p *initGitPage) Hints() string { return "tab cycles fields · enter continues" }
+func (p *configGitPage) Hints() string { return "tab cycles fields · enter continues" }
 
 // Complete requires all three fields non-empty. The wizard's Validate
 // step (post-wizard) will catch malformed paths.
-func (p *initGitPage) Complete() bool {
+func (p *configGitPage) Complete() bool {
 	return strings.TrimSpace(p.inputs[gitFieldReposRoot].Value()) != "" &&
 		strings.TrimSpace(p.inputs[gitFieldWorkspaceRoot].Value()) != "" &&
 		strings.TrimSpace(p.inputs[gitFieldOrgs].Value()) != ""
 }
 
-func (p *initGitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
+func (p *configGitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
 		case "tab", "down":
@@ -100,7 +100,7 @@ func (p *initGitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	return p, cmd
 }
 
-func (p *initGitPage) cycleFocus(d int) {
+func (p *configGitPage) cycleFocus(d int) {
 	p.inputs[p.focus].Blur()
 	p.focus = (p.focus + d + len(p.inputs)) % len(p.inputs)
 	p.inputs[p.focus].Focus()
@@ -109,10 +109,10 @@ func (p *initGitPage) cycleFocus(d int) {
 // commit writes the current input values back to the working config.
 // Called on Enter and on goNextMsg so a back/forward dance preserves
 // the user's edits.
-func (p *initGitPage) commit(m *Model) {
-	m.initDeps.Cfg.ReposRoot = strings.TrimSpace(p.inputs[gitFieldReposRoot].Value())
-	m.initDeps.Cfg.WorkspaceRoot = strings.TrimSpace(p.inputs[gitFieldWorkspaceRoot].Value())
-	m.initDeps.Cfg.GithubOrgs = splitOrgs(p.inputs[gitFieldOrgs].Value())
+func (p *configGitPage) commit(m *Model) {
+	m.configDeps.Cfg.ReposRoot = strings.TrimSpace(p.inputs[gitFieldReposRoot].Value())
+	m.configDeps.Cfg.WorkspaceRoot = strings.TrimSpace(p.inputs[gitFieldWorkspaceRoot].Value())
+	m.configDeps.Cfg.GithubOrgs = splitOrgs(p.inputs[gitFieldOrgs].Value())
 }
 
 func splitOrgs(s string) []string {
@@ -126,7 +126,7 @@ func splitOrgs(s string) []string {
 	return out
 }
 
-func (p *initGitPage) View(m *Model) string {
+func (p *configGitPage) View(m *Model) string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Where do your repos live?"))
 	b.WriteString("\n\n")

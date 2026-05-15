@@ -142,30 +142,30 @@ type Model struct {
 	editResult        EditResult
 
 	// ----- init-flow state -----
-	// initMode flips the wizard into "thicket init" plumbing. The
-	// start/edit fields above are then unused — the init pages mutate
-	// initDeps.Cfg directly as the user fills in each page. On
+	// configMode flips the wizard into "thicket config" plumbing. The
+	// start/edit fields above are then unused — the config pages mutate
+	// configDeps.Cfg directly as the user fills in each page. On
 	// Submit-confirm the wizard hands the populated Cfg back as
-	// initResult.Cfg; the post-wizard runInit does the validate + save.
-	initMode   bool
-	initDeps   InitDeps
-	initResult InitResult
+	// configResult.Cfg; the post-wizard runConfig does the validate + save.
+	configMode   bool
+	configDeps   ConfigDeps
+	configResult ConfigResult
 
-	// initOpAccounts caches `op account list` once per wizard session
+	// configOpAccounts caches `op account list` once per wizard session
 	// so toggling between Tickets and Agent pages doesn't fire a
 	// second `op` call. nil before first load.
-	initOpAccounts []secrets.OnePasswordAccount
-	// initOpItemCache memoizes per-account `op item list` results so
+	configOpAccounts []secrets.OnePasswordAccount
+	// configOpItemCache memoizes per-account `op item list` results so
 	// the user only pays one biometric prompt per account across all
 	// init pages.
-	initOpItemCache map[string][]secrets.OnePasswordItem
+	configOpItemCache map[string][]secrets.OnePasswordItem
 
-	// initOpHintDismissed records whether the user has dismissed the
+	// configOpHintDismissed records whether the user has dismissed the
 	// macOS "grant iTerm App Management" hint that the secret picker
 	// shows after the first 1Password walk-through. Lives on the
 	// Model (not the picker) so dismissing it on the Tickets page
 	// doesn't make it re-appear on the Agent page.
-	initOpHintDismissed bool
+	configOpHintDismissed bool
 }
 
 // Run shows the wizard. Returns the Result on success, tui.ErrCancelled
@@ -351,13 +351,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.done = true
 		return m, tea.Quit
 
-	case initDoneMsg:
+	case configDoneMsg:
 		if v.err != nil {
 			m.err = v.err
 			return m, tea.Quit
 		}
-		m.initResult.Cfg = m.initDeps.Cfg
-		m.initResult.Confirmed = true
+		m.configResult.Cfg = m.configDeps.Cfg
+		m.configResult.Confirmed = true
 		m.done = true
 		return m, tea.Quit
 	}

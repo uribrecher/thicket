@@ -7,29 +7,29 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// initSubmitPage shows the full config summary and a [ Confirm ]
-// button. Enter on the button emits initDoneMsg{}; the wizard's
-// handler stashes the populated config into m.initResult and quits.
+// configSubmitPage shows the full config summary and a [ Confirm ]
+// button. Enter on the button emits configDoneMsg{}; the wizard's
+// handler stashes the populated config into m.configResult and quits.
 // The actual file write happens in cmd/thicket/init.go afterwards.
-type initSubmitPage struct{}
+type configSubmitPage struct{}
 
-func newInitSubmitPage() *initSubmitPage { return &initSubmitPage{} }
+func newConfigSubmitPage() *configSubmitPage { return &configSubmitPage{} }
 
-func (p *initSubmitPage) Title() string { return "Submit" }
+func (p *configSubmitPage) Title() string { return "Submit" }
 
-func (p *initSubmitPage) Hints() string { return "enter confirms · ← review previous pages" }
+func (p *configSubmitPage) Hints() string { return "enter confirms · ← review previous pages" }
 
-func (p *initSubmitPage) Complete() bool { return true }
+func (p *configSubmitPage) Complete() bool { return true }
 
-func (p *initSubmitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
+func (p *configSubmitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok && k.String() == "enter" {
-		return p, func() tea.Msg { return initDoneMsg{} }
+		return p, func() tea.Msg { return configDoneMsg{} }
 	}
 	return p, nil
 }
 
-func (p *initSubmitPage) View(m *Model) string {
-	cfg := m.initDeps.Cfg
+func (p *configSubmitPage) View(m *Model) string {
+	cfg := m.configDeps.Cfg
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Review and confirm"))
 	b.WriteString("\n\n")

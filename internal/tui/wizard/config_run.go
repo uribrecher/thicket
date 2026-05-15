@@ -12,10 +12,10 @@ import (
 	"github.com/uribrecher/thicket/internal/tui"
 )
 
-// InitDeps wires the init wizard to the rest of thicket. Same one-way
+// ConfigDeps wires the config wizard to the rest of thicket. Same one-way
 // dependency pattern as Deps / EditDeps — the wizard never imports
 // cmd/thicket.
-type InitDeps struct {
+type ConfigDeps struct {
 	Ctx context.Context
 
 	// Cfg is the *working* config the wizard mutates as the user
@@ -28,10 +28,10 @@ type InitDeps struct {
 	FirstRun bool
 }
 
-// InitResult is what RunInit hands back. The actual file write happens
+// ConfigResult is what RunConfig hands back. The actual file write happens
 // post-wizard in cmd/thicket/init.go — same separation as
 // workspace.Create after Run and workspace.Add after RunEdit.
-type InitResult struct {
+type ConfigResult struct {
 	// Cfg is the populated config the caller should validate + save.
 	// nil when the user cancelled.
 	Cfg *config.Config
@@ -41,51 +41,51 @@ type InitResult struct {
 	Confirmed bool
 }
 
-// RunInit shows the init wizard. Returns the InitResult on success,
+// RunConfig shows the config wizard. Returns the ConfigResult on success,
 // tui.ErrCancelled if the user pressed Esc / Ctrl-C, or any error
 // from the underlying Bubble Tea program.
-func RunInit(deps InitDeps) (InitResult, error) {
+func RunConfig(deps ConfigDeps) (ConfigResult, error) {
 	if deps.Ctx == nil {
 		deps.Ctx = context.Background()
 	}
 	if deps.Cfg == nil {
-		return InitResult{}, errors.New("InitDeps.Cfg is required")
+		return ConfigResult{}, errors.New("ConfigDeps.Cfg is required")
 	}
-	m := newInitModel(deps)
+	m := newConfigModel(deps)
 	finalModel, err := tea.NewProgram(m).Run()
 	if err != nil {
-		return InitResult{}, err
+		return ConfigResult{}, err
 	}
 	fm := finalModel.(*Model)
 	if errors.Is(fm.err, tui.ErrCancelled) {
-		return InitResult{}, tui.ErrCancelled
+		return ConfigResult{}, tui.ErrCancelled
 	}
 	if fm.err != nil {
-		return InitResult{}, fm.err
+		return ConfigResult{}, fm.err
 	}
-	return fm.initResult, nil
+	return fm.configResult, nil
 }
 
-// newInitModel assembles the page list for the init flow. Pages are
+// newConfigModel assembles the page list for the config flow. Pages are
 // added conditionally so the tab bar reflects exactly what the user
 // will see — env-covered secrets and re-runs (where the welcome note
 // would just be noise) drop their pages entirely.
-func newInitModel(deps InitDeps) *Model {
+func newConfigModel(deps ConfigDeps) *Model {
 	m := &Model{
-		initMode:        true,
-		initDeps:        deps,
-		initOpItemCache: make(map[string][]secrets.OnePasswordItem),
+		configMode:        true,
+		configDeps:        deps,
+		configOpItemCache: make(map[string][]secrets.OnePasswordItem),
 	}
 	var pages []Page
 	if deps.FirstRun {
-		pages = append(pages, newInitWelcomePage())
+		pages = append(pages, newConfigWelcomePage())
 	}
-	pages = append(pages, newInitGitPage())
+	pages = append(pages, newConfigGitPage())
 	if os.Getenv("SHORTCUT_API_TOKEN") == "" {
-		pages = append(pages, newInitTicketsPage())
+		pages = append(pages, newConfigTicketsPage())
 	}
-	pages = append(pages, newInitAgentPage())
-	pages = append(pages, newInitSubmitPage())
+	pages = append(pages, newConfigAgentPage())
+	pages = append(pages, newConfigSubmitPage())
 	m.pages = pages
 	return m
 }

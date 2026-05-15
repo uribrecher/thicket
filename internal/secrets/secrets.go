@@ -46,7 +46,7 @@ type Manager interface {
 	// Check verifies the CLI is installed and the manager is unlocked.
 	Check(ctx context.Context) error
 	// Describe returns a one-line hint for the user explaining what an
-	// item ref looks like for this manager. Shown in the init wizard.
+	// item ref looks like for this manager. Shown in the config wizard.
 	Describe() string
 }
 
@@ -80,7 +80,7 @@ func (DefaultRunner) Run(ctx context.Context, name string, args []string, stdin 
 func alwaysFound(name string) (string, error) { return "/usr/local/bin/" + name, nil }
 
 // Supported is the canonical list of manager identifiers users can pick
-// from in `thicket init`. Order is the display order.
+// from in `thicket config`. Order is the display order.
 var Supported = []string{"1password", "bitwarden", "pass", "env"}
 
 // Options carries manager-specific construction parameters.
@@ -198,7 +198,7 @@ type OnePasswordAccount struct {
 }
 
 // ListOnePasswordAccounts enumerates every 1Password account the local op
-// CLI knows about. Used by `thicket init` to let the user pick one when
+// CLI knows about. Used by `thicket config` to let the user pick one when
 // more than one account is signed in.
 func ListOnePasswordAccounts(ctx context.Context) ([]OnePasswordAccount, error) {
 	return listOnePasswordAccounts(ctx, DefaultRunner{}, exec.LookPath)
@@ -223,7 +223,7 @@ func listOnePasswordAccounts(ctx context.Context, r Runner, lookPath LookPathFn)
 // ----- 1Password item discovery -----
 
 // OnePasswordItem is one row of `op item list --format json`. The full
-// item structure has many more fields; we keep only what the init wizard
+// item structure has many more fields; we keep only what the config wizard
 // needs to render an autocomplete picker.
 type OnePasswordItem struct {
 	ID    string `json:"id"`
@@ -248,7 +248,7 @@ type OnePasswordField struct {
 }
 
 // OnePasswordItemDetail is the subset of `op item get --format json` the
-// init wizard renders for field selection.
+// config wizard renders for field selection.
 type OnePasswordItemDetail struct {
 	ID     string             `json:"id"`
 	Title  string             `json:"title"`

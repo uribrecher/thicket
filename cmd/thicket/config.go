@@ -15,7 +15,7 @@ import (
 	"github.com/uribrecher/thicket/internal/tui/wizard"
 )
 
-func runInit(cmd *cobra.Command, _ []string) error {
+func runConfig(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
@@ -38,7 +38,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		firstRun = true
 	}
 
-	res, err := wizard.RunInit(wizard.InitDeps{
+	res, err := wizard.RunConfig(wizard.ConfigDeps{
 		Ctx:      ctx,
 		Cfg:      cfg,
 		FirstRun: firstRun,
@@ -128,7 +128,7 @@ func warnAboutEmptyOrgs(errOut io.Writer, orgs []string) {
 				strings.Join(strings.Split(got, "\n"), ", "))
 		}
 	}
-	fmt.Fprintln(errOut, "  edit ~/.config/thicket/config.toml or re-run `thicket init` to fix.")
+	fmt.Fprintln(errOut, "  edit ~/.config/thicket/config.toml or re-run `thicket config` to fix.")
 }
 
 func verifyExternalTools(out io.Writer, cfg *config.Config) {

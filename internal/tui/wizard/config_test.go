@@ -26,7 +26,7 @@ func TestInitModelFirstRunPages(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
+	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
 
 	want := []string{"Welcome", "Git", "Tickets", "Agent", "Submit"}
 	if len(m.pages) != len(want) {
@@ -46,7 +46,7 @@ func TestInitModelSkipWelcomeOnReRun(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 
 	if m.pages[0].Title() == "Welcome" {
 		t.Fatalf("Welcome page included on re-run")
@@ -63,7 +63,7 @@ func TestInitModelSkipTicketsWithEnv(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
+	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
 
 	for _, p := range m.pages {
 		if p.Title() == "Tickets" {
@@ -82,7 +82,7 @@ func TestInitSubmitConfirms(t *testing.T) {
 	d.GithubOrgs = []string{"my-org"}
 	d.ClaudeBackend = "cli"
 
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 	// Re-run + both env vars set → only Git, Agent, Submit pages.
 	m.active = len(m.pages) - 1
 	if m.pages[m.active].Title() != "Submit" {
@@ -91,7 +91,7 @@ func TestInitSubmitConfirms(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	mm := updated.(*Model)
-	// The submit page emits initDoneMsg as a cmd; deliver it.
+	// The submit page emits configDoneMsg as a cmd; deliver it.
 	page, _ := mm.pages[mm.active].Update(mm, tea.KeyMsg{Type: tea.KeyEnter})
 	mm.pages[mm.active] = page
 	// Run the cmd manually.
@@ -101,10 +101,10 @@ func TestInitSubmitConfirms(t *testing.T) {
 	}
 	msg := cmd()
 	mm.Update(msg)
-	if !mm.initResult.Confirmed {
+	if !mm.configResult.Confirmed {
 		t.Errorf("Confirmed not set after submit Enter")
 	}
-	if mm.initResult.Cfg == nil {
+	if mm.configResult.Cfg == nil {
 		t.Errorf("Cfg nil after confirm")
 	}
 }
@@ -119,8 +119,8 @@ func TestSecretPicker1PFieldPickerSkippedOnSingle(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
-	tp := findPage(t, m, "Tickets").(*initTicketsPage)
+	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	tp := findPage(t, m, "Tickets").(*configTicketsPage)
 	tp.initCmd(m)
 	sp := tp.picker
 
@@ -177,7 +177,7 @@ func TestDarwinHintGatedOnWalk1P(t *testing.T) {
 	sp := newSecretPicker("Shortcut API token", "SHORTCUT_API_TOKEN")
 	sp.preseed("1password", "op://Prod/Shortcut/credential")
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 	if sp.shouldShowDarwinHint(m) {
 		t.Errorf("hint shown even though user did not walk the 1P picker (walked1P=%v)", sp.walked1P)
 	}
@@ -192,10 +192,10 @@ func TestDarwinHintSuppressedOnDismiss(t *testing.T) {
 	sp.state = stateValidated
 	sp.chosenMgr = "1password"
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
-	m.initOpHintDismissed = true
+	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m.configOpHintDismissed = true
 	if sp.shouldShowDarwinHint(m) {
-		t.Errorf("hint shown despite m.initOpHintDismissed=true")
+		t.Errorf("hint shown despite m.configOpHintDismissed=true")
 	}
 }
 
@@ -206,8 +206,8 @@ func TestDarwinHintSuppressedOnDismiss(t *testing.T) {
 func TestSecretPickerStaleMsgsDropped(t *testing.T) {
 	t.Setenv("SHORTCUT_API_TOKEN", "")
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
-	tp := findPage(t, m, "Tickets").(*initTicketsPage)
+	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	tp := findPage(t, m, "Tickets").(*configTicketsPage)
 	tp.initCmd(m)
 	sp := tp.picker
 	sp.state = stateOpLoadingItems
@@ -240,8 +240,8 @@ func TestInitGitPageCommitsOnAdvance(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
-	gp, ok := m.pages[0].(*initGitPage)
+	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	gp, ok := m.pages[0].(*configGitPage)
 	if !ok {
 		t.Fatalf("first page is not the Git page: %T", m.pages[0])
 	}

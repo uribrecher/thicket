@@ -14,14 +14,14 @@ const (
 	agentBackendAPI = "api"
 )
 
-// initAgentPage asks how thicket should talk to Claude:
+// configAgentPage asks how thicket should talk to Claude:
 //   - "cli": shell out to the local `claude` binary (no API key,
 //     reuses the user's Claude Code / Enterprise login).
 //   - "api": call the Anthropic API directly. When this is picked AND
 //     ANTHROPIC_API_KEY isn't already in the env, the nested
 //     secretPicker collects the password-manager reference for the
 //     key — including the full 1Password account/item/field cascade.
-type initAgentPage struct {
+type configAgentPage struct {
 	backendIdx int // 0 = cli, 1 = api
 	focus      int // 0 = backend list, 1 = secret picker (only when api+no-env)
 
@@ -32,22 +32,22 @@ type initAgentPage struct {
 	seeded bool
 }
 
-func newInitAgentPage() *initAgentPage {
-	return &initAgentPage{
+func newConfigAgentPage() *configAgentPage {
+	return &configAgentPage{
 		picker: newSecretPicker("Anthropic API key", "ANTHROPIC_API_KEY"),
 	}
 }
 
-func (p *initAgentPage) Title() string { return "Agent" }
+func (p *configAgentPage) Title() string { return "Agent" }
 
-func (p *initAgentPage) Hints() string {
+func (p *configAgentPage) Hints() string {
 	if p.pickerVisible() && p.focus == 1 {
 		return p.picker.hints()
 	}
 	return "↑/↓ pick backend · tab/enter continues"
 }
 
-func (p *initAgentPage) Complete() bool {
+func (p *configAgentPage) Complete() bool {
 	if p.backendCurrent() == agentBackendCLI {
 		return true
 	}
@@ -57,11 +57,11 @@ func (p *initAgentPage) Complete() bool {
 	return p.picker.validated()
 }
 
-func (p *initAgentPage) initCmd(m *Model) tea.Cmd {
+func (p *configAgentPage) initCmd(m *Model) tea.Cmd {
 	if !p.seeded {
 		_, err := exec.LookPath("claude")
 		p.claudeOnPath = err == nil
-		switch m.initDeps.Cfg.ClaudeBackend {
+		switch m.configDeps.Cfg.ClaudeBackend {
 		case agentBackendAPI:
 			p.backendIdx = 1
 		case agentBackendCLI:
@@ -74,27 +74,27 @@ func (p *initAgentPage) initCmd(m *Model) tea.Cmd {
 			}
 		}
 		p.apiKeyInEnv = os.Getenv("ANTHROPIC_API_KEY") != ""
-		p.picker.preseed(m.initDeps.Cfg.Passwords.Manager, m.initDeps.Cfg.Passwords.AnthropicKeyRef)
+		p.picker.preseed(m.configDeps.Cfg.Passwords.Manager, m.configDeps.Cfg.Passwords.AnthropicKeyRef)
 		if p.picker.state == stateValidated {
-			p.picker.chosenAccount = m.initDeps.Cfg.Passwords.AnthropicKeyAccount
+			p.picker.chosenAccount = m.configDeps.Cfg.Passwords.AnthropicKeyAccount
 		}
 		p.seeded = true
 	}
 	return nil
 }
 
-func (p *initAgentPage) backendCurrent() string {
+func (p *configAgentPage) backendCurrent() string {
 	if p.backendIdx == 1 {
 		return agentBackendAPI
 	}
 	return agentBackendCLI
 }
 
-func (p *initAgentPage) pickerVisible() bool {
+func (p *configAgentPage) pickerVisible() bool {
 	return p.backendCurrent() == agentBackendAPI && !p.apiKeyInEnv
 }
 
-func (p *initAgentPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
+func (p *configAgentPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	if _, ok := msg.(goNextMsg); ok {
 		p.commit(m)
 		return p, nil
@@ -146,8 +146,8 @@ func (p *initAgentPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	return p, cmd
 }
 
-func (p *initAgentPage) commit(m *Model) {
-	cfg := m.initDeps.Cfg
+func (p *configAgentPage) commit(m *Model) {
+	cfg := m.configDeps.Cfg
 	cfg.ClaudeBackend = p.backendCurrent()
 	if p.pickerVisible() && p.picker.validated() {
 		cfg.Passwords.Manager = p.picker.finalManager()
@@ -162,7 +162,7 @@ func (p *initAgentPage) commit(m *Model) {
 	}
 }
 
-func (p *initAgentPage) View(m *Model) string {
+func (p *configAgentPage) View(m *Model) string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("How should thicket talk to Claude?"))
 	b.WriteString("\n\n")

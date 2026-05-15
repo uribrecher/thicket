@@ -50,10 +50,10 @@ type editDoneMsg struct {
 	err    error
 }
 
-// initDoneMsg signals the init Submit page has been confirmed. The
+// configDoneMsg signals the config Submit page has been confirmed. The
 // wizard's handler stashes the populated config and quits; cmd/thicket
 // then runs Validate + Save.
-type initDoneMsg struct {
+type configDoneMsg struct {
 	err error
 }
 

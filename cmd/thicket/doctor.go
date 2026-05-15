@@ -28,7 +28,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	cfg, err := config.Load(cfgPath)
 	switch {
 	case errors.Is(err, config.ErrNoConfig):
-		report = append(report, fail("config file", "missing — run `thicket init`"))
+		report = append(report, fail("config file", "missing — run `thicket config`"))
 		printReport(out, report)
 		return errors.New("doctor: setup required")
 	case err != nil:
@@ -107,7 +107,7 @@ func checkConfigValues(c *config.Config) []check {
 func checkSecrets(ctx context.Context, c *config.Config) []check {
 	var out []check
 	if c.Passwords.Manager == "" {
-		return append(out, fail("password manager", "not configured — run `thicket init`"))
+		return append(out, fail("password manager", "not configured — run `thicket config`"))
 	}
 	out = append(out, ok("password manager", c.Passwords.Manager))
 
@@ -140,7 +140,7 @@ func checkSecrets(ctx context.Context, c *config.Config) []check {
 		}
 		if sec.ref == "" {
 			out = append(out, fail(sec.label,
-				"no reference set — set $"+sec.envVar+" or run `thicket init`"))
+				"no reference set — set $"+sec.envVar+" or run `thicket config`"))
 			continue
 		}
 		mgr, err := secrets.New(c.Passwords.Manager, secrets.Options{

@@ -52,7 +52,7 @@ func newRootCmd() *cobra.Command {
 		"skip the daily self-update probe (also: THICKET_NO_UPDATE_CHECK=1)")
 	root.AddCommand(newStartCmd())
 	root.AddCommand(newEditCmd())
-	root.AddCommand(newInitCmd())
+	root.AddCommand(newConfigCmd())
 	root.AddCommand(newListCmd())
 	root.AddCommand(newRmCmd())
 	root.AddCommand(newCatalogCmd())
@@ -107,12 +107,12 @@ func newStartCmd() *cobra.Command {
 	return c
 }
 
-func newInitCmd() *cobra.Command {
+func newConfigCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "init",
-		Short: "First-run setup wizard",
+		Use:   "config",
+		Short: "Open the config wizard (first-run setup, or edit existing config)",
 		Args:  cobra.NoArgs,
-		RunE:  runInit,
+		RunE:  runConfig,
 	}
 }
 
