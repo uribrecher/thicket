@@ -569,6 +569,41 @@ func TestState_OmitsEmptyNickname(t *testing.T) {
 	}
 }
 
+func TestSanitizeNickname(t *testing.T) {
+	cases := map[string]struct {
+		in   string
+		want string
+	}{
+		"plain":                    {"flaky tests", "flaky tests"},
+		"trim spaces":              {"   flaky tests   ", "flaky tests"},
+		"emoji preserved":          {"🐛 picker fix", "🐛 picker fix"},
+		"interior newline → space": {"flaky\ntests", "flaky tests"},
+		"interior tab → space":     {"flaky\ttests", "flaky tests"},
+		"runs of whitespace":       {"flaky   tests", "flaky tests"},
+		"ansi escape stripped":     {"\x1b[31mred\x1b[0m", "[31mred[0m"},
+		"nul + bs stripped":        {"foo\x00\x08bar", "foobar"},
+		"truncate to 20 runes":     {"a very very long nickname that is way past twenty", "a very very long nic"},
+		"trim trailing space after truncate": {
+			// 19 chars + space + tail → the space lands right at
+			// the 20-rune cap; TrimRight drops it so we don't
+			// persist trailing whitespace.
+			"abcdefghijklmnopqrs xyz",
+			"abcdefghijklmnopqrs",
+		},
+		"empty input":        {"", ""},
+		"whitespace only":    {"   \t\n  ", ""},
+		"only control chars": {"\x00\x01\x1b", ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := SanitizeNickname(tc.in)
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestManagedWorkspace_DisplayName(t *testing.T) {
 	cases := []struct {
 		name     string

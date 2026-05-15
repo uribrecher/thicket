@@ -15,7 +15,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/uribrecher/thicket/internal/catalog"
-	"github.com/uribrecher/thicket/internal/detector"
 	"github.com/uribrecher/thicket/internal/memory"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
@@ -62,7 +61,7 @@ type planPage struct {
 
 func newPlanPage() *planPage {
 	ni := textinput.New()
-	ni.CharLimit = detector.NicknameMaxChars
+	ni.CharLimit = workspace.NicknameMaxChars
 	ni.Width = 26
 	ni.Prompt = "› "
 	ni.Placeholder = "short label (≤20 chars, spaces & emoji ok)"
@@ -617,7 +616,7 @@ func (p *planPage) View(m *wizard.Model) string {
 		nnCount := utf8.RuneCountInString(p.nicknameInput.Value())
 		b.WriteString(fmt.Sprintf("  %snickname:      %s  %s\n",
 			nnMarker, p.nicknameInput.View(),
-			wizard.HintStyle.Render(fmt.Sprintf("(%d/%d)", nnCount, detector.NicknameMaxChars))))
+			wizard.HintStyle.Render(fmt.Sprintf("(%d/%d)", nnCount, workspace.NicknameMaxChars))))
 		final := p.finalSelection()
 		b.WriteString(fmt.Sprintf("    worktrees:     %d\n", len(final)))
 		for _, r := range final {

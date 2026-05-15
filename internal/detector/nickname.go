@@ -6,20 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/anthropics/anthropic-sdk-go"
-)
 
-// NicknameMaxChars is the upper bound on a workspace nickname's
-// length, in runes. Matches the textinput.CharLimit on the wizard's
-// Plan page so the prompt, the parser, and the UI agree.
-const NicknameMaxChars = 20
+	"github.com/uribrecher/thicket/internal/workspace"
+)
 
 // NicknameSuggester proposes a short, human-friendly label for a
 // ticket. The wizard's Plan page seeds its editable nickname input
 // from this call; the user can accept the suggestion or type their
 // own. Spaces and emoji are allowed; uniqueness is NOT required.
+//
+// The returned string is pre-sanitized via workspace.SanitizeNickname
+// so callers (wizard, scripts) can use it directly — control
+// characters and ANSI escapes from a chatty model are stripped.
 type NicknameSuggester interface {
 	Suggest(ctx context.Context, title, body string) (string, error)
 }
@@ -42,28 +42,16 @@ TICKET BODY:
 %s`
 
 // parseNickname cleans raw model output: takes the first non-empty
-// line, strips surrounding whitespace and matched quotes, and
-// truncates to NicknameMaxChars runes as a safety net.
+// line, strips matched wrapping quotes, then runs the result through
+// workspace.SanitizeNickname for whitespace collapsing, control-char
+// removal, and rune-boundary truncation.
 func parseNickname(raw string) string {
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		line = stripWrappingQuotes(line)
-		if utf8.RuneCountInString(line) > NicknameMaxChars {
-			// Truncate at NicknameMaxChars runes (not bytes — emoji
-			// must survive intact).
-			cut := 0
-			for i := range line {
-				if cut == NicknameMaxChars {
-					line = line[:i]
-					break
-				}
-				cut++
-			}
-		}
-		return line
+		return workspace.SanitizeNickname(stripWrappingQuotes(line))
 	}
 	return ""
 }

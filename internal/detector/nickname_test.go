@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/uribrecher/thicket/internal/workspace"
 )
 
 func TestParseNickname(t *testing.T) {
@@ -31,8 +33,8 @@ func TestParseNickname(t *testing.T) {
 			if got != tc.want {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
-			if utf8.RuneCountInString(got) > NicknameMaxChars {
-				t.Errorf("%q exceeds %d runes", got, NicknameMaxChars)
+			if utf8.RuneCountInString(got) > workspace.NicknameMaxChars {
+				t.Errorf("%q exceeds %d runes", got, workspace.NicknameMaxChars)
 			}
 		})
 	}
@@ -43,8 +45,8 @@ func TestParseNickname_truncatesAtRuneBoundary(t *testing.T) {
 	// boundary would split an emoji and corrupt the output.
 	raw := strings.Repeat("🐛", 21)
 	got := parseNickname(raw)
-	if utf8.RuneCountInString(got) != NicknameMaxChars {
-		t.Errorf("rune count = %d, want %d", utf8.RuneCountInString(got), NicknameMaxChars)
+	if utf8.RuneCountInString(got) != workspace.NicknameMaxChars {
+		t.Errorf("rune count = %d, want %d", utf8.RuneCountInString(got), workspace.NicknameMaxChars)
 	}
 	if !utf8.ValidString(got) {
 		t.Errorf("truncation produced invalid UTF-8: %q", got)
