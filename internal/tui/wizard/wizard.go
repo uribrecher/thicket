@@ -30,6 +30,7 @@ import (
 	"github.com/uribrecher/thicket/internal/config"
 	"github.com/uribrecher/thicket/internal/detector"
 	gitops "github.com/uribrecher/thicket/internal/git"
+	"github.com/uribrecher/thicket/internal/secrets"
 	"github.com/uribrecher/thicket/internal/ticket"
 	"github.com/uribrecher/thicket/internal/tui"
 	"github.com/uribrecher/thicket/internal/workspace"
@@ -108,7 +109,7 @@ type Page interface {
 // occasional `enter`-state callbacks from the parent.
 type Model struct {
 	deps   Deps
-	pages  [3]Page
+	pages  []Page
 	active int
 
 	// Shared cross-page state.
@@ -139,6 +140,32 @@ type Model struct {
 	selectedWorkspace *workspace.ManagedWorkspace
 	additions         []catalog.Repo // repos the user picked to add
 	editResult        EditResult
+
+	// ----- init-flow state -----
+	// initMode flips the wizard into "thicket init" plumbing. The
+	// start/edit fields above are then unused — the init pages mutate
+	// initDeps.Cfg directly as the user fills in each page. On
+	// Submit-confirm the wizard hands the populated Cfg back as
+	// initResult.Cfg; the post-wizard runInit does the validate + save.
+	initMode   bool
+	initDeps   InitDeps
+	initResult InitResult
+
+	// initOpAccounts caches `op account list` once per wizard session
+	// so toggling between Tickets and Agent pages doesn't fire a
+	// second `op` call. nil before first load.
+	initOpAccounts []secrets.OnePasswordAccount
+	// initOpItemCache memoizes per-account `op item list` results so
+	// the user only pays one biometric prompt per account across all
+	// init pages.
+	initOpItemCache map[string][]secrets.OnePasswordItem
+
+	// initOpHintDismissed records whether the user has dismissed the
+	// macOS "grant iTerm App Management" hint that the secret picker
+	// shows after the first 1Password walk-through. Lives on the
+	// Model (not the picker) so dismissing it on the Tickets page
+	// doesn't make it re-appear on the Agent page.
+	initOpHintDismissed bool
 }
 
 // Run shows the wizard. Returns the Result on success, tui.ErrCancelled
@@ -171,7 +198,7 @@ func newModel(deps Deps) *Model {
 		summaryCache: make(map[string][]string),
 		cloneInclude: make(map[string]bool),
 	}
-	m.pages = [3]Page{
+	m.pages = []Page{
 		newTicketPage(),
 		newReposPage(),
 		newPlanPage(),
@@ -190,9 +217,13 @@ func newModel(deps Deps) *Model {
 }
 
 // Init kicks off any page-init commands. The Ticket page fires its
-// ListAssigned cmd here.
+// ListAssigned cmd here. Pages that don't need a startup cmd simply
+// don't implement initCmder.
 func (m *Model) Init() tea.Cmd {
-	return m.pages[m.active].(initCmder).initCmd(m)
+	if ic, ok := m.pages[m.active].(initCmder); ok {
+		return ic.initCmd(m)
+	}
+	return nil
 }
 
 // initCmder lets the wizard fire each page's startup cmd at the moment
@@ -317,6 +348,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selectedWorkspace != nil {
 			m.editResult.Workspace = *m.selectedWorkspace
 		}
+		m.done = true
+		return m, tea.Quit
+
+	case initDoneMsg:
+		if v.err != nil {
+			m.err = v.err
+			return m, tea.Quit
+		}
+		m.initResult.Cfg = m.initDeps.Cfg
+		m.initResult.Confirmed = true
 		m.done = true
 		return m, tea.Quit
 	}

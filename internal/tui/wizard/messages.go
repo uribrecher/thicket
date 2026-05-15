@@ -5,6 +5,7 @@ import (
 
 	"github.com/uribrecher/thicket/internal/catalog"
 	"github.com/uribrecher/thicket/internal/detector"
+	"github.com/uribrecher/thicket/internal/secrets"
 	"github.com/uribrecher/thicket/internal/ticket"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
@@ -47,6 +48,51 @@ type editPlanBuiltMsg struct {
 type editDoneMsg struct {
 	result EditResult
 	err    error
+}
+
+// initDoneMsg signals the init Submit page has been confirmed. The
+// wizard's handler stashes the populated config and quits; cmd/thicket
+// then runs Validate + Save.
+type initDoneMsg struct {
+	err error
+}
+
+// secretValidatedMsg carries the result of a secretPicker's live
+// reference test. `ref` and `manager` echo the pair we validated so
+// the picker can drop late results when the user has since edited
+// the inputs.
+type secretValidatedMsg struct {
+	ref     string
+	manager string
+	err     error
+}
+
+// opAccountsLoadedMsg carries the result of ListOnePasswordAccounts.
+// pickerID lets a stale picker drop the message if the user has
+// switched pages (or backed out of 1P mode) in the meantime.
+type opAccountsLoadedMsg struct {
+	pickerID int
+	accounts []secrets.OnePasswordAccount
+	err      error
+}
+
+// opItemsLoadedMsg carries the result of a per-account ListItems
+// call. account is the UUID we listed against so the picker can
+// double-check that the user is still on the same account.
+type opItemsLoadedMsg struct {
+	pickerID int
+	account  string
+	items    []secrets.OnePasswordItem
+	err      error
+}
+
+// opItemDetailLoadedMsg carries the result of GetItem (used to
+// populate the field picker).
+type opItemDetailLoadedMsg struct {
+	pickerID int
+	itemID   string
+	detail   *secrets.OnePasswordItemDetail
+	err      error
 }
 
 // goNextMsg is emitted when the user advances past the current page
