@@ -57,21 +57,16 @@ func (p *submitPage) View(m *wizard.Model) string {
 	b.WriteString("\n")
 
 	b.WriteString("  " + wizard.PlanHeaderStyle.Render("Secrets") + "\n")
-	if cfg.Passwords.Manager == "" {
-		b.WriteString("    " + wizard.HintStyle.Render("(none — every secret covered by env vars)") + "\n")
+	if cfg.Passwords.ShortcutTokenRef != "" {
+		b.WriteString(fmt.Sprintf("    shortcut token: %s\n", cfg.Passwords.ShortcutTokenRef))
 	} else {
-		b.WriteString(fmt.Sprintf("    manager: %s\n", cfg.Passwords.Manager))
-		if cfg.Passwords.ShortcutTokenRef != "" {
-			b.WriteString(fmt.Sprintf("    shortcut token: %s\n", cfg.Passwords.ShortcutTokenRef))
+		b.WriteString("    shortcut token: " + wizard.HintStyle.Render("(env var $SHORTCUT_API_TOKEN)") + "\n")
+	}
+	if cfg.ClaudeBackend == agentBackendAPI {
+		if cfg.Passwords.AnthropicKeyRef != "" {
+			b.WriteString(fmt.Sprintf("    anthropic key:  %s\n", cfg.Passwords.AnthropicKeyRef))
 		} else {
-			b.WriteString("    shortcut token: " + wizard.HintStyle.Render("(env var $SHORTCUT_API_TOKEN)") + "\n")
-		}
-		if cfg.ClaudeBackend == agentBackendAPI {
-			if cfg.Passwords.AnthropicKeyRef != "" {
-				b.WriteString(fmt.Sprintf("    anthropic key:  %s\n", cfg.Passwords.AnthropicKeyRef))
-			} else {
-				b.WriteString("    anthropic key:  " + wizard.HintStyle.Render("(env var $ANTHROPIC_API_KEY)") + "\n")
-			}
+			b.WriteString("    anthropic key:  " + wizard.HintStyle.Render("(env var $ANTHROPIC_API_KEY)") + "\n")
 		}
 	}
 	b.WriteString("\n")

@@ -169,6 +169,28 @@ func (p OnePassword) Check(ctx context.Context) error {
 	return nil
 }
 
+// Signin runs `op signin` to warm up the 1Password desktop app
+// integration. Idempotent (per the op CLI: "It only prompts for
+// authentication if you aren't already authenticated"). Workflows that
+// fire multiple `op` subcommands should call this first to consolidate
+// the macOS "would like to access data from other apps" dialogs into a
+// single prompt — without signin, each `op` invocation can fire its
+// own dialog.
+func (p OnePassword) Signin(ctx context.Context) error {
+	if _, err := p.lookPath()("op"); err != nil {
+		return ErrCLIMissing
+	}
+	_, stderr, err := p.Runner.Run(ctx, "op", p.opArgs("signin"), nil)
+	if err != nil {
+		s := strings.ToLower(string(stderr))
+		if strings.Contains(s, "not signed in") || strings.Contains(s, "session") {
+			return ErrNotAuthenticated
+		}
+		return fmt.Errorf("op signin: %w (%s)", err, strings.TrimSpace(string(stderr)))
+	}
+	return nil
+}
+
 func (p OnePassword) Get(ctx context.Context, ref string) (string, error) {
 	if !strings.HasPrefix(ref, "op://") {
 		return "", fmt.Errorf("1password ref must start with op:// — got %q", ref)
