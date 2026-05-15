@@ -74,6 +74,34 @@ func TestOnePassword_Get_prependsAccountFlag(t *testing.T) {
 	}
 }
 
+func TestOnePassword_Signin_passesArgs(t *testing.T) {
+	fr := &fakeRunner{}
+	p := OnePassword{Runner: fr, LookPath: alwaysFound}
+	if err := p.Signin(context.Background()); err != nil {
+		t.Fatalf("signin: %v", err)
+	}
+	if len(fr.calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(fr.calls))
+	}
+	c := fr.calls[0]
+	if c.name != "op" || len(c.args) != 1 || c.args[0] != "signin" {
+		t.Errorf("args = %v, want [signin]", c.args)
+	}
+}
+
+func TestOnePassword_Signin_prependsAccountFlag(t *testing.T) {
+	fr := &fakeRunner{}
+	p := OnePassword{Runner: fr, LookPath: alwaysFound, Account: "576UUGKY"}
+	if err := p.Signin(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(fr.calls[0].args, " ")
+	want := "--account 576UUGKY signin"
+	if got != want {
+		t.Errorf("args = %q, want %q", got, want)
+	}
+}
+
 func TestOnePassword_Check_prependsAccountFlag(t *testing.T) {
 	fr := &fakeRunner{}
 	p := OnePassword{Runner: fr, LookPath: alwaysFound, Account: "576UUGKY"}

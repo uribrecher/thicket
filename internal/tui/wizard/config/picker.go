@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -848,9 +849,9 @@ func (sp *secretPicker) view(m *wizard.Model) string {
 			b.WriteString("\n")
 			b.WriteString("  " + wizard.WarnStyle.Render("macOS tip — silence the cross-app prompts") + "\n")
 			b.WriteString("  " + wizard.HintStyle.Render(
-				"Each `op` call fires a \"iTerm would like to access data from other apps\" prompt") + "\n")
+				"`op` calls fire \"iTerm would like to access data from other apps\" prompts.") + "\n")
 			b.WriteString("  " + wizard.HintStyle.Render(
-				"until iTerm is enabled in System Settings → Privacy & Security → App Management.") + "\n")
+				"To skip them, enable iTerm in System Settings → Privacy & Security → App Management.") + "\n")
 			b.WriteString("\n")
 			b.WriteString("  " + wizard.SectionStyle.Render("Open System Settings → App Management now?") + "  ")
 			b.WriteString(wizard.HighlightStyle.Render("[y]") + wizard.HintStyle.Render(" yes  ") +
@@ -878,6 +879,41 @@ func abbrevAccount(m *wizard.Model, uuid string) string {
 
 // ----- async loader commands -----
 
+// opAccountSignin tracks which 1Password accounts we've already run
+// `op signin --account <X>` for in this wizard process, so the
+// cascading `op item list` + `op item get` pair runs under one warmed
+// desktop-app integration (one macOS "access from other apps" dialog
+// per account, instead of one per subcommand).
+//
+// Signin only runs after the user has picked an account, so `op` is
+// always invoked with an explicit `--account` — never the interactive
+// account picker, which would steal /dev/tty from the Bubble Tea TUI.
+// The cheap `op account list` call still fires a dialog (no signin
+// shortcut available before we know an account), but the heavy
+// per-account flow that follows is consolidated.
+var opAccountSignin struct {
+	sync.Mutex
+	done map[string]error // account UUID → signin result (nil = success)
+}
+
+// ensureAccountSignin runs `op signin --account <account>` at most once
+// per account per process. Errors are cached so repeat callers see the
+// same outcome without re-shelling out.
+func ensureAccountSignin(ctx context.Context, account string) error {
+	opAccountSignin.Lock()
+	defer opAccountSignin.Unlock()
+	if opAccountSignin.done == nil {
+		opAccountSignin.done = map[string]error{}
+	}
+	if err, ok := opAccountSignin.done[account]; ok {
+		return err
+	}
+	op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
+	err := op.Signin(ctx)
+	opAccountSignin.done[account] = err
+	return err
+}
+
 func loadOpAccountsCmd(pickerID int) tea.Cmd {
 	return func() tea.Msg {
 		accs, err := secrets.ListOnePasswordAccounts(context.Background())
@@ -887,6 +923,9 @@ func loadOpAccountsCmd(pickerID int) tea.Cmd {
 
 func loadOpItemsCmd(pickerID int, account string) tea.Cmd {
 	return func() tea.Msg {
+		if err := ensureAccountSignin(context.Background(), account); err != nil {
+			return wizard.OpItemsLoadedMsg{PickerID: pickerID, Account: account, Err: err}
+		}
 		op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
 		items, err := op.ListItems(context.Background())
 		return wizard.OpItemsLoadedMsg{PickerID: pickerID, Account: account, Items: items, Err: err}
@@ -895,6 +934,9 @@ func loadOpItemsCmd(pickerID int, account string) tea.Cmd {
 
 func loadOpItemDetailCmd(pickerID int, account, itemID string) tea.Cmd {
 	return func() tea.Msg {
+		if err := ensureAccountSignin(context.Background(), account); err != nil {
+			return wizard.OpItemDetailLoadedMsg{PickerID: pickerID, ItemID: itemID, Err: err}
+		}
 		op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
 		detail, err := op.GetItem(context.Background(), itemID)
 		return wizard.OpItemDetailLoadedMsg{PickerID: pickerID, ItemID: itemID, Detail: detail, Err: err}
