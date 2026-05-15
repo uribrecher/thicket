@@ -3,9 +3,11 @@ package config
 import (
 	"github.com/uribrecher/thicket/internal/tui/wizard"
 
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -43,13 +45,20 @@ const (
 	gitFieldOrgs          = 2
 )
 
+// orgsProbeTimeout caps how long we'll wait for `gh api user/orgs`
+// before falling back to manual textinput entry. 5s comfortably
+// covers a healthy GitHub round-trip and aborts a wedged invocation
+// (auth prompt, network stall, slow API) before the user notices.
+const orgsProbeTimeout = 5 * time.Second
+
 // listUserOrgs is the gh-probe seam. Tests can swap it via the
 // package-level variable below. Default impl shells out to `gh api
-// user/orgs --jq '.[].login'` and splits the newline-separated
-// output. Empty result + nil error is the legitimate "user belongs
+// user/orgs --jq '.[].login'` with a context deadline so a wedged
+// `gh` can't leak a child process or pin the bubbletea goroutine
+// forever. Empty result + nil error is the legitimate "user belongs
 // to no orgs" case.
-var listUserOrgs = func() ([]string, error) {
-	out, err := exec.Command("gh", "api", "user/orgs", "--jq", ".[].login").Output()
+var listUserOrgs = func(ctx context.Context) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "gh", "api", "user/orgs", "--jq", ".[].login").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -114,10 +123,13 @@ func (p *gitPage) InitCmd(m *wizard.Model) tea.Cmd {
 }
 
 // loadUserOrgsCmd runs the gh probe off the bubbletea goroutine and
-// emits ConfigOrgsLoadedMsg.
+// emits ConfigOrgsLoadedMsg. Bounded by orgsProbeTimeout so a wedged
+// `gh` can't pin the goroutine or leak the child process.
 func loadUserOrgsCmd() tea.Cmd {
 	return func() tea.Msg {
-		orgs, err := listUserOrgs()
+		ctx, cancel := context.WithTimeout(context.Background(), orgsProbeTimeout)
+		defer cancel()
+		orgs, err := listUserOrgs(ctx)
 		return wizard.ConfigOrgsLoadedMsg{Orgs: orgs, Err: err}
 	}
 }
@@ -320,9 +332,14 @@ func (p *gitPage) View(m *wizard.Model) string {
 // textinput (fallback / single-org auto-fill) or picker (2+ orgs).
 // Caller is responsible for the section header and trailing hint
 // line.
+//
+// In the textinput branch we only surface a status line for the
+// "probe in flight" and "probe errored" cases. Once the probe has
+// completed successfully and the textinput has a value (the 1-org
+// auto-fill, or 0 orgs but the user has typed something), we keep
+// the surface quiet — no status line at all.
 func (p *gitPage) renderOrgsField(b *strings.Builder) {
-	switch {
-	case p.orgsPickerActive():
+	if p.orgsPickerActive() {
 		for i, name := range p.availOrgs {
 			cursor := "  "
 			if i == p.orgCursor && p.focus == gitFieldOrgs {
@@ -336,19 +353,17 @@ func (p *gitPage) renderOrgsField(b *strings.Builder) {
 			}
 			b.WriteString("    " + cursor + style.Render(check+" "+name) + "\n")
 		}
-		b.WriteString("    " + wizard.HintStyle.Render(fmt.Sprintf("auto-detected via `gh api user/orgs` — %d of %d selected",
+		b.WriteString("    " + wizard.HintStyle.Render(fmt.Sprintf(
+			"auto-detected via `gh api user/orgs` — %d of %d selected · typing disabled here (edit ~/.config/thicket/config.toml afterward to add an org gh doesn't see)",
 			p.countSelected(), len(p.availOrgs))) + "\n")
-	default:
-		b.WriteString("    " + p.inputs[gitFieldOrgs].View() + "\n")
-		switch {
-		case !p.probeDone:
-			b.WriteString("    " + wizard.HintStyle.Render("checking gh for your org memberships…") + "\n")
-		case p.probeErr != nil:
-			b.WriteString("    " + wizard.HintStyle.Render("(couldn't reach gh — type orgs manually, comma-separated)") + "\n")
-		case len(p.inputs[gitFieldOrgs].Value()) > 0 && p.probeDone:
-			// One-org auto-fill case (or probe returned 0 and the
-			// user has started typing) — keep the surface quiet.
-		}
+		return
+	}
+	b.WriteString("    " + p.inputs[gitFieldOrgs].View() + "\n")
+	switch {
+	case !p.probeDone:
+		b.WriteString("    " + wizard.HintStyle.Render("checking gh for your org memberships…") + "\n")
+	case p.probeErr != nil:
+		b.WriteString("    " + wizard.HintStyle.Render("(couldn't reach gh — type orgs manually, comma-separated)") + "\n")
 	}
 }
 
