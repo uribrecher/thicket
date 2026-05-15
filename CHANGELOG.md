@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **`thicket init` is now `thicket config`.** The wizard reads and writes
+  `~/.config/thicket/config.toml`, so `config` describes the user-visible
+  thing it does (and avoids the confusion of "init" looking like
+  `git init`). `thicket init` is no longer recognized — re-run with
+  `thicket config`. The wizard's behavior is otherwise unchanged.
 
 ## [0.3.0] - 2026-05-14
 

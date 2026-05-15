@@ -15,6 +15,7 @@ import (
 	"github.com/uribrecher/thicket/internal/ticket"
 	"github.com/uribrecher/thicket/internal/tui"
 	"github.com/uribrecher/thicket/internal/tui/wizard"
+	"github.com/uribrecher/thicket/internal/tui/wizard/edit"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
 
@@ -66,7 +67,7 @@ func runEdit(cmd *cobra.Command, args []string) error {
 		Git:                  gitops.New(),
 		PreselectedWorkspace: preselected,
 	}
-	res, err := wizard.RunEdit(deps)
+	res, err := edit.Run(deps)
 	if err != nil {
 		if errors.Is(err, tui.ErrCancelled) {
 			fmt.Fprintln(out, "cancelled.")

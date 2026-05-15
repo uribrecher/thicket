@@ -45,7 +45,7 @@ func loadConfigOrPointAtInit() (*config.Config, error) {
 	}
 	cfg, err := config.Load(cfgPath)
 	if errors.Is(err, config.ErrNoConfig) {
-		return nil, errors.New("config not found — run `thicket init`")
+		return nil, errors.New("config not found — run `thicket config`")
 	}
 	return cfg, err
 }

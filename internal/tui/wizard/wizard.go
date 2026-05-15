@@ -1,96 +1,37 @@
-// Package wizard implements the multi-page Bubble Tea UI for
-// `thicket start`. The flow is three pages — Ticket, Repos, Plan —
-// rendered as horizontal tabs at the top of the screen. The active
-// step is a filled pill (black on bright pink), completed steps are green,
-// and untouched steps are dim gray. Left/right arrow keys move between
-// completed steps; Esc cancels. Enter is deliberately NOT a wizard-level binding — each
-// page binds it to its own commit action (Ticket picks a row, Repos
-// toggles, Plan triggers Create) so the footer never lies about what
-// Enter does.
+// Package wizard hosts the shared Bubble Tea shell that the three
+// per-flow wizards — start, edit, config — all reuse. The shell
+// owns the Model, the Page interface, the tab/footer rendering,
+// global key routing (esc/ctrl+c cancel, ←/→ between completed
+// steps), and the cross-flow message types.
 //
-// The wizard owns:
-//   - a unified Bubble Tea Model that routes messages to the active page
-//   - shared cross-page state (picked ticket, LLM picks cache, chosen repos)
-//   - the in-page clone phase (a clone failure drops that repo from
-//     the workspace; the rest proceed). workspace.Create itself runs
-//     in plain stdout AFTER the wizard exits — bubbletea has torn
-//     down its UI by then, so its progress lines render as normal
-//     terminal output.
+// The actual flows live one directory deeper:
+//
+//	wizard/start/  — Ticket → Repos → Plan
+//	wizard/edit/   — Workspace → Repos → Submit
+//	wizard/config/ — Welcome? → Git → Tickets? → Agent → Submit
+//
+// Each sub-package contributes its own pages + Run entry point and
+// constructs a *wizard.Model with its mode-specific fields set
+// (Deps / EditDeps / ConfigDeps + the appropriate result bucket).
+//
+// Enter is deliberately NOT a wizard-level binding — each page
+// binds it to its own commit action (e.g. Ticket picks a row,
+// Repos toggles, Plan triggers Create) so the footer never lies
+// about what Enter does.
 package wizard
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/uribrecher/thicket/internal/catalog"
-	"github.com/uribrecher/thicket/internal/config"
 	"github.com/uribrecher/thicket/internal/detector"
-	gitops "github.com/uribrecher/thicket/internal/git"
 	"github.com/uribrecher/thicket/internal/secrets"
 	"github.com/uribrecher/thicket/internal/ticket"
 	"github.com/uribrecher/thicket/internal/tui"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
-
-// Deps wires the wizard to the rest of thicket without importing
-// cmd/thicket — keeps the dependency graph one-way.
-type Deps struct {
-	Ctx    context.Context
-	Cfg    *config.Config
-	Src    ticket.Source
-	Lister ticket.Lister // may be nil; callers that wired non-listers get an error page
-	Repos  []catalog.Repo
-	Detect func(ctx context.Context, tk ticket.Ticket, repos []catalog.Repo) ([]detector.RepoMatch, error)
-	// Summarize, when set, returns up to detector.SummaryLines short
-	// summary lines for the picked ticket. May be nil — the wizard
-	// falls back to the first non-empty lines of the description so
-	// the panel always renders something useful.
-	Summarize func(ctx context.Context, tk ticket.Ticket) ([]string, error)
-	Git       *gitops.Git
-	Flags     Flags
-
-	// FindExistingWorkspace returns the path of an already-managed
-	// workspace for the given ticket id, or "" if none exists. The
-	// wizard calls it after a ticket is committed; a non-empty result
-	// short-circuits the rest of the flow and triggers a "reuse" exit.
-	FindExistingWorkspace func(ticketID string) string
-
-	// Preselected, when non-nil, makes the wizard skip the picker on
-	// the Ticket page and start on Repos. Used by the args-path of
-	// `thicket start <id>` so the user doesn't have to re-pick a
-	// ticket they already named on the command line.
-	Preselected *ticket.Ticket
-}
-
-// Flags is the subset of CLI flags the wizard needs to honor.
-type Flags struct {
-	Branch string
-	DryRun bool
-}
-
-// SkipReport records one repo the wizard dropped from the workspace
-// because its clone failed. runStart prints these to stderr after the
-// wizard exits so the user sees what was skipped.
-type SkipReport struct {
-	Name   string
-	Reason string
-}
-
-// Result is what wizard.Run hands back to runStart on success.
-type Result struct {
-	Ticket  ticket.Ticket
-	Plan    workspace.Plan
-	Skipped []SkipReport
-
-	// ReuseDir, when non-empty, signals the wizard short-circuited
-	// because the ticket already had a managed workspace. The caller
-	// should skip Create and launch Claude directly in ReuseDir.
-	ReuseDir string
-}
 
 // Page is one screen of the wizard.
 type Page interface {
@@ -108,129 +49,81 @@ type Page interface {
 // Tea program; the active page receives forwarded messages plus
 // occasional `enter`-state callbacks from the parent.
 type Model struct {
-	deps   Deps
-	pages  []Page
-	active int
+	Deps   Deps
+	Pages  []Page
+	Active int
 
 	// Shared cross-page state.
-	ticket       ticket.Ticket // last committed ticket
-	ticketID     string        // cache key; "" before page 0 commits
-	llmCache     map[string][]detector.RepoMatch
-	summaryCache map[string][]string // ticketID → LLM-generated summary lines
-	chosen       []catalog.Repo
-	cloneInclude map[string]bool
+	Ticket       ticket.Ticket // last committed ticket
+	TicketID     string        // cache key; "" before page 0 commits
+	LLMCache     map[string][]detector.RepoMatch
+	SummaryCache map[string][]string // ticketID → LLM-generated summary lines
+	Chosen       []catalog.Repo
+	CloneInclude map[string]bool
 
 	// Terminal size — bubbletea sends WindowSizeMsg on resize.
-	width  int
-	height int
+	Width  int
+	Height int
 
 	// Terminal state.
-	err    error
-	done   bool
-	result Result
+	Err    error
+	Done   bool
+	Result Result
 
 	// ----- edit-flow state -----
-	// editMode flips the wizard into "thicket edit" plumbing. The
-	// start-flow fields above are then unused (and editDeps replaces
-	// deps for the page callbacks that need it). Pages can dispatch
+	// EditMode flips the wizard into "thicket edit" plumbing. The
+	// start-flow fields above are then unused (and EditDeps replaces
+	// Deps for the page callbacks that need it). Pages can dispatch
 	// on this flag, though most edit pages live in their own files
 	// and never look at it.
-	editMode          bool
-	editDeps          EditDeps
-	selectedWorkspace *workspace.ManagedWorkspace
-	additions         []catalog.Repo // repos the user picked to add
-	editResult        EditResult
+	EditMode          bool
+	EditDeps          EditDeps
+	SelectedWorkspace *workspace.ManagedWorkspace
+	Additions         []catalog.Repo // repos the user picked to add
+	EditResult        EditResult
 
-	// ----- init-flow state -----
-	// initMode flips the wizard into "thicket init" plumbing. The
-	// start/edit fields above are then unused — the init pages mutate
-	// initDeps.Cfg directly as the user fills in each page. On
+	// ----- config-flow state -----
+	// ConfigMode flips the wizard into "thicket config" plumbing. The
+	// start/edit fields above are then unused — the config pages mutate
+	// ConfigDeps.Cfg directly as the user fills in each page. On
 	// Submit-confirm the wizard hands the populated Cfg back as
-	// initResult.Cfg; the post-wizard runInit does the validate + save.
-	initMode   bool
-	initDeps   InitDeps
-	initResult InitResult
+	// ConfigResult.Cfg; the post-wizard runConfig does the validate + save.
+	ConfigMode   bool
+	ConfigDeps   ConfigDeps
+	ConfigResult ConfigResult
 
-	// initOpAccounts caches `op account list` once per wizard session
+	// ConfigOpAccounts caches `op account list` once per wizard session
 	// so toggling between Tickets and Agent pages doesn't fire a
 	// second `op` call. nil before first load.
-	initOpAccounts []secrets.OnePasswordAccount
-	// initOpItemCache memoizes per-account `op item list` results so
+	ConfigOpAccounts []secrets.OnePasswordAccount
+	// ConfigOpItemCache memoizes per-account `op item list` results so
 	// the user only pays one biometric prompt per account across all
-	// init pages.
-	initOpItemCache map[string][]secrets.OnePasswordItem
+	// config pages.
+	ConfigOpItemCache map[string][]secrets.OnePasswordItem
 
-	// initOpHintDismissed records whether the user has dismissed the
+	// ConfigOpHintDismissed records whether the user has dismissed the
 	// macOS "grant iTerm App Management" hint that the secret picker
 	// shows after the first 1Password walk-through. Lives on the
 	// Model (not the picker) so dismissing it on the Tickets page
 	// doesn't make it re-appear on the Agent page.
-	initOpHintDismissed bool
-}
-
-// Run shows the wizard. Returns the Result on success, tui.ErrCancelled
-// if the user pressed Esc/Ctrl-C, or any other error from the underlying
-// Bubble Tea program. A short-circuit reuse exit returns a Result with
-// ReuseDir set; runStart inspects that and launches Claude directly.
-func Run(deps Deps) (Result, error) {
-	if deps.Ctx == nil {
-		deps.Ctx = context.Background()
-	}
-	m := newModel(deps)
-	finalModel, err := tea.NewProgram(m).Run()
-	if err != nil {
-		return Result{}, err
-	}
-	fm := finalModel.(*Model)
-	if errors.Is(fm.err, tui.ErrCancelled) {
-		return Result{}, tui.ErrCancelled
-	}
-	if fm.err != nil {
-		return Result{}, fm.err
-	}
-	return fm.result, nil
-}
-
-func newModel(deps Deps) *Model {
-	m := &Model{
-		deps:         deps,
-		llmCache:     make(map[string][]detector.RepoMatch),
-		summaryCache: make(map[string][]string),
-		cloneInclude: make(map[string]bool),
-	}
-	m.pages = []Page{
-		newTicketPage(),
-		newReposPage(),
-		newPlanPage(),
-	}
-	// Preselected-ticket path: seed the Ticket page so it renders
-	// read-only summary, and start the wizard on Repos. The user can
-	// still go ← to peek at the ticket details.
-	if deps.Preselected != nil {
-		tp := m.pages[0].(*ticketPage)
-		tp.preseed(*deps.Preselected)
-		m.ticket = *deps.Preselected
-		m.ticketID = deps.Preselected.SourceID
-		m.active = 1
-	}
-	return m
+	ConfigOpHintDismissed bool
 }
 
 // Init kicks off any page-init commands. The Ticket page fires its
 // ListAssigned cmd here. Pages that don't need a startup cmd simply
-// don't implement initCmder.
+// don't implement InitCmder.
 func (m *Model) Init() tea.Cmd {
-	if ic, ok := m.pages[m.active].(initCmder); ok {
-		return ic.initCmd(m)
+	if ic, ok := m.Pages[m.Active].(InitCmder); ok {
+		return ic.InitCmd(m)
 	}
 	return nil
 }
 
-// initCmder lets the wizard fire each page's startup cmd at the moment
+// InitCmder lets the wizard fire each page's startup cmd at the moment
 // it becomes active for the first time, without forcing pages to know
 // about each other.
-type initCmder interface {
-	initCmd(m *Model) tea.Cmd
+type InitCmder interface {
+	InitCmd(m *Model) tea.Cmd
 }
 
 // Update routes messages: global keys first (cancel + nav), then
@@ -239,7 +132,7 @@ type initCmder interface {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width, m.height = v.Width, v.Height
+		m.Width, m.Height = v.Width, v.Height
 
 	case tea.KeyMsg:
 		// Global keys take precedence over page-local handling so the
@@ -251,11 +144,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// that need it.
 		switch v.String() {
 		case "ctrl+c", "esc":
-			m.err = tui.ErrCancelled
+			m.Err = tui.ErrCancelled
 			return m, tea.Quit
 		case "left":
 			if m.canGoPrev() {
-				return m.gotoPage(m.active - 1)
+				return m.gotoPage(m.Active - 1)
 			}
 			return m, nil
 		case "right":
@@ -265,106 +158,106 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-	case goNextMsg:
-		// Pages can emit goNextMsg to auto-advance once they finish
+	case GoNextMsg:
+		// Pages can emit GoNextMsg to auto-advance once they finish
 		// their own commit work (e.g. the Ticket page after Fetch).
 		// We intercept it here and route through advance() instead of
 		// letting the default fallthrough re-deliver it to the active
-		// page — advance() itself re-sends goNextMsg to the page, so
+		// page — advance() itself re-sends GoNextMsg to the page, so
 		// double-forwarding would cause the page to see two of them.
 		if m.canGoNext() {
 			return m.advance()
 		}
 		return m, nil
 
-	case cancelledMsg:
-		m.err = tui.ErrCancelled
+	case CancelledMsg:
+		m.Err = tui.ErrCancelled
 		return m, tea.Quit
 
-	case existingWorkspaceMsg:
-		m.result.ReuseDir = v.path
-		m.result.Ticket = m.ticket
-		m.done = true
+	case ExistingWorkspaceMsg:
+		m.Result.ReuseDir = v.Path
+		m.Result.Ticket = m.Ticket
+		m.Done = true
 		return m, tea.Quit
 
-	case ticketCommittedMsg:
+	case TicketCommittedMsg:
 		// Cache + chosen invalidation policy: if the user changed
 		// tickets (or this is the first commit), wipe downstream
 		// state so we don't carry over picks/toggles from the old id.
-		if v.tk.SourceID != m.ticketID {
-			delete(m.llmCache, m.ticketID)
-			delete(m.summaryCache, m.ticketID)
-			m.chosen = nil
-			m.cloneInclude = make(map[string]bool)
+		if v.Tk.SourceID != m.TicketID {
+			delete(m.LLMCache, m.TicketID)
+			delete(m.SummaryCache, m.TicketID)
+			m.Chosen = nil
+			m.CloneInclude = make(map[string]bool)
 		}
-		m.ticket = v.tk
-		m.ticketID = v.tk.SourceID
+		m.Ticket = v.Tk
+		m.TicketID = v.Tk.SourceID
 		// Fall through so the active page sees the message too.
 
-	case picksLoadedMsg:
-		if v.err == nil && v.ticketID == m.ticketID {
-			m.llmCache[v.ticketID] = v.picks
+	case PicksLoadedMsg:
+		if v.Err == nil && v.TicketID == m.TicketID {
+			m.LLMCache[v.TicketID] = v.Picks
 		}
 		// Fall through so the Repos page can render the result.
 
-	case summarizedMsg:
+	case SummarizedMsg:
 		// Cache wins-once-set. Summary failures are silent: the
 		// renderer falls back to the dumb first-N-lines view, so we
 		// just drop the message. Returning here keeps the active page
 		// out of summarized-state plumbing entirely.
-		if v.err == nil && v.ticketID == m.ticketID && len(v.lines) > 0 {
-			m.summaryCache[v.ticketID] = v.lines
+		if v.Err == nil && v.TicketID == m.TicketID && len(v.Lines) > 0 {
+			m.SummaryCache[v.TicketID] = v.Lines
 		}
 		return m, nil
 
-	case reposCommittedMsg:
-		m.chosen = append(m.chosen[:0], v.chosen...)
+	case ReposCommittedMsg:
+		m.Chosen = append(m.Chosen[:0], v.Chosen...)
 		// Fall through.
 
-	case createDoneMsg:
-		if v.err != nil {
-			m.err = v.err
+	case CreateDoneMsg:
+		if v.Err != nil {
+			m.Err = v.Err
 			return m, tea.Quit
 		}
-		m.result = v.result
-		m.result.Ticket = m.ticket
-		m.done = true
+		m.Result = v.Result
+		m.Result.Ticket = m.Ticket
+		m.Done = true
 		return m, tea.Quit
 
-	case workspaceCommittedMsg:
-		m.selectedWorkspace = v.ws
+	case WorkspaceCommittedMsg:
+		m.SelectedWorkspace = v.Ws
 		// Fall through so the active page sees the message too.
 
-	case additionsCommittedMsg:
-		m.additions = append(m.additions[:0], v.additions...)
+	case AdditionsCommittedMsg:
+		m.Additions = append(m.Additions[:0], v.Additions...)
 		// Fall through.
 
-	case editDoneMsg:
-		if v.err != nil {
-			m.err = v.err
+	case EditDoneMsg:
+		if v.Err != nil {
+			m.Err = v.Err
 			return m, tea.Quit
 		}
-		m.editResult = v.result
-		if m.selectedWorkspace != nil {
-			m.editResult.Workspace = *m.selectedWorkspace
+		m.EditResult = v.Result
+		if m.SelectedWorkspace != nil {
+			m.EditResult.Workspace = *m.SelectedWorkspace
 		}
-		m.done = true
+		m.Done = true
 		return m, tea.Quit
 
-	case initDoneMsg:
-		if v.err != nil {
-			m.err = v.err
+	case ConfigDoneMsg:
+		if v.Err != nil {
+			m.Err = v.Err
 			return m, tea.Quit
 		}
-		m.initResult.Cfg = m.initDeps.Cfg
-		m.initResult.Confirmed = true
-		m.done = true
+		m.ConfigResult.Cfg = m.ConfigDeps.Cfg
+		m.ConfigResult.Confirmed = true
+		m.Done = true
 		return m, tea.Quit
 	}
 
 	// Forward to the active page.
-	page, cmd := m.pages[m.active].Update(m, msg)
-	m.pages[m.active] = page
+	page, cmd := m.Pages[m.Active].Update(m, msg)
+	m.Pages[m.Active] = page
 	return m, cmd
 }
 
@@ -374,7 +267,7 @@ func (m *Model) View() string {
 	var b strings.Builder
 	b.WriteString(m.renderHeader())
 	b.WriteString("\n\n")
-	b.WriteString(m.pages[m.active].View(m))
+	b.WriteString(m.Pages[m.Active].View(m))
 	b.WriteString("\n")
 	b.WriteString(m.renderFooter())
 	b.WriteString("\n")
@@ -386,19 +279,19 @@ func (m *Model) View() string {
 // pending steps are dim gray. No underline row, no ✓ glyphs —
 // foreground/background contrast does the wayfinding.
 func (m *Model) renderHeader() string {
-	cells := make([]string, len(m.pages))
-	for i, p := range m.pages {
+	cells := make([]string, len(m.Pages))
+	for i, p := range m.Pages {
 		label := p.Title()
 		switch {
-		case i == m.active:
-			cells[i] = activeTabStyle.Render(label)
-		case i < m.active:
-			cells[i] = completedTabStyle.Render(label)
+		case i == m.Active:
+			cells[i] = ActiveTabStyle.Render(label)
+		case i < m.Active:
+			cells[i] = CompletedTabStyle.Render(label)
 		default:
-			cells[i] = pendingTabStyle.Render(label)
+			cells[i] = PendingTabStyle.Render(label)
 		}
 	}
-	return "  " + strings.Join(cells, tabSepStyle.Render(" "))
+	return "  " + strings.Join(cells, TabSepStyle.Render(" "))
 }
 
 // renderFooter draws a single hint line combining the active page's
@@ -407,7 +300,7 @@ func (m *Model) renderHeader() string {
 // hint block is gone so we never repeat ourselves.
 func (m *Model) renderFooter() string {
 	parts := []string{}
-	if pageHints := m.pages[m.active].Hints(); pageHints != "" {
+	if pageHints := m.Pages[m.Active].Hints(); pageHints != "" {
 		parts = append(parts, pageHints)
 	}
 	if m.canGoPrev() {
@@ -417,17 +310,17 @@ func (m *Model) renderFooter() string {
 		parts = append(parts, "→ next")
 	}
 	parts = append(parts, "esc cancel")
-	return "  " + hintStyle.Render(strings.Join(parts, " · "))
+	return "  " + HintStyle.Render(strings.Join(parts, " · "))
 }
 
 // canGoPrev reports whether ← should be honored. Disabled while the
 // Plan page is mid-create so the user can't unwind a half-created
 // workspace.
 func (m *Model) canGoPrev() bool {
-	if m.active == 0 {
+	if m.Active == 0 {
 		return false
 	}
-	if pp, ok := m.pages[m.active].(navLocker); ok && pp.locked() {
+	if pp, ok := m.Pages[m.Active].(NavLocker); ok && pp.Locked() {
 		return false
 	}
 	return true
@@ -436,16 +329,16 @@ func (m *Model) canGoPrev() bool {
 // canGoNext reports whether → / enter (on a non-last page) should
 // advance.
 func (m *Model) canGoNext() bool {
-	if m.active >= len(m.pages)-1 {
+	if m.Active >= len(m.Pages)-1 {
 		return false
 	}
-	return m.pages[m.active].Complete()
+	return m.Pages[m.Active].Complete()
 }
 
-// navLocker is implemented by pages that need to block tab nav (e.g.
+// NavLocker is implemented by pages that need to block tab nav (e.g.
 // the Plan page while a workspace is being created).
-type navLocker interface {
-	locked() bool
+type NavLocker interface {
+	Locked() bool
 }
 
 // advance moves to the next page and fires its init cmd if it has one.
@@ -453,26 +346,26 @@ type navLocker interface {
 // Update — the page emits its own commit message in response, which
 // the wizard's Update intercepts before bouncing back here.
 //
-// If the page set m.done synchronously (e.g. Ticket page detecting
+// If the page set m.Done synchronously (e.g. Ticket page detecting
 // an existing workspace and short-circuiting to "reuse"), we skip
 // the active++ + init cmd entirely. Otherwise we'd kick off the next
 // page's expensive setup (LLM detect on Repos, plan build on Plan)
 // only to throw it away when the program quits.
 func (m *Model) advance() (tea.Model, tea.Cmd) {
 	// Let the current page collect its commit message before we move on.
-	// We achieve this by routing a synthetic goNextMsg to the page;
+	// We achieve this by routing a synthetic GoNextMsg to the page;
 	// the page returns a cmd that yields the appropriate commit msg.
-	page, cmd := m.pages[m.active].Update(m, goNextMsg{})
-	m.pages[m.active] = page
-	if m.done {
+	page, cmd := m.Pages[m.Active].Update(m, GoNextMsg{})
+	m.Pages[m.Active] = page
+	if m.Done {
 		return m, cmd
 	}
-	if m.active < len(m.pages)-1 {
-		m.active++
+	if m.Active < len(m.Pages)-1 {
+		m.Active++
 		// Fire init cmd for the newly-active page if it has one.
-		if ic, ok := m.pages[m.active].(initCmder); ok {
-			if initCmd := ic.initCmd(m); initCmd != nil {
-				return m, tea.Batch(cmd, initCmd)
+		if ic, ok := m.Pages[m.Active].(InitCmder); ok {
+			if InitCmd := ic.InitCmd(m); InitCmd != nil {
+				return m, tea.Batch(cmd, InitCmd)
 			}
 		}
 	}
@@ -482,74 +375,9 @@ func (m *Model) advance() (tea.Model, tea.Cmd) {
 // gotoPage moves back to a previous (completed) page without firing
 // its init cmd — going back is a peek, not a re-run.
 func (m *Model) gotoPage(idx int) (tea.Model, tea.Cmd) {
-	if idx < 0 || idx >= len(m.pages) {
+	if idx < 0 || idx >= len(m.Pages) {
 		return m, nil
 	}
-	m.active = idx
+	m.Active = idx
 	return m, nil
-}
-
-// Render-time helper shared by page bodies: indent each line by `n`
-// spaces so the body sits flush under the tab bar at a consistent
-// inset. Empty lines stay empty (no trailing spaces).
-func indent(s string, n int) string {
-	if s == "" {
-		return s
-	}
-	pad := strings.Repeat(" ", n)
-	lines := strings.Split(s, "\n")
-	for i, ln := range lines {
-		if ln == "" {
-			continue
-		}
-		lines[i] = pad + ln
-	}
-	return strings.Join(lines, "\n")
-}
-
-// fmtErr formats a chain of errors for inline rendering.
-func fmtErr(err error) string {
-	return fmt.Sprintf("error: %s", err.Error())
-}
-
-// renderTicketSummary draws a short header for the picked ticket:
-// "<id> — <title>" plus an up-to-3-line summary, requester, and the
-// first 3 labels. `summary` is the LLM-generated summary when available
-// (nil while the call is in flight or when no Summarizer is wired);
-// in that case the renderer falls back to the first non-empty lines of
-// the description so the panel always shows context.
-//
-// Returns "" when there is no ticket to summarize so callers can
-// skip the surrounding padding.
-func renderTicketSummary(tk ticket.Ticket, summary []string) string {
-	if tk.SourceID == "" && tk.Title == "" {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString(warnStyle.Render(fmt.Sprintf("%s — %s", tk.SourceID, tk.Title)))
-	b.WriteString("\n")
-	lines := summary
-	if len(lines) == 0 {
-		lines = firstNonEmptyLines(tk.Body, detector.SummaryLines)
-	}
-	// Defensive clamp — Summarize promises "up to SummaryLines", but a
-	// future backend that ignores the cap shouldn't be able to blow
-	// out the summary panel.
-	if len(lines) > detector.SummaryLines {
-		lines = lines[:detector.SummaryLines]
-	}
-	for _, line := range lines {
-		b.WriteString("  " + line + "\n")
-	}
-	if tk.Requester != "" {
-		b.WriteString("  " + hintStyle.Render("requester: "+tk.Requester) + "\n")
-	}
-	if len(tk.Labels) > 0 {
-		shown := tk.Labels
-		if len(shown) > 3 {
-			shown = shown[:3]
-		}
-		b.WriteString("  " + hintStyle.Render("labels: "+strings.Join(shown, ", ")) + "\n")
-	}
-	return b.String()
 }

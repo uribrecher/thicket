@@ -1,6 +1,8 @@
-package wizard
+package config
 
 import (
+	"github.com/uribrecher/thicket/internal/tui/wizard"
+
 	"context"
 	"strings"
 	"testing"
@@ -26,14 +28,14 @@ func TestInitModelFirstRunPages(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
 
 	want := []string{"Welcome", "Git", "Tickets", "Agent", "Submit"}
-	if len(m.pages) != len(want) {
-		t.Fatalf("page count = %d, want %d", len(m.pages), len(want))
+	if len(m.Pages) != len(want) {
+		t.Fatalf("page count = %d, want %d", len(m.Pages), len(want))
 	}
 	for i, w := range want {
-		if got := m.pages[i].Title(); got != w {
+		if got := m.Pages[i].Title(); got != w {
 			t.Errorf("page[%d].Title() = %q, want %q", i, got, w)
 		}
 	}
@@ -46,13 +48,13 @@ func TestInitModelSkipWelcomeOnReRun(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 
-	if m.pages[0].Title() == "Welcome" {
+	if m.Pages[0].Title() == "Welcome" {
 		t.Fatalf("Welcome page included on re-run")
 	}
-	if m.pages[0].Title() != "Git" {
-		t.Errorf("first page = %q, want Git", m.pages[0].Title())
+	if m.Pages[0].Title() != "Git" {
+		t.Errorf("first page = %q, want Git", m.Pages[0].Title())
 	}
 }
 
@@ -63,9 +65,9 @@ func TestInitModelSkipTicketsWithEnv(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
 
-	for _, p := range m.pages {
+	for _, p := range m.Pages {
 		if p.Title() == "Tickets" {
 			t.Fatalf("Tickets page included even though SHORTCUT_API_TOKEN is set")
 		}
@@ -82,29 +84,29 @@ func TestInitSubmitConfirms(t *testing.T) {
 	d.GithubOrgs = []string{"my-org"}
 	d.ClaudeBackend = "cli"
 
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 	// Re-run + both env vars set → only Git, Agent, Submit pages.
-	m.active = len(m.pages) - 1
-	if m.pages[m.active].Title() != "Submit" {
-		t.Fatalf("active page = %q, want Submit", m.pages[m.active].Title())
+	m.Active = len(m.Pages) - 1
+	if m.Pages[m.Active].Title() != "Submit" {
+		t.Fatalf("active page = %q, want Submit", m.Pages[m.Active].Title())
 	}
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	mm := updated.(*Model)
-	// The submit page emits initDoneMsg as a cmd; deliver it.
-	page, _ := mm.pages[mm.active].Update(mm, tea.KeyMsg{Type: tea.KeyEnter})
-	mm.pages[mm.active] = page
+	mm := updated.(*wizard.Model)
+	// The submit page emits wizard.ConfigDoneMsg as a cmd; deliver it.
+	page, _ := mm.Pages[mm.Active].Update(mm, tea.KeyMsg{Type: tea.KeyEnter})
+	mm.Pages[mm.Active] = page
 	// Run the cmd manually.
-	_, cmd := mm.pages[mm.active].Update(mm, tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := mm.Pages[mm.Active].Update(mm, tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatalf("submit page did not produce a cmd on Enter")
 	}
 	msg := cmd()
 	mm.Update(msg)
-	if !mm.initResult.Confirmed {
+	if !mm.ConfigResult.Confirmed {
 		t.Errorf("Confirmed not set after submit Enter")
 	}
-	if mm.initResult.Cfg == nil {
+	if mm.ConfigResult.Cfg == nil {
 		t.Errorf("Cfg nil after confirm")
 	}
 }
@@ -119,19 +121,19 @@ func TestSecretPicker1PFieldPickerSkippedOnSingle(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
-	tp := findPage(t, m, "Tickets").(*initTicketsPage)
-	tp.initCmd(m)
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	tp := findPage(t, m, "Tickets").(*ticketsPage)
+	tp.InitCmd(m)
 	sp := tp.picker
 
 	sp.state = stateOpLoadingItemDetail
 	sp.chosenAccount = "acct-1"
 	it := secretsItem("itm-1", "Shortcut Token")
 	sp.chosenItem = &it
-	sp.onItemDetailLoaded(opItemDetailLoadedMsg{
-		pickerID: sp.id,
-		itemID:   "itm-1",
-		detail: &secrets.OnePasswordItemDetail{
+	sp.onItemDetailLoaded(wizard.OpItemDetailLoadedMsg{
+		PickerID: sp.id,
+		ItemID:   "itm-1",
+		Detail: &secrets.OnePasswordItemDetail{
 			ID:    "itm-1",
 			Title: "Shortcut Token",
 			Fields: []secrets.OnePasswordField{
@@ -151,8 +153,7 @@ func TestSecretPicker1PFieldPickerSkippedOnSingle(t *testing.T) {
 	}
 }
 
-// TestSecretPickerPreseedJumpsToValidated covers the re-run path:
-// an existing op:// ref in config should drop the picker straight
+// TestSecretPickerPreseedJumpsToValidated covers the re-run Path: // an existing op:// ref in config should drop the picker straight
 // into stateValidated so the user doesn't have to re-walk the
 // account → item → field cascade just to confirm what's already
 // saved.
@@ -177,7 +178,7 @@ func TestDarwinHintGatedOnWalk1P(t *testing.T) {
 	sp := newSecretPicker("Shortcut API token", "SHORTCUT_API_TOKEN")
 	sp.preseed("1password", "op://Prod/Shortcut/credential")
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 	if sp.shouldShowDarwinHint(m) {
 		t.Errorf("hint shown even though user did not walk the 1P picker (walked1P=%v)", sp.walked1P)
 	}
@@ -192,10 +193,10 @@ func TestDarwinHintSuppressedOnDismiss(t *testing.T) {
 	sp.state = stateValidated
 	sp.chosenMgr = "1password"
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
-	m.initOpHintDismissed = true
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m.ConfigOpHintDismissed = true
 	if sp.shouldShowDarwinHint(m) {
-		t.Errorf("hint shown despite m.initOpHintDismissed=true")
+		t.Errorf("hint shown despite m.ConfigOpHintDismissed=true")
 	}
 }
 
@@ -206,25 +207,25 @@ func TestDarwinHintSuppressedOnDismiss(t *testing.T) {
 func TestSecretPickerStaleMsgsDropped(t *testing.T) {
 	t.Setenv("SHORTCUT_API_TOKEN", "")
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
-	tp := findPage(t, m, "Tickets").(*initTicketsPage)
-	tp.initCmd(m)
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	tp := findPage(t, m, "Tickets").(*ticketsPage)
+	tp.InitCmd(m)
 	sp := tp.picker
 	sp.state = stateOpLoadingItems
 	sp.chosenAccount = "acct-1"
-	sp.update(m, opItemsLoadedMsg{
-		pickerID: sp.id + 99, // someone else's load
-		account:  "acct-1",
-		items:    []secrets.OnePasswordItem{secretsItem("x", "Other")},
+	sp.update(m, wizard.OpItemsLoadedMsg{
+		PickerID: sp.id + 99, // someone else's load
+		Account:  "acct-1",
+		Items:    []secrets.OnePasswordItem{secretsItem("x", "Other")},
 	})
 	if sp.state != stateOpLoadingItems {
 		t.Errorf("stale msg leaked into picker state (now %v)", sp.state)
 	}
 }
 
-func findPage(t *testing.T, m *Model, title string) Page {
+func findPage(t *testing.T, m *wizard.Model, title string) wizard.Page {
 	t.Helper()
-	for _, pg := range m.pages {
+	for _, pg := range m.Pages {
 		if pg.Title() == title {
 			return pg
 		}
@@ -234,22 +235,22 @@ func findPage(t *testing.T, m *Model, title string) Page {
 }
 
 // TestInitGitPageCommitsOnAdvance writes the input values back to the
-// shared config when the page receives goNextMsg.
+// shared config when the page receives wizard.GoNextMsg.
 func TestInitGitPageCommitsOnAdvance(t *testing.T) {
 	t.Setenv("SHORTCUT_API_TOKEN", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newInitModel(InitDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
-	gp, ok := m.pages[0].(*initGitPage)
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	gp, ok := m.Pages[0].(*gitPage)
 	if !ok {
-		t.Fatalf("first page is not the Git page: %T", m.pages[0])
+		t.Fatalf("first page is not the Git page: %T", m.Pages[0])
 	}
-	gp.initCmd(m)
+	gp.InitCmd(m)
 	gp.inputs[gitFieldReposRoot].SetValue("/tmp/code")
 	gp.inputs[gitFieldWorkspaceRoot].SetValue("/tmp/work")
 	gp.inputs[gitFieldOrgs].SetValue("alpha, beta")
-	gp.Update(m, goNextMsg{})
+	gp.Update(m, wizard.GoNextMsg{})
 	if d.ReposRoot != "/tmp/code" {
 		t.Errorf("ReposRoot = %q", d.ReposRoot)
 	}

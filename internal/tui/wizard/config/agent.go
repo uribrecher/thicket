@@ -1,6 +1,8 @@
-package wizard
+package config
 
 import (
+	"github.com/uribrecher/thicket/internal/tui/wizard"
+
 	"os"
 	"os/exec"
 	"strings"
@@ -14,14 +16,14 @@ const (
 	agentBackendAPI = "api"
 )
 
-// initAgentPage asks how thicket should talk to Claude:
+// agentPage asks how thicket should talk to Claude:
 //   - "cli": shell out to the local `claude` binary (no API key,
 //     reuses the user's Claude Code / Enterprise login).
 //   - "api": call the Anthropic API directly. When this is picked AND
 //     ANTHROPIC_API_KEY isn't already in the env, the nested
 //     secretPicker collects the password-manager reference for the
 //     key — including the full 1Password account/item/field cascade.
-type initAgentPage struct {
+type agentPage struct {
 	backendIdx int // 0 = cli, 1 = api
 	focus      int // 0 = backend list, 1 = secret picker (only when api+no-env)
 
@@ -32,22 +34,22 @@ type initAgentPage struct {
 	seeded bool
 }
 
-func newInitAgentPage() *initAgentPage {
-	return &initAgentPage{
+func newAgentPage() *agentPage {
+	return &agentPage{
 		picker: newSecretPicker("Anthropic API key", "ANTHROPIC_API_KEY"),
 	}
 }
 
-func (p *initAgentPage) Title() string { return "Agent" }
+func (p *agentPage) Title() string { return "Agent" }
 
-func (p *initAgentPage) Hints() string {
+func (p *agentPage) Hints() string {
 	if p.pickerVisible() && p.focus == 1 {
 		return p.picker.hints()
 	}
 	return "↑/↓ pick backend · tab/enter continues"
 }
 
-func (p *initAgentPage) Complete() bool {
+func (p *agentPage) Complete() bool {
 	if p.backendCurrent() == agentBackendCLI {
 		return true
 	}
@@ -57,11 +59,11 @@ func (p *initAgentPage) Complete() bool {
 	return p.picker.validated()
 }
 
-func (p *initAgentPage) initCmd(m *Model) tea.Cmd {
+func (p *agentPage) InitCmd(m *wizard.Model) tea.Cmd {
 	if !p.seeded {
 		_, err := exec.LookPath("claude")
 		p.claudeOnPath = err == nil
-		switch m.initDeps.Cfg.ClaudeBackend {
+		switch m.ConfigDeps.Cfg.ClaudeBackend {
 		case agentBackendAPI:
 			p.backendIdx = 1
 		case agentBackendCLI:
@@ -74,28 +76,28 @@ func (p *initAgentPage) initCmd(m *Model) tea.Cmd {
 			}
 		}
 		p.apiKeyInEnv = os.Getenv("ANTHROPIC_API_KEY") != ""
-		p.picker.preseed(m.initDeps.Cfg.Passwords.Manager, m.initDeps.Cfg.Passwords.AnthropicKeyRef)
+		p.picker.preseed(m.ConfigDeps.Cfg.Passwords.Manager, m.ConfigDeps.Cfg.Passwords.AnthropicKeyRef)
 		if p.picker.state == stateValidated {
-			p.picker.chosenAccount = m.initDeps.Cfg.Passwords.AnthropicKeyAccount
+			p.picker.chosenAccount = m.ConfigDeps.Cfg.Passwords.AnthropicKeyAccount
 		}
 		p.seeded = true
 	}
 	return nil
 }
 
-func (p *initAgentPage) backendCurrent() string {
+func (p *agentPage) backendCurrent() string {
 	if p.backendIdx == 1 {
 		return agentBackendAPI
 	}
 	return agentBackendCLI
 }
 
-func (p *initAgentPage) pickerVisible() bool {
+func (p *agentPage) pickerVisible() bool {
 	return p.backendCurrent() == agentBackendAPI && !p.apiKeyInEnv
 }
 
-func (p *initAgentPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
-	if _, ok := msg.(goNextMsg); ok {
+func (p *agentPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
+	if _, ok := msg.(wizard.GoNextMsg); ok {
 		p.commit(m)
 		return p, nil
 	}
@@ -123,7 +125,7 @@ func (p *initAgentPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 				}
 				p.commit(m)
 				if p.Complete() {
-					return p, func() tea.Msg { return goNextMsg{} }
+					return p, func() tea.Msg { return wizard.GoNextMsg{} }
 				}
 				return p, nil
 			}
@@ -146,8 +148,8 @@ func (p *initAgentPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	return p, cmd
 }
 
-func (p *initAgentPage) commit(m *Model) {
-	cfg := m.initDeps.Cfg
+func (p *agentPage) commit(m *wizard.Model) {
+	cfg := m.ConfigDeps.Cfg
 	cfg.ClaudeBackend = p.backendCurrent()
 	if p.pickerVisible() && p.picker.validated() {
 		cfg.Passwords.Manager = p.picker.finalManager()
@@ -162,9 +164,9 @@ func (p *initAgentPage) commit(m *Model) {
 	}
 }
 
-func (p *initAgentPage) View(m *Model) string {
+func (p *agentPage) View(m *wizard.Model) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("How should thicket talk to Claude?"))
+	b.WriteString(wizard.TitleStyle.Render("How should thicket talk to Claude?"))
 	b.WriteString("\n\n")
 
 	options := []struct {
@@ -175,31 +177,31 @@ func (p *initAgentPage) View(m *Model) string {
 	}
 	for i, opt := range options {
 		marker := "  "
-		style := dimStyle
+		style := wizard.DimStyle
 		if i == p.backendIdx {
 			if p.focus == 0 {
-				marker = cursorStyle.Render("▶ ")
-				style = cursorStyle
+				marker = wizard.CursorStyle.Render("▶ ")
+				style = wizard.CursorStyle
 			} else {
-				marker = selectedTagStyle.Render("● ")
-				style = highlightStyle
+				marker = wizard.SelectedTagStyle.Render("● ")
+				style = wizard.HighlightStyle
 			}
 		}
 		extra := ""
 		if i == 0 && !p.claudeOnPath {
-			extra = "  " + warnStyle.Render("(not on PATH)")
+			extra = "  " + wizard.WarnStyle.Render("(not on PATH)")
 		}
 		b.WriteString("  " + marker + style.Render(opt.label) + extra + "\n")
-		b.WriteString("    " + hintStyle.Render(opt.desc) + "\n")
+		b.WriteString("    " + wizard.HintStyle.Render(opt.desc) + "\n")
 	}
 	b.WriteString("\n")
 
 	switch {
 	case p.pickerVisible():
-		b.WriteString("  " + hintStyle.Render("(tab into the form below to set the API key reference)") + "\n\n")
+		b.WriteString("  " + wizard.HintStyle.Render("(tab into the form below to set the API key reference)") + "\n\n")
 		b.WriteString(p.picker.view(m))
 	case p.backendCurrent() == agentBackendAPI && p.apiKeyInEnv:
-		b.WriteString("  " + selectedTagStyle.Render("✓ $ANTHROPIC_API_KEY is set — no password-manager reference needed.") + "\n")
+		b.WriteString("  " + wizard.SelectedTagStyle.Render("✓ $ANTHROPIC_API_KEY is set — no password-manager reference needed.") + "\n")
 	}
-	return indent(b.String(), 2)
+	return wizard.Indent(b.String(), 2)
 }

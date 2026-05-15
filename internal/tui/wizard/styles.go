@@ -11,30 +11,30 @@ import "github.com/charmbracelet/lipgloss"
 //     picker.go and are reused here so colors don't drift across the app.
 var (
 	// Active tab: high-contrast filled cell (true-black text on
-	// bright pink background) — matches the cursorStyle pink used
+	// bright pink background) — matches the CursorStyle pink used
 	// for selected list rows so "this is current" reads the same
 	// across tabs and tables. Foreground is hex #000000 (not palette
 	// color "0") because many terminal themes render ANSI black as
 	// a dim gray that loses contrast on a light-pink ground,
 	// especially with the bold attribute.
 	// Tab styles are tab-only — don't reuse them as row styles, the
-	// padding will throw off table columns (see dimStyle for the
+	// padding will throw off table columns (see DimStyle for the
 	// row-cell alternative).
-	activeTabStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#000000")).Background(lipgloss.Color("213")).Padding(0, 1)
-	completedTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("76")).Padding(0, 1)
-	pendingTabStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Padding(0, 1)
-	tabSepStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	hintStyle         = lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color("245"))
-	titleStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
-	sectionStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
-	cursorStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
-	highlightStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
-	selectedTagStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
-	relevanceTagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("99"))
-	dimStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	warnStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	errStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	planHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214"))
-	createBtnStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#000000")).Background(lipgloss.Color("213")).Padding(0, 2)
-	createBtnIdle     = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Padding(0, 2)
+	ActiveTabStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#000000")).Background(lipgloss.Color("213")).Padding(0, 1)
+	CompletedTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("76")).Padding(0, 1)
+	PendingTabStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Padding(0, 1)
+	TabSepStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	HintStyle         = lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color("245"))
+	TitleStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
+	SectionStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
+	CursorStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
+	HighlightStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
+	SelectedTagStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
+	RelevanceTagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("99"))
+	DimStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	WarnStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	ErrStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	PlanHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214"))
+	CreateBtnStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#000000")).Background(lipgloss.Color("213")).Padding(0, 2)
+	CreateBtnIdle     = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Padding(0, 2)
 )

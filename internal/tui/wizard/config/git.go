@@ -1,6 +1,8 @@
-package wizard
+package config
 
 import (
+	"github.com/uribrecher/thicket/internal/tui/wizard"
+
 	"fmt"
 	"strings"
 
@@ -8,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// initGitPage collects the three values that anchor thicket on disk:
+// gitPage collects the three values that anchor thicket on disk:
 //   - repos_root: where source clones live
 //   - workspace_root: where new workspaces get created
 //   - github_orgs: comma-separated list of orgs to scan for repos
@@ -17,7 +19,7 @@ import (
 // github_orgs is a simple CSV input rather than the multiselect the
 // old huh-based init had — fewer moving parts in the bubbletea page
 // and the user can edit the list later by re-running init.
-type initGitPage struct {
+type gitPage struct {
 	inputs [3]textinput.Model
 	focus  int
 }
@@ -28,8 +30,8 @@ const (
 	gitFieldOrgs          = 2
 )
 
-func newInitGitPage() *initGitPage {
-	p := &initGitPage{}
+func newGitPage() *gitPage {
+	p := &gitPage{}
 	for i := range p.inputs {
 		ti := textinput.New()
 		ti.CharLimit = 200
@@ -43,36 +45,36 @@ func newInitGitPage() *initGitPage {
 	return p
 }
 
-// initCmd seeds each input from the working config the first time the
-// page is activated. We do this in initCmd (not the constructor) so
+// InitCmd seeds each input from the working config the first time the
+// page is activated. We do this in InitCmd (not the constructor) so
 // late-bound config edits made by earlier pages still apply.
-func (p *initGitPage) initCmd(m *Model) tea.Cmd {
+func (p *gitPage) InitCmd(m *wizard.Model) tea.Cmd {
 	if p.inputs[gitFieldReposRoot].Value() == "" {
-		p.inputs[gitFieldReposRoot].SetValue(m.initDeps.Cfg.ReposRoot)
+		p.inputs[gitFieldReposRoot].SetValue(m.ConfigDeps.Cfg.ReposRoot)
 	}
 	if p.inputs[gitFieldWorkspaceRoot].Value() == "" {
-		p.inputs[gitFieldWorkspaceRoot].SetValue(m.initDeps.Cfg.WorkspaceRoot)
+		p.inputs[gitFieldWorkspaceRoot].SetValue(m.ConfigDeps.Cfg.WorkspaceRoot)
 	}
 	if p.inputs[gitFieldOrgs].Value() == "" {
-		p.inputs[gitFieldOrgs].SetValue(strings.Join(m.initDeps.Cfg.GithubOrgs, ", "))
+		p.inputs[gitFieldOrgs].SetValue(strings.Join(m.ConfigDeps.Cfg.GithubOrgs, ", "))
 	}
 	p.inputs[p.focus].Focus()
 	return textinput.Blink
 }
 
-func (p *initGitPage) Title() string { return "Git" }
+func (p *gitPage) Title() string { return "Git" }
 
-func (p *initGitPage) Hints() string { return "tab cycles fields · enter continues" }
+func (p *gitPage) Hints() string { return "tab cycles fields · enter continues" }
 
 // Complete requires all three fields non-empty. The wizard's Validate
 // step (post-wizard) will catch malformed paths.
-func (p *initGitPage) Complete() bool {
+func (p *gitPage) Complete() bool {
 	return strings.TrimSpace(p.inputs[gitFieldReposRoot].Value()) != "" &&
 		strings.TrimSpace(p.inputs[gitFieldWorkspaceRoot].Value()) != "" &&
 		strings.TrimSpace(p.inputs[gitFieldOrgs].Value()) != ""
 }
 
-func (p *initGitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
+func (p *gitPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
 		case "tab", "down":
@@ -84,13 +86,13 @@ func (p *initGitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		case "enter":
 			p.commit(m)
 			if p.Complete() {
-				return p, func() tea.Msg { return goNextMsg{} }
+				return p, func() tea.Msg { return wizard.GoNextMsg{} }
 			}
 			return p, nil
 		}
 	}
 
-	if _, ok := msg.(goNextMsg); ok {
+	if _, ok := msg.(wizard.GoNextMsg); ok {
 		p.commit(m)
 		return p, nil
 	}
@@ -100,19 +102,19 @@ func (p *initGitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	return p, cmd
 }
 
-func (p *initGitPage) cycleFocus(d int) {
+func (p *gitPage) cycleFocus(d int) {
 	p.inputs[p.focus].Blur()
 	p.focus = (p.focus + d + len(p.inputs)) % len(p.inputs)
 	p.inputs[p.focus].Focus()
 }
 
 // commit writes the current input values back to the working config.
-// Called on Enter and on goNextMsg so a back/forward dance preserves
+// Called on Enter and on wizard.GoNextMsg so a back/forward dance preserves
 // the user's edits.
-func (p *initGitPage) commit(m *Model) {
-	m.initDeps.Cfg.ReposRoot = strings.TrimSpace(p.inputs[gitFieldReposRoot].Value())
-	m.initDeps.Cfg.WorkspaceRoot = strings.TrimSpace(p.inputs[gitFieldWorkspaceRoot].Value())
-	m.initDeps.Cfg.GithubOrgs = splitOrgs(p.inputs[gitFieldOrgs].Value())
+func (p *gitPage) commit(m *wizard.Model) {
+	m.ConfigDeps.Cfg.ReposRoot = strings.TrimSpace(p.inputs[gitFieldReposRoot].Value())
+	m.ConfigDeps.Cfg.WorkspaceRoot = strings.TrimSpace(p.inputs[gitFieldWorkspaceRoot].Value())
+	m.ConfigDeps.Cfg.GithubOrgs = splitOrgs(p.inputs[gitFieldOrgs].Value())
 }
 
 func splitOrgs(s string) []string {
@@ -126,9 +128,9 @@ func splitOrgs(s string) []string {
 	return out
 }
 
-func (p *initGitPage) View(m *Model) string {
+func (p *gitPage) View(m *wizard.Model) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Where do your repos live?"))
+	b.WriteString(wizard.TitleStyle.Render("Where do your repos live?"))
 	b.WriteString("\n\n")
 
 	labels := []string{
@@ -144,18 +146,18 @@ func (p *initGitPage) View(m *Model) string {
 	for i, label := range labels {
 		marker := "  "
 		if i == p.focus {
-			marker = cursorStyle.Render("▶ ")
+			marker = wizard.CursorStyle.Render("▶ ")
 		}
-		b.WriteString(marker + sectionStyle.Render(label) + "\n")
+		b.WriteString(marker + wizard.SectionStyle.Render(label) + "\n")
 		b.WriteString("    " + p.inputs[i].View() + "\n")
-		b.WriteString("    " + hintStyle.Render(hints[i]) + "\n\n")
+		b.WriteString("    " + wizard.HintStyle.Render(hints[i]) + "\n\n")
 	}
 
 	if !p.Complete() {
-		b.WriteString("  " + hintStyle.Render("(fill in all three to continue)") + "\n")
+		b.WriteString("  " + wizard.HintStyle.Render("(fill in all three to continue)") + "\n")
 	} else {
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("ready — %d org(s) configured", len(splitOrgs(p.inputs[gitFieldOrgs].Value())))) + "\n")
+		b.WriteString("  " + wizard.HintStyle.Render(fmt.Sprintf("ready — %d org(s) configured", len(splitOrgs(p.inputs[gitFieldOrgs].Value())))) + "\n")
 	}
 	_ = m
-	return indent(b.String(), 2)
+	return wizard.Indent(b.String(), 2)
 }

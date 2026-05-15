@@ -84,7 +84,7 @@ func (HuhSelector) ConfirmClone(repoName, targetPath string) (bool, error) {
 
 // ----- helpers -----
 
-func truncate(s string, n int) string {
+func Truncate(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
 		return s
@@ -95,7 +95,7 @@ func truncate(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-func padRight(s string, n int) string {
+func PadRight(s string, n int) string {
 	r := []rune(s)
 	if len(r) >= n {
 		return s

@@ -27,6 +27,7 @@ import (
 	"github.com/uribrecher/thicket/internal/ticket/shortcut"
 	"github.com/uribrecher/thicket/internal/tui"
 	"github.com/uribrecher/thicket/internal/tui/wizard"
+	"github.com/uribrecher/thicket/internal/tui/wizard/start"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
 
@@ -150,7 +151,7 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		deps.Preselected = preselected
 	}
 
-	res, err := wizard.Run(deps)
+	res, err := start.Run(deps)
 	if err != nil {
 		if errors.Is(err, tui.ErrCancelled) {
 			fmt.Fprintln(out, "cancelled.")
@@ -499,7 +500,7 @@ func fetchSecret(ctx context.Context, cfg *config.Config, kind secretKind) (stri
 		return v, nil
 	}
 	if cfg.Passwords.Manager == "" {
-		return "", errors.New("no password manager configured — run `thicket init`")
+		return "", errors.New("no password manager configured — run `thicket config`")
 	}
 	var ref, account string
 	switch kind {
@@ -509,7 +510,7 @@ func fetchSecret(ctx context.Context, cfg *config.Config, kind secretKind) (stri
 		ref, account = cfg.Passwords.AnthropicKeyRef, cfg.Passwords.AnthropicKeyAccount
 	}
 	if ref == "" {
-		return "", fmt.Errorf("reference not configured — set $%s or run `thicket init`",
+		return "", fmt.Errorf("reference not configured — set $%s or run `thicket config`",
 			envVarFor(kind))
 	}
 	mgr, err := secrets.New(cfg.Passwords.Manager, secrets.Options{
@@ -779,7 +780,7 @@ func printPlanLegacy(w io.Writer, p workspace.Plan, dryRun bool) {
 		label = "(dry-run) plan:"
 	}
 	fmt.Fprintf(w, "\n%s\n", planTitleStyle.Render(label))
-	fmt.Fprintf(w, "  workspace dir: %s\n", abbrevHome(p.WorkspaceDir))
+	fmt.Fprintf(w, "  workspace dir: %s\n", AbbrevHome(p.WorkspaceDir))
 	fmt.Fprintf(w, "  branch:        %s\n", p.Branch)
 	fmt.Fprintf(w, "  worktrees:     %d\n", len(p.Repos))
 	for _, r := range p.Repos {
@@ -788,13 +789,13 @@ func printPlanLegacy(w io.Writer, p workspace.Plan, dryRun bool) {
 			mode = "checkout existing"
 		}
 		fmt.Fprintf(w, "    • %s (%s) src=%s\n",
-			r.Name, mode, abbrevHome(r.SourcePath))
+			r.Name, mode, AbbrevHome(r.SourcePath))
 	}
 	fmt.Fprintln(w)
 }
 
-// abbrevHome collapses an absolute path under $HOME to a leading `~`.
-func abbrevHome(path string) string {
+// AbbrevHome collapses an absolute path under $HOME to a leading `~`.
+func AbbrevHome(path string) string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return path

@@ -81,7 +81,7 @@ type PasswordsConfig struct {
 	AnthropicKeyAccount string `toml:"anthropic_key_account,omitempty"`
 }
 
-// Default returns a Config pre-filled with the defaults the init wizard
+// Default returns a Config pre-filled with the defaults the config wizard
 // presents to the user. Callers are still expected to override repos_root,
 // workspace_root, and github_orgs before persisting.
 func Default() Config {
@@ -109,7 +109,7 @@ func Path() (string, error) {
 
 // Load reads the config from path, expands ~ in path fields, and validates
 // the result. Returns ErrNoConfig if the file is missing — callers can react
-// (e.g. point the user at `thicket init`).
+// (e.g. point the user at `thicket config`).
 func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -175,10 +175,10 @@ func (c *Config) Validate() error {
 		problems = append(problems, "claude_model is required")
 	}
 	if c.Passwords.Manager == "" {
-		problems = append(problems, "passwords.manager is required (run `thicket init`)")
+		problems = append(problems, "passwords.manager is required (run `thicket config`)")
 	}
 	if len(problems) > 0 {
-		return fmt.Errorf("invalid config:\n  - %s\nrun `thicket init` to set these up",
+		return fmt.Errorf("invalid config:\n  - %s\nrun `thicket config` to set these up",
 			strings.Join(problems, "\n  - "))
 	}
 	return nil
@@ -186,7 +186,7 @@ func (c *Config) Validate() error {
 
 // ExpandPaths resolves ~ in ReposRoot and WorkspaceRoot to the user's
 // home directory. Load already does this for configs read from disk;
-// callers building a Config in memory (e.g. the init wizard) must call
+// callers building a Config in memory (e.g. the config wizard) must call
 // this before using the path fields with os.MkdirAll / os.Stat, or git
 // will create literal `./~/tasks` folders.
 func (c *Config) ExpandPaths() error { return c.expandPaths() }

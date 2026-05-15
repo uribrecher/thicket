@@ -1,6 +1,8 @@
-package wizard
+package edit
 
 import (
+	"github.com/uribrecher/thicket/internal/tui/wizard"
+
 	"fmt"
 	"sort"
 	"strings"
@@ -11,16 +13,16 @@ import (
 	"github.com/uribrecher/thicket/internal/catalog"
 )
 
-// editMatchItem is one row in the navigable match list. Locked
+// matchItem is one row in the navigable match list. Locked
 // rows (already-in-workspace) are NOT part of this list — they're
 // rendered as a static info block above the search input so the
 // cursor never has to step through them.
-type editMatchItem struct {
+type matchItem struct {
 	name     string
 	selected bool // user has picked this as an addition
 }
 
-type editReposPage struct {
+type reposPage struct {
 	loadedForID string // slug of the workspace this state belongs to
 
 	// Static seeded data.
@@ -35,37 +37,37 @@ type editReposPage struct {
 	selectedOrder []string
 
 	input   textinput.Model
-	matches []editMatchItem
+	matches []matchItem
 	cursor  int
 	status  string
 }
 
-func newEditReposPage() *editReposPage {
+func newReposPage() *reposPage {
 	ti := textinput.New()
 	ti.Placeholder = "type to filter the catalog"
 	ti.Focus()
 	ti.CharLimit = 80
 	ti.Width = 60
 	ti.Prompt = "› "
-	return &editReposPage{
+	return &reposPage{
 		input:    ti,
 		selected: make(map[string]bool),
 	}
 }
 
-func (p *editReposPage) Title() string { return "Repos" }
+func (p *reposPage) Title() string { return "Repos" }
 
-func (p *editReposPage) Hints() string {
+func (p *reposPage) Hints() string {
 	return "↑/↓ navigate · enter toggles"
 }
 
-func (p *editReposPage) Complete() bool { return len(p.selectedOrder) > 0 }
+func (p *reposPage) Complete() bool { return len(p.selectedOrder) > 0 }
 
-func (p *editReposPage) initCmd(m *Model) tea.Cmd {
-	if m.selectedWorkspace == nil {
+func (p *reposPage) InitCmd(m *wizard.Model) tea.Cmd {
+	if m.SelectedWorkspace == nil {
 		return nil
 	}
-	slug := m.selectedWorkspace.Slug
+	slug := m.SelectedWorkspace.Slug
 	if p.loadedForID == slug {
 		return nil
 	}
@@ -75,8 +77,8 @@ func (p *editReposPage) initCmd(m *Model) tea.Cmd {
 	return nil
 }
 
-func (p *editReposPage) resetFor(m *Model) {
-	p.repos = m.editDeps.Repos
+func (p *reposPage) resetFor(m *wizard.Model) {
+	p.repos = m.EditDeps.Repos
 	p.names = make([]string, 0, len(p.repos))
 	p.nameSet = make(map[string]bool, len(p.repos))
 	p.descByName = make(map[string]string, len(p.repos))
@@ -86,14 +88,14 @@ func (p *editReposPage) resetFor(m *Model) {
 		p.descByName[r.Name] = r.Description
 	}
 	p.locked = make(map[string]bool)
-	for _, r := range m.selectedWorkspace.State.Repos {
+	for _, r := range m.SelectedWorkspace.State.Repos {
 		p.locked[r.Name] = true
 	}
 	// Carry forward additions if the user navigated back & forward
-	// (m.additions is the wizard-shared store).
-	p.selected = make(map[string]bool, len(m.additions))
+	// (m.Additions is the wizard-shared store).
+	p.selected = make(map[string]bool, len(m.Additions))
 	p.selectedOrder = p.selectedOrder[:0]
-	for _, r := range m.additions {
+	for _, r := range m.Additions {
 		if !p.locked[r.Name] && p.nameSet[r.Name] {
 			p.selected[r.Name] = true
 			p.selectedOrder = append(p.selectedOrder, r.Name)
@@ -105,9 +107,9 @@ func (p *editReposPage) resetFor(m *Model) {
 	p.input.SetValue("")
 }
 
-func (p *editReposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
+func (p *reposPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 	switch v := msg.(type) {
-	case goNextMsg:
+	case wizard.GoNextMsg:
 		if !p.Complete() {
 			return p, nil
 		}
@@ -117,12 +119,12 @@ func (p *editReposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 				chosen = append(chosen, r)
 			}
 		}
-		// Update m.additions synchronously — same reason as the start
+		// Update m.Additions synchronously — same reason as the start
 		// flow's Repos page: the wizard's advance() fires the Submit
-		// page's initCmd immediately after this returns, and that
-		// initCmd reads m.additions.
-		m.additions = append(m.additions[:0], chosen...)
-		return p, func() tea.Msg { return additionsCommittedMsg{additions: chosen} }
+		// page's InitCmd immediately after this returns, and that
+		// InitCmd reads m.Additions.
+		m.Additions = append(m.Additions[:0], chosen...)
+		return p, func() tea.Msg { return wizard.AdditionsCommittedMsg{Additions: chosen} }
 
 	case tea.KeyMsg:
 		switch v.String() {
@@ -167,10 +169,10 @@ func (p *editReposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	return p, cmd
 }
 
-func (p *editReposPage) toggle(name string) {
+func (p *reposPage) toggle(name string) {
 	if p.selected[name] {
 		delete(p.selected, name)
-		p.selectedOrder = removeFromSlice(p.selectedOrder, name)
+		p.selectedOrder = wizard.RemoveFromSlice(p.selectedOrder, name)
 		p.status = "− dropped " + name
 		return
 	}
@@ -185,23 +187,23 @@ func (p *editReposPage) toggle(name string) {
 // renders as a static header above the search input in View() and
 // is deliberately excluded from p.matches so the cursor never has to
 // arrow past it to reach an actual choice.
-func (p *editReposPage) recompute() {
+func (p *reposPage) recompute() {
 	p.matches = p.matches[:0]
 	// Selected (additions). Preserve insertion order.
 	for _, n := range p.selectedOrder {
-		p.matches = append(p.matches, editMatchItem{name: n, selected: true})
+		p.matches = append(p.matches, matchItem{name: n, selected: true})
 	}
 	// Available fuzzy matches when querying.
 	q := strings.TrimSpace(p.input.Value())
 	if q != "" {
 		count := 0
-		for _, mm := range rankFuzzy(q, p.names) {
+		for _, mm := range wizard.RankFuzzy(q, p.names) {
 			if p.locked[mm.Str] || p.selected[mm.Str] {
 				continue
 			}
-			p.matches = append(p.matches, editMatchItem{name: mm.Str})
+			p.matches = append(p.matches, matchItem{name: mm.Str})
 			count++
-			if count >= maxRepoMatches {
+			if count >= wizard.MaxRepoMatches {
 				break
 			}
 		}
@@ -211,27 +213,27 @@ func (p *editReposPage) recompute() {
 	}
 }
 
-func (p *editReposPage) View(m *Model) string {
+func (p *reposPage) View(m *wizard.Model) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Add repos to this workspace"))
+	b.WriteString(wizard.TitleStyle.Render("Add repos to this workspace"))
 	b.WriteString("\n\n")
 
-	if m.selectedWorkspace != nil {
-		b.WriteString(renderEditWorkspaceSummary(*m.selectedWorkspace))
+	if m.SelectedWorkspace != nil {
+		b.WriteString(renderWorkspaceSummary(*m.SelectedWorkspace))
 		b.WriteString("\n")
 	}
 
 	// Locked block first — informational, NOT navigable. The cursor
 	// arrows operate only on the match list below the search.
 	if len(p.locked) > 0 {
-		b.WriteString("  " + sectionStyle.Render(fmt.Sprintf("Already in workspace (%d)", len(p.locked))) + "\n")
+		b.WriteString("  " + wizard.SectionStyle.Render(fmt.Sprintf("Already in workspace (%d)", len(p.locked))) + "\n")
 		lockedNames := make([]string, 0, len(p.locked))
 		for n := range p.locked {
 			lockedNames = append(lockedNames, n)
 		}
 		sort.Strings(lockedNames)
 		for _, n := range lockedNames {
-			b.WriteString("      " + dimStyle.Render("· "+n) + "\n")
+			b.WriteString("      " + wizard.DimStyle.Render("· "+n) + "\n")
 		}
 		b.WriteString("\n")
 	}
@@ -240,12 +242,12 @@ func (p *editReposPage) View(m *Model) string {
 	b.WriteString(p.renderMatches())
 
 	if p.status != "" {
-		b.WriteString("\n  " + warnStyle.Render(p.status) + "\n")
+		b.WriteString("\n  " + wizard.WarnStyle.Render(p.status) + "\n")
 	}
-	return indent(b.String(), 2)
+	return wizard.Indent(b.String(), 2)
 }
 
-func (p *editReposPage) renderMatches() string {
+func (p *reposPage) renderMatches() string {
 	if len(p.matches) == 0 {
 		return ""
 	}
@@ -268,24 +270,24 @@ func (p *editReposPage) renderMatches() string {
 			if g == 0 {
 				label = fmt.Sprintf("Adding (%d)", len(p.selectedOrder))
 			}
-			b.WriteString("  " + sectionStyle.Render(label) + "\n")
+			b.WriteString("  " + wizard.SectionStyle.Render(label) + "\n")
 			prevGroup = g
 		}
 
-		marker, name := " ", padRight(it.name, nameW)
+		marker, name := " ", wizard.PadRight(it.name, nameW)
 		if i == p.cursor {
-			marker = cursorStyle.Render("▶")
-			name = highlightStyle.Render(padRight(it.name, nameW))
+			marker = wizard.CursorStyle.Render("▶")
+			name = wizard.HighlightStyle.Render(wizard.PadRight(it.name, nameW))
 		}
 
 		check := " "
 		if it.selected {
-			check = selectedTagStyle.Render("✓")
+			check = wizard.SelectedTagStyle.Render("✓")
 		}
 
 		var meta string
 		if d := p.descByName[it.name]; d != "" {
-			meta = dimStyle.Render(truncate(d, descW))
+			meta = wizard.DimStyle.Render(wizard.Truncate(d, descW))
 		}
 		b.WriteString(fmt.Sprintf("    %s %s %s %s\n", marker, check, name, meta))
 	}
