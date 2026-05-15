@@ -891,27 +891,34 @@ func abbrevAccount(m *wizard.Model, uuid string) string {
 // The cheap `op account list` call still fires a dialog (no signin
 // shortcut available before we know an account), but the heavy
 // per-account flow that follows is consolidated.
+//
+// Only successful signins are cached. A transient failure (dismissed
+// biometric prompt, flaky desktop integration) leaves the entry
+// absent, so the user's next item-pick attempt retries cleanly within
+// the same wizard run.
 var opAccountSignin struct {
 	sync.Mutex
-	done map[string]error // account UUID → signin result (nil = success)
+	done map[string]bool // account UUID → already signed in this process
 }
 
-// ensureAccountSignin runs `op signin --account <account>` at most once
-// per account per process. Errors are cached so repeat callers see the
-// same outcome without re-shelling out.
+// ensureAccountSignin runs `op signin --account <account>` once per
+// account per process on success. Failures are not cached, so the
+// next call retries.
 func ensureAccountSignin(ctx context.Context, account string) error {
 	opAccountSignin.Lock()
 	defer opAccountSignin.Unlock()
 	if opAccountSignin.done == nil {
-		opAccountSignin.done = map[string]error{}
+		opAccountSignin.done = map[string]bool{}
 	}
-	if err, ok := opAccountSignin.done[account]; ok {
-		return err
+	if opAccountSignin.done[account] {
+		return nil
 	}
 	op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
-	err := op.Signin(ctx)
-	opAccountSignin.done[account] = err
-	return err
+	if err := op.Signin(ctx); err != nil {
+		return err
+	}
+	opAccountSignin.done[account] = true
+	return nil
 }
 
 func loadOpAccountsCmd(pickerID int) tea.Cmd {
