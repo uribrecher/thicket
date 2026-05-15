@@ -554,6 +554,37 @@ func TestState_NicknameRoundtrip(t *testing.T) {
 	}
 }
 
+func TestState_ColorRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	st := State{
+		TicketID:  "sc-9",
+		Branch:    "u/sc-9",
+		Color:     "#FF5733",
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Repos:     []StateRepo{{Name: "alpha", SourcePath: "/x", WorktreePath: "/y"}},
+	}
+	writeFakeState(t, dir, st)
+	got, err := ReadState(dir)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if got.Color != "#FF5733" {
+		t.Errorf("color lost on roundtrip: got %q", got.Color)
+	}
+}
+
+func TestState_OmitsEmptyColor(t *testing.T) {
+	dir := t.TempDir()
+	writeFakeState(t, dir, State{TicketID: "sc-10", Branch: "b", CreatedAt: time.Now()})
+	b, err := os.ReadFile(filepath.Join(dir, ".thicket", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "color") {
+		t.Errorf("empty color should be omitted; got JSON: %s", string(b))
+	}
+}
+
 func TestState_OmitsEmptyNickname(t *testing.T) {
 	dir := t.TempDir()
 	// Empty nickname: omitempty should keep it out of the JSON
@@ -582,13 +613,13 @@ func TestSanitizeNickname(t *testing.T) {
 		"runs of whitespace":       {"flaky   tests", "flaky tests"},
 		"ansi escape stripped":     {"\x1b[31mred\x1b[0m", "[31mred[0m"},
 		"nul + bs stripped":        {"foo\x00\x08bar", "foobar"},
-		"truncate to 20 runes":     {"a very very long nickname that is way past twenty", "a very very long nic"},
+		"truncate to 25 runes":     {"a very very long nickname that is way past the cap", "a very very long nickname"},
 		"trim trailing space after truncate": {
-			// 19 chars + space + tail → the space lands right at
-			// the 20-rune cap; TrimRight drops it so we don't
-			// persist trailing whitespace.
-			"abcdefghijklmnopqrs xyz",
-			"abcdefghijklmnopqrs",
+			// 24-char first token + space + tail → the space
+			// lands right at the 25-rune cap; TrimRight drops it
+			// so we don't persist trailing whitespace.
+			"abcdefghijklmnopqrstuvwx yz",
+			"abcdefghijklmnopqrstuvwx",
 		},
 		"empty input":        {"", ""},
 		"whitespace only":    {"   \t\n  ", ""},

@@ -57,8 +57,8 @@ type Model struct {
 	Ticket        ticket.Ticket // last committed ticket
 	TicketID      string        // cache key; "" before page 0 commits
 	LLMCache      map[string][]detector.RepoMatch
-	SummaryCache  map[string][]string // ticketID → LLM-generated summary lines
-	NicknameCache map[string]string   // ticketID → LLM-suggested short label
+	SummaryCache  map[string][]string                    // ticketID → LLM-generated summary lines
+	NicknameCache map[string]detector.NicknameSuggestion // ticketID → nickname + color suggestion
 	Chosen        []catalog.Repo
 	CloneInclude  map[string]bool
 
@@ -216,12 +216,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Cache wins-once-set, same shape as SummarizedMsg. We fall
 		// through (not return) so the active page — usually the Plan
 		// page — can react: pre-fill its editable input from the new
-		// suggestion if the user hasn't typed yet.
-		if v.Err == nil && v.TicketID == m.TicketID && v.Nickname != "" {
+		// suggestion if the user hasn't typed yet. Accept the
+		// suggestion as long as EITHER field is usable — a
+		// color-only response is still actionable (we'll tint the
+		// tab even if the user types their own nickname).
+		if v.Err == nil && v.TicketID == m.TicketID &&
+			(v.Suggestion.Nickname != "" || v.Suggestion.Color != "") {
 			if m.NicknameCache == nil {
-				m.NicknameCache = make(map[string]string)
+				m.NicknameCache = make(map[string]detector.NicknameSuggestion)
 			}
-			m.NicknameCache[v.TicketID] = v.Nickname
+			m.NicknameCache[v.TicketID] = v.Suggestion
 		}
 		// Fall through.
 

@@ -154,15 +154,18 @@ type SummarizedMsg struct {
 	Err      error
 }
 
-// NicknameSuggestedMsg carries the LLM-suggested short label for the
-// current ticket. Only emitted when Deps.Nickname is wired. A non-nil
-// Err or empty Nickname means the suggester produced no usable output;
-// the Plan page's input then stays empty (user can type their own).
-// Failure is non-fatal.
+// NicknameSuggestedMsg carries the LLM-suggested label (nickname +
+// optional tab color) for the current ticket. Only emitted when
+// Deps.Nickname is wired. The wizard caches the suggestion when
+// EITHER field is non-empty — a color-only response is still
+// actionable (the launcher will tint the tab even if the user types
+// their own nickname). A non-nil Err with both fields empty is the
+// "no usable output" case; the suggester is non-fatal, so the Plan
+// page's input simply stays empty.
 type NicknameSuggestedMsg struct {
-	TicketID string
-	Nickname string
-	Err      error
+	TicketID   string
+	Suggestion detector.NicknameSuggestion
+	Err        error
 }
 
 // ReposCommittedMsg fires when the user advances past the Repos page.

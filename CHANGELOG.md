@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **iTerm2 tab tinting + title + badge per workspace.** When `thicket
+  start` launches Claude under iTerm2 (detected via
+  `$LC_TERMINAL` / `$TERM_PROGRAM`), the workspace's nickname is
+  written to the tab title AND iTerm2 tab badge, and the
+  per-workspace color (new) tints the tab background — so multiple
+  concurrent workspace tabs are immediately distinguishable in the
+  tab strip.
+  - The LLM suggester now returns **both** the nickname and a
+    `#RRGGBB` color in one call. The prompt asks the model to mine
+    distinctive entities from the ticket (customer / company names
+    like Wix / Munich Re / Workday / Rivian, hosting-service names
+    like SharePoint / S3 / Snowflake / Databricks, file-format
+    keywords like CAD / DICOM) and to choose a color drawing from
+    famous brand palettes (AWS orange, MS blue, Snowflake cyan,
+    Atlassian blue, etc.) with work-type fallbacks (red for bugs,
+    purple for spikes, etc.). The currently-in-use colors of OTHER
+    open workspaces are passed in too so the model picks a
+    contrasting hue — no more "every tab is the same red".
+  - Nickname length bumped from 20 → **25 chars** so emoji-prefixed
+    acronyms like "🐛 MR Snowflake enum" or "⚡ WD GDrive scan" fit
+    without being chopped.
+  - New `color` field in `workspace.State` (`omitempty` — pre-color
+    manifests still load cleanly). The Plan page renders a swatch
+    + the hex code as a read-only row beside the nickname.
+  - Non-iTerm2 terminals: every escape-writing helper is a no-op.
+    No garbage in the terminal, no visual change.
+
 - **Per-workspace nicknames — short, friendly, LLM-suggested.**
   Every new workspace now carries an optional `nickname` field
   alongside its slug: a short (≤20 chars), human-readable label that
