@@ -248,7 +248,7 @@ func summarizeCmd(m *wizard.Model) tea.Cmd {
 
 // nicknameCmd runs the (optional) Nickname closure for the current
 // ticket. Failures aren't fatal — the Plan page's input just stays
-// empty and the user can type their own (or leave it blank).
+// empty (and the launcher leaves the tab uncolored).
 func nicknameCmd(m *wizard.Model) tea.Cmd {
 	tk := m.Ticket
 	id := m.TicketID
@@ -257,8 +257,8 @@ func nicknameCmd(m *wizard.Model) tea.Cmd {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		nn, err := m.Deps.Nickname(ctx, tk)
-		return wizard.NicknameSuggestedMsg{TicketID: id, Nickname: nn, Err: err}
+		s, err := m.Deps.Nickname(ctx, tk)
+		return wizard.NicknameSuggestedMsg{TicketID: id, Suggestion: s, Err: err}
 	}
 }
 

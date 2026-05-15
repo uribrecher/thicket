@@ -23,6 +23,7 @@ import (
 	"github.com/uribrecher/thicket/internal/launcher"
 	"github.com/uribrecher/thicket/internal/memory"
 	"github.com/uribrecher/thicket/internal/secrets"
+	thicketterm "github.com/uribrecher/thicket/internal/term"
 	"github.com/uribrecher/thicket/internal/ticket"
 	"github.com/uribrecher/thicket/internal/ticket/shortcut"
 	"github.com/uribrecher/thicket/internal/tui"
@@ -61,8 +62,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 				} else {
 					fmt.Fprintf(out, "✓ using existing workspace %s\n", ws.Slug)
 				}
-				return launchClaudeIn(out, cfg, nicknameOrSlug(ws.State.Nickname, ws.Slug),
-					ws.Path, flags.noLaunch || flags.dryRun)
+				return launchClaudeIn(out, cfg,
+					nicknameOrSlug(ws.State.Nickname, ws.Slug),
+					ws.State.Color, ws.Path, flags.noLaunch || flags.dryRun)
 			case errors.Is(findErr, workspace.ErrNoState):
 				// Normal "not in a workspace" — fall through silently.
 			default:
@@ -125,7 +127,7 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 			fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
 			return launchClaudeIn(out, cfg,
 				nicknameOrSlug(existing.State.Nickname, workspace.Slug(tk.SourceID, tk.Title)),
-				existing.Path, flags.noLaunch)
+				existing.State.Color, existing.Path, flags.noLaunch)
 		}
 		preselected = &tk
 	}
@@ -147,26 +149,23 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		}
 	}
 
-	// Same shape for the nickname suggester. Failure to build leaves
-	// nickFn nil → the Plan page's input starts empty and the user
-	// can type their own.
-	var nickFn func(ctx context.Context, tk ticket.Ticket) (string, error)
-	if ns, nsErr := buildClaudeNicknameSuggester(cmd.Context(), cfg); nsErr == nil && ns != nil {
-		nickFn = func(ctx context.Context, tk ticket.Ticket) (string, error) {
-			return ns.Suggest(ctx, tk.Title, tk.Body)
-		}
-	}
-
-	// FindExistingWorkspace closure: returns the managed workspace
-	// whose manifest matches the given ticket id, or nil if none.
-	// The Ticket page calls this once per listed ticket to populate
-	// the "Workspace" column, so we precompute a single ticketID →
-	// ManagedWorkspace map from one `workspace.ListManaged` scan
-	// instead of re-scanning workspace_root per row.
+	// One-time workspace scan: feeds both the Ticket-picker's
+	// "Workspace" column AND the nickname suggester's existing-color
+	// differentiation hint. Order matters — build the scan first so
+	// the nickFn closure can capture the color list at construction
+	// time (the suggester's signature wants the colors per call, but
+	// the slice doesn't change during one wizard run).
 	existingByTicket := make(map[string]workspace.ManagedWorkspace)
+	var existingColors []string
 	if wsList, warnings, listErr := workspace.ListManaged(cfg.WorkspaceRoot); listErr == nil {
+		// wsList comes back newest-first; we want the freshest
+		// colors at the top of the list when we cap inside the
+		// suggester's renderExistingColorsClause helper.
 		for _, w := range wsList {
 			existingByTicket[w.State.TicketID] = w
+			if w.State.Color != "" {
+				existingColors = append(existingColors, w.State.Color)
+			}
 		}
 		for _, warn := range warnings {
 			fmt.Fprintf(errOut, "warning: %v\n", warn)
@@ -177,6 +176,18 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 			return &w
 		}
 		return nil
+	}
+
+	// Same shape for the nickname+color suggester. Failure to build
+	// leaves nickFn nil → the Plan page's input starts empty and the
+	// launcher leaves the iTerm2 tab uncolored. The existing-colors
+	// list is captured here so the LLM picks a contrasting hue.
+	var nickFn func(ctx context.Context, tk ticket.Ticket) (detector.NicknameSuggestion, error)
+	if ns, nsErr := buildClaudeNicknameSuggester(cmd.Context(), cfg); nsErr == nil && ns != nil {
+		colors := existingColors
+		nickFn = func(ctx context.Context, tk ticket.Ticket) (detector.NicknameSuggestion, error) {
+			return ns.Suggest(ctx, tk.Title, tk.Body, colors)
+		}
 	}
 
 	deps := wizard.Deps{
@@ -212,10 +223,14 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 	if res.ReuseDir != "" {
 		fmt.Fprintf(out, "reusing existing workspace at %s\n", res.ReuseDir)
 		name := workspace.Slug(res.Ticket.SourceID, res.Ticket.Title)
-		if st, err := workspace.ReadState(res.ReuseDir); err == nil && st.Nickname != "" {
-			name = st.Nickname
+		color := ""
+		if st, err := workspace.ReadState(res.ReuseDir); err == nil {
+			if st.Nickname != "" {
+				name = st.Nickname
+			}
+			color = st.Color
 		}
-		return launchClaudeIn(out, cfg, name, res.ReuseDir, flags.noLaunch)
+		return launchClaudeIn(out, cfg, name, color, res.ReuseDir, flags.noLaunch)
 	}
 
 	// Surface any skipped/failed clones from the wizard's clone phase
@@ -236,7 +251,7 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 	fmt.Fprintf(out, "\nworkspace ready at %s\n", plan.WorkspaceDir)
 	return launchClaudeIn(out, cfg,
 		nicknameOrSlug(plan.Nickname, workspace.Slug(res.Ticket.SourceID, res.Ticket.Title)),
-		plan.WorkspaceDir, flags.noLaunch)
+		plan.Color, plan.WorkspaceDir, flags.noLaunch)
 }
 
 // runStartLegacy preserves the pre-wizard CLI flow for the cases
@@ -287,7 +302,7 @@ func runStartLegacy(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
 		return launchClaudeIn(out, cfg,
 			nicknameOrSlug(existing.State.Nickname, workspace.Slug(tk.SourceID, tk.Title)),
-			existing.Path, flags.noLaunch)
+			existing.State.Color, existing.Path, flags.noLaunch)
 	}
 
 	repos, err := loadCatalog(cfg, errOut)
@@ -345,7 +360,7 @@ func runStartLegacy(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 	fmt.Fprintf(out, "\nworkspace ready at %s\n", plan.WorkspaceDir)
 	return launchClaudeIn(out, cfg,
 		nicknameOrSlug(plan.Nickname, workspace.Slug(tk.SourceID, tk.Title)),
-		plan.WorkspaceDir, flags.noLaunch)
+		plan.Color, plan.WorkspaceDir, flags.noLaunch)
 }
 
 // findWorkspaceForTicket scans the workspace root for a managed
@@ -380,14 +395,29 @@ func findWorkspaceForTicket(cfg *config.Config, ticketID string, errOut io.Write
 // Claude's prompt box, /resume picker, and the terminal title.
 // Honors --no-launch by printing the cd line instead.
 //
+// Before the syscall.Exec hand-off, when running under iTerm2, also
+// emits OSC escapes to set the tab title (= name), the tab badge
+// (= name), and the tab background color (= color, when valid).
+// These persist for the lifetime of the tab so concurrent workspace
+// sessions stay visually distinct.
+//
 // Callers pass the workspace's nickname when set (short, human-
 // friendly), falling back to the slug. See nicknameOrSlug.
-func launchClaudeIn(out io.Writer, cfg *config.Config, name,
+func launchClaudeIn(out io.Writer, cfg *config.Config, name, color,
 	workspaceDir string, noLaunch bool) error {
 
 	if noLaunch {
 		fmt.Fprintf(out, "cd %s\n", workspaceDir)
 		return nil
+	}
+	if thicketterm.IsITerm2() {
+		// Write to stdout — that's the terminal fd we'll hand off
+		// to claude via syscall.Exec, so the escapes are
+		// interpreted by the parent iTerm2 tab before claude takes
+		// over.
+		thicketterm.WriteTabTitle(os.Stdout, name)
+		thicketterm.WriteBadge(os.Stdout, name)
+		thicketterm.WriteTabColor(os.Stdout, color)
 	}
 	l := launcher.New(cfg.ClaudeBinary)
 	l.ExtraArgs = []string{"--name", name}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/uribrecher/thicket/internal/catalog"
 	"github.com/uribrecher/thicket/internal/memory"
@@ -51,6 +52,12 @@ type planPage struct {
 	// late-arriving suggester response doesn't overwrite the edit.
 	nicknameInput textinput.Model
 	nicknameDirty bool
+	// color is the suggester-supplied tab color hint (`#RRGGBB`)
+	// captured at PlanBuiltMsg / NicknameSuggestedMsg time. Not
+	// user-editable in MVP — surfaced as a swatch in the preview
+	// and persisted via plan.Color so the launcher can tint the
+	// iTerm2 tab on every claude open.
+	color string
 
 	// Post-Create state.
 	creating  bool
@@ -62,9 +69,9 @@ type planPage struct {
 func newPlanPage() *planPage {
 	ni := textinput.New()
 	ni.CharLimit = workspace.NicknameMaxChars
-	ni.Width = 26
+	ni.Width = 30
 	ni.Prompt = "› "
-	ni.Placeholder = "short label (≤20 chars, spaces & emoji ok)"
+	ni.Placeholder = "short label (≤25 chars, acronyms + emoji ok)"
 	return &planPage{
 		cloneInclude:  make(map[string]bool),
 		nicknameInput: ni,
@@ -226,11 +233,14 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 			}
 		}
 		// Pre-fill the nickname input from cache when it has a
-		// suggestion and the user hasn't typed anything yet.
-		if !p.nicknameDirty {
-			if cached, ok := m.NicknameCache[m.TicketID]; ok && cached != "" {
-				p.nicknameInput.SetValue(cached)
+		// suggestion and the user hasn't typed anything yet. Color
+		// is captured unconditionally — it's not user-editable in
+		// MVP, so a fresh cache hit replaces any earlier value.
+		if cached, ok := m.NicknameCache[m.TicketID]; ok {
+			if !p.nicknameDirty && cached.Nickname != "" {
+				p.nicknameInput.SetValue(cached.Nickname)
 			}
+			p.color = cached.Color
 		}
 		// Reset focus — clone rows first if any, then nickname, then
 		// Create. The user's most common edit (the nickname) sits at
@@ -250,13 +260,18 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 		return p, focusCmd
 
 	case wizard.NicknameSuggestedMsg:
-		// Late-arriving suggester result: only pre-fill if the user
-		// hasn't started typing AND the input is currently empty (so
-		// a previous suggestion the user explicitly cleared stays
-		// cleared).
-		if !p.nicknameDirty && v.Err == nil && v.TicketID == m.TicketID &&
-			v.Nickname != "" && p.nicknameInput.Value() == "" {
-			p.nicknameInput.SetValue(v.Nickname)
+		// Late-arriving suggester result. Pre-fill the nickname
+		// input only if the user hasn't started typing AND it's
+		// currently empty (so a previous suggestion the user
+		// explicitly cleared stays cleared). Color always pulls
+		// from the latest suggestion — not user-editable.
+		if v.Err == nil && v.TicketID == m.TicketID {
+			if !p.nicknameDirty && v.Suggestion.Nickname != "" && p.nicknameInput.Value() == "" {
+				p.nicknameInput.SetValue(v.Suggestion.Nickname)
+			}
+			if v.Suggestion.Color != "" {
+				p.color = v.Suggestion.Color
+			}
 		}
 		return p, nil
 
@@ -542,6 +557,7 @@ func (p *planPage) finalizeCmd(m *wizard.Model) tea.Cmd {
 			WorkspaceDir: p.workspace,
 			Branch:       p.branch,
 			Nickname:     strings.TrimSpace(p.nicknameInput.Value()),
+			Color:        p.color,
 			Repos:        planRepos,
 			Memory:       m.Result.Plan.Memory,
 		}
@@ -617,6 +633,16 @@ func (p *planPage) View(m *wizard.Model) string {
 		b.WriteString(fmt.Sprintf("  %snickname:      %s  %s\n",
 			nnMarker, p.nicknameInput.View(),
 			wizard.HintStyle.Render(fmt.Sprintf("(%d/%d)", nnCount, workspace.NicknameMaxChars))))
+		// Color row (read-only): swatch + hex. Only rendered when
+		// the suggester emitted a parseable color. iTerm2 only —
+		// the row is harmless context elsewhere.
+		if p.color != "" {
+			swatch := lipgloss.NewStyle().
+				Background(lipgloss.Color(p.color)).
+				Render("    ")
+			b.WriteString(fmt.Sprintf("    tab color:     %s  %s\n",
+				swatch, wizard.HintStyle.Render(p.color+"  (iTerm2 tab tint)")))
+		}
 		final := p.finalSelection()
 		b.WriteString(fmt.Sprintf("    worktrees:     %d\n", len(final)))
 		for _, r := range final {

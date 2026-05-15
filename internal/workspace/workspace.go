@@ -19,6 +19,7 @@ import (
 
 	"github.com/uribrecher/thicket/internal/git"
 	"github.com/uribrecher/thicket/internal/memory"
+	"github.com/uribrecher/thicket/internal/term"
 )
 
 // PlanRepo is one repo in the plan: where its source clone lives, what
@@ -39,8 +40,14 @@ type Plan struct {
 	// spaces and emoji allowed, uniqueness not required). Optional —
 	// when empty, display sites fall back to the workspace slug.
 	Nickname string
-	Repos    []PlanRepo
-	Memory   memory.Input
+	// Color is the workspace's tab-color hint, hex `#RRGGBB`. Used
+	// by iTerm2 to tint the tab background so concurrent workspace
+	// sessions are visually distinguishable. Optional — when empty,
+	// the launcher leaves the tab uncolored. Sanitized at the
+	// persistence boundary; invalid input is dropped to "".
+	Color  string
+	Repos  []PlanRepo
+	Memory memory.Input
 
 	// Progress, when non-nil, receives one line per materialization
 	// step (`✓ worktree: …`, `✓ wrote CLAUDE.local.md (…)`, etc.).
@@ -58,7 +65,11 @@ type State struct {
 	// Nickname is the per-workspace display label set at creation
 	// time. `omitempty` so manifests written before this field
 	// existed round-trip cleanly.
-	Nickname  string      `json:"nickname,omitempty"`
+	Nickname string `json:"nickname,omitempty"`
+	// Color is the tab-color hint, hex `#RRGGBB`. iTerm2 uses it to
+	// tint the tab background at session start. `omitempty` —
+	// manifests without a color decode as "".
+	Color     string      `json:"color,omitempty"`
 	CreatedAt time.Time   `json:"created_at"`
 	Repos     []StateRepo `json:"repos"`
 }
@@ -403,7 +414,10 @@ func (m ManagedWorkspace) DisplayName() string {
 // runes. Enforced at persistence time by SanitizeNickname; the
 // wizard's textinput and the LLM prompt also reference it so the
 // rule lives in exactly one place.
-const NicknameMaxChars = 20
+//
+// 25 runes balances "fits in a tab strip" with "leaves room for a
+// short emoji-prefixed acronym phrase like '🐛 MR Snowflake enum'".
+const NicknameMaxChars = 25
 
 // SanitizeNickname normalizes a candidate nickname before persistence
 // or display: trims surrounding whitespace, replaces interior runs of
@@ -569,6 +583,7 @@ func writeState(p Plan) error {
 		// downstream display code can trust the field is already
 		// normalized.
 		Nickname:  SanitizeNickname(p.Nickname),
+		Color:     term.SanitizeHexColor(p.Color),
 		CreatedAt: p.Memory.CreatedAt,
 		Repos:     make([]StateRepo, 0, len(p.Repos)),
 	}

@@ -44,7 +44,7 @@ func newModel(deps wizard.Deps) *wizard.Model {
 		Deps:          deps,
 		LLMCache:      make(map[string][]detector.RepoMatch),
 		SummaryCache:  make(map[string][]string),
-		NicknameCache: make(map[string]string),
+		NicknameCache: make(map[string]detector.NicknameSuggestion),
 		CloneInclude:  make(map[string]bool),
 	}
 	m.Pages = []wizard.Page{
