@@ -83,7 +83,7 @@ func newEditModel(deps EditDeps) *Model {
 		editDeps:     deps,
 		cloneInclude: make(map[string]bool),
 	}
-	m.pages = [3]Page{
+	m.pages = []Page{
 		newEditWorkspacePage(),
 		newEditReposPage(),
 		newEditSubmitPage(),
