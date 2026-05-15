@@ -1,8 +1,9 @@
-package wizard
+package start
 
 import (
 	"context"
 	"errors"
+	"github.com/uribrecher/thicket/internal/tui/wizard"
 	"strings"
 	"testing"
 
@@ -32,16 +33,16 @@ type stubID string
 
 func (s stubID) String() string { return string(s) }
 
-// newTestModel builds a Model preconfigured with a small synthetic
+// newTestModel builds a wizard.Model preconfigured with a small synthetic
 // catalog so the Repos / Plan pages have something to chew on.
-func newTestModel() *Model {
+func newTestModel() *wizard.Model {
 	repos := []catalog.Repo{
 		{Name: "alpha", LocalPath: "/tmp/alpha", DefaultBranch: "main"},
 		{Name: "beta", DefaultBranch: "main"}, // un-cloned
 		{Name: "gamma", LocalPath: "/tmp/gamma", DefaultBranch: "main"},
 	}
 	var calls int
-	deps := Deps{
+	deps := wizard.Deps{
 		Ctx: context.Background(),
 		Cfg: &config.Config{WorkspaceRoot: "/tmp/ws", ReposRoot: "/tmp/repos"},
 		Src: stubSource{},
@@ -62,12 +63,11 @@ func newTestModel() *Model {
 // an incomplete page via either → or Enter.
 func TestNavGatedByComplete(t *testing.T) {
 	m := newTestModel()
-	if m.canGoNext() {
-		t.Fatalf("Ticket page reports complete before any fetch")
-	}
-	// Synthesize a "→" press: nothing should change.
+	// Synthesize a "→" press on the unfinished Ticket page: nothing
+	// should change. We assert via Update behavior rather than
+	// poking at the internal canGoNext gate.
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
-	mm := updated.(*Model)
+	mm := updated.(*wizard.Model)
 	if mm.Active != 0 {
 		t.Fatalf("→ advanced past incomplete Ticket page (active=%d)", mm.Active)
 	}
@@ -84,7 +84,7 @@ func TestCancelFromAnyPage(t *testing.T) {
 			m := newTestModel()
 			m.Active = c.active
 			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-			mm := updated.(*Model)
+			mm := updated.(*wizard.Model)
 			if !errors.Is(mm.Err, tui.ErrCancelled) {
 				t.Fatalf("esc did not set err=ErrCancelled (got %v)", mm.Err)
 			}
@@ -111,7 +111,7 @@ func TestTicketCommitInvalidatesDownstream(t *testing.T) {
 	m.Chosen = []catalog.Repo{{Name: "alpha"}}
 
 	// User commits a NEW ticket id.
-	m.Update(TicketCommittedMsg{Tk: ticket.Ticket{SourceID: "sc-2", Title: "two"}})
+	m.Update(wizard.TicketCommittedMsg{Tk: ticket.Ticket{SourceID: "sc-2", Title: "two"}})
 
 	if m.TicketID != "sc-2" {
 		t.Fatalf("ticketID = %q, want sc-2", m.TicketID)
@@ -133,7 +133,7 @@ func TestTicketCommitSameIDNoOp(t *testing.T) {
 	m.LLMCache["sc-1"] = []detector.RepoMatch{{Name: "alpha"}}
 	m.Chosen = []catalog.Repo{{Name: "alpha"}, {Name: "beta"}}
 
-	m.Update(TicketCommittedMsg{Tk: ticket.Ticket{SourceID: "sc-1", Title: "one"}})
+	m.Update(wizard.TicketCommittedMsg{Tk: ticket.Ticket{SourceID: "sc-1", Title: "one"}})
 
 	if _, ok := m.LLMCache["sc-1"]; !ok {
 		t.Errorf("llmCache[sc-1] wiped on same-id commit")
@@ -144,12 +144,12 @@ func TestTicketCommitSameIDNoOp(t *testing.T) {
 }
 
 // TestExistingWorkspaceShortCircuit covers the reuse-existing-workspace
-// Path: an ExistingWorkspaceMsg sets ReuseDir on the result and
+// Path: an wizard.ExistingWorkspaceMsg sets ReuseDir on the result and
 // signals tea.Quit so runStart launches Claude on the existing dir.
 func TestExistingWorkspaceShortCircuit(t *testing.T) {
 	m := newTestModel()
 	m.Ticket = ticket.Ticket{SourceID: "sc-9", Title: "existing"}
-	_, cmd := m.Update(ExistingWorkspaceMsg{Path: "/tmp/ws/sc-9-existing"})
+	_, cmd := m.Update(wizard.ExistingWorkspaceMsg{Path: "/tmp/ws/sc-9-existing"})
 	if !m.Done {
 		t.Fatalf("done not set after existing-workspace msg")
 	}
@@ -157,7 +157,7 @@ func TestExistingWorkspaceShortCircuit(t *testing.T) {
 		t.Errorf("ReuseDir = %q", m.Result.ReuseDir)
 	}
 	if m.Result.Ticket.SourceID != "sc-9" {
-		t.Errorf("Result.Ticket not preserved")
+		t.Errorf("wizard.Result.Ticket not preserved")
 	}
 	if cmd == nil {
 		t.Fatalf("no quit cmd returned")
@@ -203,7 +203,7 @@ func TestLLMCacheReseed(t *testing.T) {
 func TestReposCommitStoresChosen(t *testing.T) {
 	m := newTestModel()
 	chosen := []catalog.Repo{{Name: "alpha"}, {Name: "gamma"}}
-	m.Update(ReposCommittedMsg{Chosen: chosen})
+	m.Update(wizard.ReposCommittedMsg{Chosen: chosen})
 	if len(m.Chosen) != 2 || m.Chosen[0].Name != "alpha" || m.Chosen[1].Name != "gamma" {
 		t.Errorf("chosen = %+v", m.Chosen)
 	}
@@ -221,7 +221,7 @@ func TestRankFuzzyPrefersSubstringOverScattered(t *testing.T) {
 		"sentra-support-agent",   // scattered
 		"sentra-simple-grouping", // scattered
 	}
-	matches := rankFuzzy("setup", names)
+	matches := wizard.RankFuzzy("setup", names)
 	if len(matches) == 0 {
 		t.Fatalf("no matches for %q", "setup")
 	}
@@ -253,15 +253,15 @@ func TestPlanCloneFailureProceeds(t *testing.T) {
 
 	// Set up the clones map as if startCloneCmd already ran — beta failed.
 	pp.creating = true
-	pp.clones = map[string]*cloneState{
-		"beta": {name: "beta", done: true, err: errors.New("auth denied")},
+	pp.clones = map[string]*wizard.CloneState{
+		"beta": {Name: "beta", Done: true, Err: errors.New("auth denied")},
 	}
 
-	// Manually invoke finalize: emit the CreateDoneMsg, then drive it
+	// Manually invoke finalize: emit the wizard.CreateDoneMsg, then drive it
 	// through the wizard's Update.
 	msg := pp.finalizeCmd(m)()
 	updated, _ := m.Update(msg)
-	mm := updated.(*Model)
+	mm := updated.(*wizard.Model)
 	if mm.Err != nil {
 		t.Fatalf("wizard surfaced error after partial-failure proceed: %v", mm.Err)
 	}

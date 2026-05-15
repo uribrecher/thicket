@@ -41,7 +41,7 @@ type editSubmitPage struct {
 	focusBtn     bool
 
 	creating  bool
-	clones    map[string]*cloneState
+	clones    map[string]*CloneState
 	cloneOrd  []string
 	startedAt time.Time
 }
@@ -201,7 +201,7 @@ func (p *editSubmitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 
 	case CloneStartedMsg:
 		if cs, ok := p.clones[v.Name]; ok {
-			cs.started = time.Now()
+			cs.Started = time.Now()
 		}
 		return p, p.tickCmd()
 
@@ -210,8 +210,8 @@ func (p *editSubmitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		if !ok {
 			return p, nil
 		}
-		cs.done = true
-		cs.err = v.Err
+		cs.Done = true
+		cs.Err = v.Err
 		if v.Err == nil {
 			for i := range p.allRepos {
 				if p.allRepos[i].Name == v.Name {
@@ -273,7 +273,7 @@ func (p *editSubmitPage) allClonesDone() bool {
 		return false
 	}
 	for _, cs := range p.clones {
-		if !cs.done {
+		if !cs.Done {
 			return false
 		}
 	}
@@ -312,7 +312,7 @@ func (p *editSubmitPage) startCloneCmd(m *Model) tea.Cmd {
 	p.allRepos = final
 	p.creating = true
 	p.startedAt = time.Now()
-	p.clones = make(map[string]*cloneState, len(pending))
+	p.clones = make(map[string]*CloneState, len(pending))
 	p.cloneOrd = p.cloneOrd[:0]
 	if len(pending) == 0 {
 		return p.finalizeCmd(m)
@@ -320,7 +320,7 @@ func (p *editSubmitPage) startCloneCmd(m *Model) tea.Cmd {
 	cmds := make([]tea.Cmd, 0, 2*len(pending))
 	for _, r := range pending {
 		target := filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name)
-		cs := &cloneState{name: r.Name, cloneURL: r.CloneURL, targetDir: target}
+		cs := &CloneState{Name: r.Name, CloneURL: r.CloneURL, TargetDir: target}
 		p.clones[r.Name] = cs
 		p.cloneOrd = append(p.cloneOrd, r.Name)
 		started := func(name string) tea.Cmd {
@@ -348,10 +348,10 @@ func (p *editSubmitPage) finalizeCmd(m *Model) tea.Cmd {
 		// Filter failed clones (proceed-without-failed-repo).
 		var kept []catalog.Repo
 		for _, r := range p.allRepos {
-			if cs, ok := p.clones[r.Name]; ok && cs.err != nil {
+			if cs, ok := p.clones[r.Name]; ok && cs.Err != nil {
 				m.EditResult.Skipped = append(m.EditResult.Skipped, SkipReport{
 					Name:   r.Name,
-					Reason: cs.err.Error(),
+					Reason: cs.Err.Error(),
 				})
 				continue
 			}
@@ -368,7 +368,7 @@ func (p *editSubmitPage) finalizeCmd(m *Model) tea.Cmd {
 				src = filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name)
 			}
 			exists := p.branchExist[r.Name]
-			if cs, ok := p.clones[r.Name]; ok && cs.err == nil {
+			if cs, ok := p.clones[r.Name]; ok && cs.Err == nil {
 				e, err := m.EditDeps.Git.BranchExists(src, p.branch)
 				if err != nil {
 					return EditDoneMsg{Err: fmt.Errorf("check branch in %s after clone: %w", r.Name, err)}
@@ -491,19 +491,19 @@ func (p *editSubmitPage) View(m *Model) string {
 		for _, name := range p.cloneOrd {
 			cs := p.clones[name]
 			switch {
-			case cs.done && cs.err == nil:
+			case cs.Done && cs.Err == nil:
 				b.WriteString("    " + SelectedTagStyle.Render("✓") +
-					fmt.Sprintf(" cloned %s → %s\n", name, AbbrevHome(cs.targetDir)))
-			case cs.done && cs.err != nil:
+					fmt.Sprintf(" cloned %s → %s\n", name, AbbrevHome(cs.TargetDir)))
+			case cs.Done && cs.Err != nil:
 				b.WriteString("    " + ErrStyle.Render("✗") +
-					fmt.Sprintf(" clone failed for %s: %s — skipping\n", name, cs.err.Error()))
+					fmt.Sprintf(" clone failed for %s: %s — skipping\n", name, cs.Err.Error()))
 			default:
 				elapsed := 0
-				if !cs.started.IsZero() {
-					elapsed = int(time.Since(cs.started).Seconds())
+				if !cs.Started.IsZero() {
+					elapsed = int(time.Since(cs.Started).Seconds())
 				}
 				b.WriteString("    " +
-					fmt.Sprintf("cloning %s → %s… %ds\n", name, AbbrevHome(cs.targetDir), elapsed))
+					fmt.Sprintf("cloning %s → %s… %ds\n", name, AbbrevHome(cs.TargetDir), elapsed))
 			}
 		}
 	}

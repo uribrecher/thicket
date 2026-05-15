@@ -1,8 +1,9 @@
-package wizard
+package start
 
 import (
 	"context"
 	"fmt"
+	"github.com/uribrecher/thicket/internal/tui/wizard"
 	"sort"
 	"strings"
 	"time"
@@ -11,16 +12,15 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sahilm/fuzzy"
 
 	"github.com/uribrecher/thicket/internal/catalog"
 	"github.com/uribrecher/thicket/internal/detector"
 )
 
-const (
-	maxRepoMatches = 8 // cap on regular (fuzzy or empty-query) match rows
-	maxLLMRows     = 8 // cap on LLM-suggestion rows shown at the bottom
-)
+// maxLLMRows caps the number of LLM-suggestion rows shown at the
+// bottom of the Repos page. (The cap on regular fuzzy/empty-query
+// rows is wizard.MaxRepoMatches — shared with the edit wizard.)
+const maxLLMRows = 8
 
 // matchItem is one row in the unified match list. `selected` puts it
 // under the "Selected" header at the top; `llm` flags it as
@@ -101,7 +101,7 @@ func (p *reposPage) Complete() bool { return len(p.selectedOrder) > 0 }
 // InitCmd seeds the catalog synchronously (so search is immediately
 // usable) and fires the LLM detect cmd if we don't already have picks
 // cached for this ticket.
-func (p *reposPage) InitCmd(m *Model) tea.Cmd {
+func (p *reposPage) InitCmd(m *wizard.Model) tea.Cmd {
 	if m.TicketID == "" {
 		return nil
 	}
@@ -160,7 +160,7 @@ func (p *reposPage) resetForNewTicket() {
 // seedCatalog populates name lookup tables from m.Deps.Repos and
 // restores any selection the user already had (from a prior Plan-page
 // trip + ← back). LLM picks are populated separately via setLLMPicks.
-func (p *reposPage) seedCatalog(m *Model) {
+func (p *reposPage) seedCatalog(m *wizard.Model) {
 	p.repos = m.Deps.Repos
 	p.names = make([]string, 0, len(p.repos))
 	p.nameSet = make(map[string]bool, len(p.repos))
@@ -211,7 +211,7 @@ func (p *reposPage) setLLMPicks(picks []detector.RepoMatch) {
 	p.recompute()
 }
 
-func detectCmd(m *Model) tea.Cmd {
+func detectCmd(m *wizard.Model) tea.Cmd {
 	tk := m.Ticket
 	id := m.TicketID
 	return func() tea.Msg {
@@ -220,14 +220,14 @@ func detectCmd(m *Model) tea.Cmd {
 			ctx = context.Background()
 		}
 		picks, err := m.Deps.Detect(ctx, tk, m.Deps.Repos)
-		return PicksLoadedMsg{TicketID: id, Picks: picks, Err: err}
+		return wizard.PicksLoadedMsg{TicketID: id, Picks: picks, Err: err}
 	}
 }
 
 // summarizeCmd runs the (optional) Summarize closure for the current
 // ticket. Failures aren't fatal — the renderer silently falls back to
 // the first-N-lines view.
-func summarizeCmd(m *Model) tea.Cmd {
+func summarizeCmd(m *wizard.Model) tea.Cmd {
 	tk := m.Ticket
 	id := m.TicketID
 	return func() tea.Msg {
@@ -236,13 +236,13 @@ func summarizeCmd(m *Model) tea.Cmd {
 			ctx = context.Background()
 		}
 		lines, err := m.Deps.Summarize(ctx, tk)
-		return SummarizedMsg{TicketID: id, Lines: lines, Err: err}
+		return wizard.SummarizedMsg{TicketID: id, Lines: lines, Err: err}
 	}
 }
 
-func (p *reposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
+func (p *reposPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 	switch v := msg.(type) {
-	case PicksLoadedMsg:
+	case wizard.PicksLoadedMsg:
 		if v.TicketID != m.TicketID {
 			return p, nil // stale msg from a previous ticket
 		}
@@ -265,7 +265,7 @@ func (p *reposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		p.spinner, cmd = p.spinner.Update(msg)
 		return p, cmd
 
-	case GoNextMsg:
+	case wizard.GoNextMsg:
 		if !p.Complete() {
 			return p, nil
 		}
@@ -279,12 +279,12 @@ func (p *reposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		// Ticket page's commit: the wizard's advance() fires the
 		// Plan page's InitCmd IMMEDIATELY after this returns, and
 		// InitCmd reads m.Chosen to decide whether to rebuild the
-		// plan. If we only emitted ReposCommittedMsg as a deferred
+		// plan. If we only emitted wizard.ReposCommittedMsg as a deferred
 		// cmd, InitCmd would see the OLD m.Chosen and either keep
 		// the stale plan (if the count happened to match) or rebuild
 		// against outdated repos.
 		m.Chosen = append(m.Chosen[:0], chosen...)
-		return p, func() tea.Msg { return ReposCommittedMsg{Chosen: chosen} }
+		return p, func() tea.Msg { return wizard.ReposCommittedMsg{Chosen: chosen} }
 
 	case tea.KeyMsg:
 		switch v.String() {
@@ -335,7 +335,7 @@ func (p *reposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 func (p *reposPage) toggle(name string) {
 	if p.selected[name] {
 		delete(p.selected, name)
-		p.selectedOrder = removeFromSlice(p.selectedOrder, name)
+		p.selectedOrder = wizard.RemoveFromSlice(p.selectedOrder, name)
 		p.status = "− dropped " + name
 		return
 	}
@@ -364,11 +364,11 @@ func (p *reposPage) recompute() {
 	// Group 2: Available fuzzy matches. Empty query → skip (today's
 	// "empty query echoes the selection" is redundant now that
 	// Selected is right above). Non-empty query → fuzzy results
-	// re-ranked (see rankFuzzy) so contiguous substring matches beat
+	// re-ranked (see wizard.RankFuzzy) so contiguous substring matches beat
 	// scattered ones, excluding both selected and LLM picks.
 	if q != "" {
 		count := 0
-		for _, mm := range rankFuzzy(q, p.names) {
+		for _, mm := range wizard.RankFuzzy(q, p.names) {
 			if p.selected[mm.Str] {
 				continue
 			}
@@ -377,7 +377,7 @@ func (p *reposPage) recompute() {
 			}
 			p.matches = append(p.matches, matchItem{name: mm.Str})
 			count++
-			if count >= maxRepoMatches {
+			if count >= wizard.MaxRepoMatches {
 				break
 			}
 		}
@@ -405,15 +405,15 @@ func (p *reposPage) recompute() {
 	}
 }
 
-func (p *reposPage) View(m *Model) string {
+func (p *reposPage) View(m *wizard.Model) string {
 	var b strings.Builder
 
-	// Page title.
-	b.WriteString(TitleStyle.Render("Select repos that are relevant for this ticket"))
+	// wizard.Page title.
+	b.WriteString(wizard.TitleStyle.Render("Select repos that are relevant for this ticket"))
 	b.WriteString("\n\n")
 
 	// Ticket summary directly under the title.
-	if s := RenderTicketSummary(m.Ticket, m.SummaryCache[m.TicketID]); s != "" {
+	if s := wizard.RenderTicketSummary(m.Ticket, m.SummaryCache[m.TicketID]); s != "" {
 		b.WriteString(s)
 		b.WriteString("\n")
 	}
@@ -427,7 +427,7 @@ func (p *reposPage) View(m *Model) string {
 	b.WriteString(p.renderMatches())
 
 	if p.status != "" {
-		b.WriteString("\n  " + WarnStyle.Render(p.status) + "\n")
+		b.WriteString("\n  " + wizard.WarnStyle.Render(p.status) + "\n")
 	}
 
 	// Two-line gap, then the LLM status (spinner while in flight,
@@ -436,24 +436,24 @@ func (p *reposPage) View(m *Model) string {
 	// in parallel.
 	b.WriteString("\n\n")
 	b.WriteString(p.renderLLMStatus(m))
-	return Indent(b.String(), 2)
+	return wizard.Indent(b.String(), 2)
 }
 
 // renderLLMStatus draws the spinner + label while the LLM is in
 // flight, dims to gray on success, surfaces a red error on failure,
 // and renders empty when nothing has been kicked off yet (cache-hit
 // on a same-session ticket).
-func (p *reposPage) renderLLMStatus(m *Model) string {
+func (p *reposPage) renderLLMStatus(m *wizard.Model) string {
 	switch {
 	case p.loading:
 		secs := int(time.Since(p.loadStartAt).Seconds())
 		return "  " + p.spinner.View() + " " +
-			DimStyle.Render(fmt.Sprintf("looking for relevant repos… (%ds)", secs))
+			wizard.DimStyle.Render(fmt.Sprintf("looking for relevant repos… (%ds)", secs))
 	case p.loadErr != nil:
-		return "  " + ErrStyle.Render("✗ LLM detection failed: "+p.loadErr.Error())
+		return "  " + wizard.ErrStyle.Render("✗ LLM detection failed: "+p.loadErr.Error())
 	case !p.loadStartAt.IsZero() && !p.loadFinishedAt.IsZero():
 		dur := p.loadFinishedAt.Sub(p.loadStartAt).Seconds()
-		return "  " + DimStyle.Render(fmt.Sprintf("● found %d relevant repo(s) in %.1fs",
+		return "  " + wizard.DimStyle.Render(fmt.Sprintf("● found %d relevant repo(s) in %.1fs",
 			len(p.picks), dur))
 	default:
 		return ""
@@ -494,7 +494,7 @@ func (p *reposPage) renderMatches() string {
 	if len(p.matches) == 0 {
 		q := strings.TrimSpace(p.input.Value())
 		if q != "" {
-			return "    " + DimStyle.Render(fmt.Sprintf("no match for %q", q)) + "\n"
+			return "    " + wizard.DimStyle.Render(fmt.Sprintf("no match for %q", q)) + "\n"
 		}
 		// Empty list + empty query: the textinput's own placeholder
 		// ("type to filter the catalog") is already visible above,
@@ -511,23 +511,23 @@ func (p *reposPage) renderMatches() string {
 			if prevGroup != -1 {
 				b.WriteString("\n")
 			}
-			b.WriteString("  " + SectionStyle.Render(headerFor(g, p)) + "\n")
+			b.WriteString("  " + wizard.SectionStyle.Render(headerFor(g, p)) + "\n")
 			prevGroup = g
 		}
 
 		var marker, name string
 		if i == p.cursor {
-			marker = CursorStyle.Render("▶")
-			name = HighlightStyle.Render(PadRight(it.name, nameW))
+			marker = wizard.CursorStyle.Render("▶")
+			name = wizard.HighlightStyle.Render(wizard.PadRight(it.name, nameW))
 		} else {
 			marker = " "
-			name = PadRight(it.name, nameW)
+			name = wizard.PadRight(it.name, nameW)
 		}
 
 		// ✓ only on selected rows; plain space otherwise.
 		check := " "
 		if it.selected {
-			check = SelectedTagStyle.Render("✓")
+			check = wizard.SelectedTagStyle.Render("✓")
 		}
 
 		// Meta column: LLM tag + reason whenever the row originated
@@ -536,11 +536,11 @@ func (p *reposPage) renderMatches() string {
 		var meta string
 		if it.llm {
 			if pk, ok := p.picks[it.name]; ok {
-				meta = RelevanceTagStyle.Render(fmt.Sprintf("relevance %.0f%% ", pk.Confidence*100)) +
-					DimStyle.Render(Truncate(pk.Reason, descW-12))
+				meta = wizard.RelevanceTagStyle.Render(fmt.Sprintf("relevance %.0f%% ", pk.Confidence*100)) +
+					wizard.DimStyle.Render(wizard.Truncate(pk.Reason, descW-12))
 			}
 		} else if d := p.descByName[it.name]; d != "" {
-			meta = DimStyle.Render(Truncate(d, descW))
+			meta = wizard.DimStyle.Render(wizard.Truncate(d, descW))
 		}
 		b.WriteString(fmt.Sprintf("    %s %s %s %s\n", marker, check, name, meta))
 	}
@@ -562,7 +562,7 @@ func headerFor(g matchGroup, p *reposPage) string {
 	return ""
 }
 
-// rankFuzzy wraps fuzzy.Find with a custom two-tier ranking so the
+// wizard.RankFuzzy wraps fuzzy.Find with a custom two-tier ranking so the
 // results match user intuition: anything containing the query as a
 // substring comes first (sorted by where the substring lands —
 // earlier wins), and only THEN does the library's score-based
@@ -575,34 +575,3 @@ func headerFor(g matchGroup, p *reposPage) string {
 // inside "sentra-setup-service" → score 25, because the 7-char
 // leading penalty caps at -15). Users typing "setup" overwhelmingly
 // expect "*setup*" hits at the top.
-func rankFuzzy(query string, names []string) fuzzy.Matches {
-	matches := fuzzy.Find(query, names)
-	qLower := strings.ToLower(query)
-	sort.SliceStable(matches, func(i, j int) bool {
-		ai := strings.Index(strings.ToLower(matches[i].Str), qLower)
-		aj := strings.Index(strings.ToLower(matches[j].Str), qLower)
-		// Substring matches beat scattered ones.
-		if (ai == -1) != (aj == -1) {
-			return ai != -1
-		}
-		// Both substring: earlier index wins.
-		if ai != -1 && aj != -1 && ai != aj {
-			return ai < aj
-		}
-		// Otherwise fall back to fuzzy's own descending score.
-		return matches[i].Score > matches[j].Score
-	})
-	return matches
-}
-
-// removeFromSlice mirrors the helper in internal/tui — duplicated so
-// the wizard package stays self-contained.
-func removeFromSlice(s []string, v string) []string {
-	out := s[:0]
-	for _, x := range s {
-		if x != v {
-			out = append(out, x)
-		}
-	}
-	return out
-}

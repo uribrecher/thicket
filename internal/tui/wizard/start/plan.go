@@ -1,9 +1,10 @@
-package wizard
+package start
 
 import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/uribrecher/thicket/internal/tui/wizard"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,16 +15,6 @@ import (
 	"github.com/uribrecher/thicket/internal/memory"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
-
-// cloneState tracks one clone's lifecycle for in-page rendering.
-type cloneState struct {
-	name      string
-	cloneURL  string
-	targetDir string
-	started   time.Time
-	done      bool
-	err       error
-}
 
 type planPage struct {
 	// Built lazily on first activation so the user sees branch-exists
@@ -47,7 +38,7 @@ type planPage struct {
 
 	// Post-Create state.
 	creating  bool
-	clones    map[string]*cloneState
+	clones    map[string]*wizard.CloneState
 	cloneOrd  []string // for deterministic rendering
 	startedAt time.Time
 }
@@ -90,7 +81,7 @@ func (p *planPage) Locked() bool { return p.creating }
 // cloned it), the branch-exists probe could now return a different
 // answer, and so on. Rebuilding is cheap (a few BranchExists calls)
 // so we always rebuild and trust the latest state.
-func (p *planPage) InitCmd(m *Model) tea.Cmd {
+func (p *planPage) InitCmd(m *wizard.Model) tea.Cmd {
 	// Drop checkbox state when the ticket changed — a repo unchecked
 	// for ticket A would otherwise start unchecked for ticket B if
 	// both happen to need it cloned, which is surprising.
@@ -103,7 +94,7 @@ func (p *planPage) InitCmd(m *Model) tea.Cmd {
 	return buildPlanCmd(m)
 }
 
-func buildPlanCmd(m *Model) tea.Cmd {
+func buildPlanCmd(m *wizard.Model) tea.Cmd {
 	return func() tea.Msg {
 		branch := strings.TrimSpace(m.Deps.Flags.Branch)
 		if branch == "" {
@@ -122,7 +113,7 @@ func buildPlanCmd(m *Model) tea.Cmd {
 			}
 			ok, err := m.Deps.Git.BranchExists(r.LocalPath, branch)
 			if err != nil {
-				return PlanBuiltMsg{Err: fmt.Errorf("check branch in %s: %w", r.Name, err)}
+				return wizard.PlanBuiltMsg{Err: fmt.Errorf("check branch in %s: %w", r.Name, err)}
 			}
 			exist[r.Name] = ok
 		}
@@ -176,13 +167,13 @@ func buildPlanCmd(m *Model) tea.Cmd {
 				CreatedAt:    time.Now(),
 			},
 		}
-		return PlanBuiltMsg{Plan: plan, ToClone: toClone}
+		return wizard.PlanBuiltMsg{Plan: plan, ToClone: toClone}
 	}
 }
 
-func (p *planPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
+func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 	switch v := msg.(type) {
-	case PlanBuiltMsg:
+	case wizard.PlanBuiltMsg:
 		if v.Err != nil {
 			p.built = false
 			p.buildErr = v.Err
@@ -219,19 +210,19 @@ func (p *planPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		}
 		return p, nil
 
-	case CloneStartedMsg:
+	case wizard.CloneStartedMsg:
 		if cs, ok := p.clones[v.Name]; ok {
-			cs.started = time.Now()
+			cs.Started = time.Now()
 		}
 		return p, p.tickCmd()
 
-	case CloneDoneMsg:
+	case wizard.CloneDoneMsg:
 		cs, ok := p.clones[v.Name]
 		if !ok {
 			return p, nil
 		}
-		cs.done = true
-		cs.err = v.Err
+		cs.Done = true
+		cs.Err = v.Err
 		if v.Err == nil {
 			// Patch the corresponding allRepos entry with the new
 			// local path so the result reflects it.
@@ -248,7 +239,7 @@ func (p *planPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		}
 		return p, nil
 
-	case TickMsg:
+	case wizard.TickMsg:
 		return p, p.tickCmd()
 
 	case tea.KeyMsg:
@@ -298,7 +289,7 @@ func (p *planPage) allClonesDone() bool {
 		return false
 	}
 	for _, cs := range p.clones {
-		if !cs.done {
+		if !cs.Done {
 			return false
 		}
 	}
@@ -309,13 +300,13 @@ func (p *planPage) tickCmd() tea.Cmd {
 	if !p.creating {
 		return nil
 	}
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return TickMsg(t) })
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return wizard.TickMsg(t) })
 }
 
 // startCloneCmd kicks off the clone phase. After it returns, the
-// wizard receives one CloneStartedMsg + one CloneDoneMsg per repo.
+// wizard receives one wizard.CloneStartedMsg + one wizard.CloneDoneMsg per repo.
 // If nothing needs cloning, it skips straight to finalizeCmd.
-func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
+func (p *planPage) startCloneCmd(m *wizard.Model) tea.Cmd {
 	// Build the final repo set, dropping unchecked to-clones.
 	final := make([]catalog.Repo, 0, len(p.allRepos))
 	var pending []catalog.Repo
@@ -329,7 +320,7 @@ func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
 			pending = append(pending, r)
 		} else {
 			// Track this as an explicit user-skip for the summary.
-			m.Result.Skipped = append(m.Result.Skipped, SkipReport{
+			m.Result.Skipped = append(m.Result.Skipped, wizard.SkipReport{
 				Name:   r.Name,
 				Reason: "deselected before create",
 			})
@@ -342,7 +333,7 @@ func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
 	p.allRepos = final
 	p.creating = true
 	p.startedAt = time.Now()
-	p.clones = make(map[string]*cloneState, len(pending))
+	p.clones = make(map[string]*wizard.CloneState, len(pending))
 	p.cloneOrd = p.cloneOrd[:0]
 	if len(pending) == 0 {
 		// Nothing to clone; finalize immediately.
@@ -351,13 +342,13 @@ func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
 	cmds := make([]tea.Cmd, 0, 2*len(pending))
 	for _, r := range pending {
 		target := filepath.Join(m.Deps.Cfg.ReposRoot, r.Name)
-		cs := &cloneState{name: r.Name, cloneURL: r.CloneURL, targetDir: target}
+		cs := &wizard.CloneState{Name: r.Name, CloneURL: r.CloneURL, TargetDir: target}
 		p.clones[r.Name] = cs
 		p.cloneOrd = append(p.cloneOrd, r.Name)
 		// Send the started msg immediately so the UI flips to "cloning…"
 		// while the actual git call runs.
 		started := func(name string) tea.Cmd {
-			return func() tea.Msg { return CloneStartedMsg{Name: name} }
+			return func() tea.Msg { return wizard.CloneStartedMsg{Name: name} }
 		}(r.Name)
 		clone := func(name, url, dir string) tea.Cmd {
 			return func() tea.Msg {
@@ -365,9 +356,9 @@ func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
 				err := m.Deps.Git.Clone(url, dir, &buf, &buf)
 				out := strings.TrimSpace(buf.String())
 				if err != nil {
-					return CloneDoneMsg{Name: name, Err: fmt.Errorf("%s: %w (git output: %s)", name, err, Truncate(out, 200))}
+					return wizard.CloneDoneMsg{Name: name, Err: fmt.Errorf("%s: %w (git output: %s)", name, err, wizard.Truncate(out, 200))}
 				}
-				return CloneDoneMsg{Name: name, LocalPath: dir}
+				return wizard.CloneDoneMsg{Name: name, LocalPath: dir}
 			}
 		}(r.Name, r.CloneURL, target)
 		cmds = append(cmds, started, clone)
@@ -376,25 +367,25 @@ func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// finalizeCmd builds the post-clone plan and emits CreateDoneMsg.
+// finalizeCmd builds the post-clone plan and emits wizard.CreateDoneMsg.
 // workspace.Create itself runs AFTER the wizard exits (in runStart),
 // so the result here carries a finalized plan ready to execute.
-func (p *planPage) finalizeCmd(m *Model) tea.Cmd {
+func (p *planPage) finalizeCmd(m *wizard.Model) tea.Cmd {
 	return func() tea.Msg {
 		// Filter out failed clones (proceed-without-failed-repo policy).
 		var kept []catalog.Repo
 		for _, r := range p.allRepos {
-			if cs, ok := p.clones[r.Name]; ok && cs.err != nil {
-				m.Result.Skipped = append(m.Result.Skipped, SkipReport{
+			if cs, ok := p.clones[r.Name]; ok && cs.Err != nil {
+				m.Result.Skipped = append(m.Result.Skipped, wizard.SkipReport{
 					Name:   r.Name,
-					Reason: cs.err.Error(),
+					Reason: cs.Err.Error(),
 				})
 				continue
 			}
 			kept = append(kept, r)
 		}
 		if len(kept) == 0 {
-			return CreateDoneMsg{Err: errors.New("every clone failed — nothing to materialize")}
+			return wizard.CreateDoneMsg{Err: errors.New("every clone failed — nothing to materialize")}
 		}
 		// Re-build the plan against the kept repos so PlanRepo.SourcePath
 		// uses the freshly-cloned target dirs.
@@ -409,10 +400,10 @@ func (p *planPage) finalizeCmd(m *Model) tea.Cmd {
 			// For freshly-cloned repos we never checked
 			// BranchExists; re-probe so the worktree is added with
 			// the right `-b` flag.
-			if cs, ok := p.clones[r.Name]; ok && cs.err == nil {
+			if cs, ok := p.clones[r.Name]; ok && cs.Err == nil {
 				ok, err := m.Deps.Git.BranchExists(src, p.branch)
 				if err != nil {
-					return CreateDoneMsg{Err: fmt.Errorf("check branch in %s after clone: %w", r.Name, err)}
+					return wizard.CreateDoneMsg{Err: fmt.Errorf("check branch in %s after clone: %w", r.Name, err)}
 				}
 				exists = ok
 			}
@@ -437,26 +428,26 @@ func (p *planPage) finalizeCmd(m *Model) tea.Cmd {
 			Memory:       m.Result.Plan.Memory,
 		}
 		plan.Memory.Repos = memRepos
-		return CreateDoneMsg{Result: Result{Plan: plan, Skipped: m.Result.Skipped}}
+		return wizard.CreateDoneMsg{Result: wizard.Result{Plan: plan, Skipped: m.Result.Skipped}}
 	}
 }
 
-func (p *planPage) View(m *Model) string {
+func (p *planPage) View(m *wizard.Model) string {
 	var b strings.Builder
-	b.WriteString(TitleStyle.Render("Review and create workspace"))
+	b.WriteString(wizard.TitleStyle.Render("Review and create workspace"))
 	b.WriteString("\n\n")
 	if !p.built {
 		if p.buildErr != nil {
-			b.WriteString("  " + ErrStyle.Render(FmtErr(p.buildErr)) + "\n")
-			return Indent(b.String(), 2)
+			b.WriteString("  " + wizard.ErrStyle.Render(wizard.FmtErr(p.buildErr)) + "\n")
+			return wizard.Indent(b.String(), 2)
 		}
-		b.WriteString("  " + HintStyle.Render("building plan…") + "\n")
-		return Indent(b.String(), 2)
+		b.WriteString("  " + wizard.HintStyle.Render("building plan…") + "\n")
+		return wizard.Indent(b.String(), 2)
 	}
 
 	// Missing clones (only if non-empty).
 	if len(p.toClone) > 0 && !p.creating {
-		b.WriteString("  " + SectionStyle.Render("Missing clones") + "\n")
+		b.WriteString("  " + wizard.SectionStyle.Render("Missing clones") + "\n")
 		for i, r := range p.toClone {
 			check := "[ ]"
 			if p.cloneInclude[r.Name] {
@@ -465,13 +456,13 @@ func (p *planPage) View(m *Model) string {
 			cursor := " "
 			line := fmt.Sprintf("%s  %s %-32s → %s",
 				cursor, check, r.Name,
-				AbbrevHome(filepath.Join(m.Deps.Cfg.ReposRoot, r.Name)))
+				wizard.AbbrevHome(filepath.Join(m.Deps.Cfg.ReposRoot, r.Name)))
 			if !p.focusBtn && i == p.cursor {
-				cursor = CursorStyle.Render("▶")
+				cursor = wizard.CursorStyle.Render("▶")
 				line = fmt.Sprintf("%s  %s %s",
 					cursor,
-					CursorStyle.Render(check+" "+PadRight(r.Name, 32)),
-					DimStyle.Render("→ "+AbbrevHome(filepath.Join(m.Deps.Cfg.ReposRoot, r.Name))))
+					wizard.CursorStyle.Render(check+" "+wizard.PadRight(r.Name, 32)),
+					wizard.DimStyle.Render("→ "+wizard.AbbrevHome(filepath.Join(m.Deps.Cfg.ReposRoot, r.Name))))
 			}
 			b.WriteString("  " + line + "\n")
 		}
@@ -486,17 +477,17 @@ func (p *planPage) View(m *Model) string {
 		// here". Hidden when there's nothing to clone.
 		toClone := p.checkedClones()
 		if len(toClone) > 0 {
-			b.WriteString("  " + PlanHeaderStyle.Render(
+			b.WriteString("  " + wizard.PlanHeaderStyle.Render(
 				fmt.Sprintf("The following repos will be cloned into %s:",
-					AbbrevHome(m.Deps.Cfg.ReposRoot))) + "\n")
+					wizard.AbbrevHome(m.Deps.Cfg.ReposRoot))) + "\n")
 			for _, r := range toClone {
 				b.WriteString(fmt.Sprintf("      • %s\n", r.Name))
 			}
 			b.WriteString("\n")
 		}
 
-		b.WriteString("  " + PlanHeaderStyle.Render("The following will be created:") + "\n")
-		b.WriteString(fmt.Sprintf("    workspace dir: %s\n", AbbrevHome(p.workspace)))
+		b.WriteString("  " + wizard.PlanHeaderStyle.Render("The following will be created:") + "\n")
+		b.WriteString(fmt.Sprintf("    workspace dir: %s\n", wizard.AbbrevHome(p.workspace)))
 		b.WriteString(fmt.Sprintf("    branch:        %s\n", p.branch))
 		final := p.finalSelection()
 		b.WriteString(fmt.Sprintf("    worktrees:     %d\n", len(final)))
@@ -509,34 +500,34 @@ func (p *planPage) View(m *Model) string {
 		}
 		b.WriteString("\n")
 		// Create button.
-		btn := CreateBtnIdle.Render("[ Create workspace ]")
+		btn := wizard.CreateBtnIdle.Render("[ Create workspace ]")
 		if p.focusBtn {
-			btn = CreateBtnStyle.Render("Create workspace")
+			btn = wizard.CreateBtnStyle.Render("Create workspace")
 		}
 		b.WriteString("  " + btn + "\n")
 	} else {
 		// Clone log.
-		b.WriteString("  " + SectionStyle.Render("Cloning…") + "\n")
+		b.WriteString("  " + wizard.SectionStyle.Render("Cloning…") + "\n")
 		for _, name := range p.cloneOrd {
 			cs := p.clones[name]
 			switch {
-			case cs.done && cs.err == nil:
-				b.WriteString("    " + SelectedTagStyle.Render("✓") +
-					fmt.Sprintf(" cloned %s → %s\n", name, AbbrevHome(cs.targetDir)))
-			case cs.done && cs.err != nil:
-				b.WriteString("    " + ErrStyle.Render("✗") +
-					fmt.Sprintf(" clone failed for %s: %s — skipping\n", name, cs.err.Error()))
+			case cs.Done && cs.Err == nil:
+				b.WriteString("    " + wizard.SelectedTagStyle.Render("✓") +
+					fmt.Sprintf(" cloned %s → %s\n", name, wizard.AbbrevHome(cs.TargetDir)))
+			case cs.Done && cs.Err != nil:
+				b.WriteString("    " + wizard.ErrStyle.Render("✗") +
+					fmt.Sprintf(" clone failed for %s: %s — skipping\n", name, cs.Err.Error()))
 			default:
 				elapsed := 0
-				if !cs.started.IsZero() {
-					elapsed = int(time.Since(cs.started).Seconds())
+				if !cs.Started.IsZero() {
+					elapsed = int(time.Since(cs.Started).Seconds())
 				}
 				b.WriteString("    " +
-					fmt.Sprintf("cloning %s → %s… %ds\n", name, AbbrevHome(cs.targetDir), elapsed))
+					fmt.Sprintf("cloning %s → %s… %ds\n", name, wizard.AbbrevHome(cs.TargetDir), elapsed))
 			}
 		}
 	}
-	return Indent(b.String(), 2)
+	return wizard.Indent(b.String(), 2)
 }
 
 // checkedClones returns the missing-clone repos the user has left

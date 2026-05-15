@@ -170,7 +170,7 @@ func (p *editReposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 func (p *editReposPage) toggle(name string) {
 	if p.selected[name] {
 		delete(p.selected, name)
-		p.selectedOrder = removeFromSlice(p.selectedOrder, name)
+		p.selectedOrder = RemoveFromSlice(p.selectedOrder, name)
 		p.status = "− dropped " + name
 		return
 	}
@@ -195,13 +195,13 @@ func (p *editReposPage) recompute() {
 	q := strings.TrimSpace(p.input.Value())
 	if q != "" {
 		count := 0
-		for _, mm := range rankFuzzy(q, p.names) {
+		for _, mm := range RankFuzzy(q, p.names) {
 			if p.locked[mm.Str] || p.selected[mm.Str] {
 				continue
 			}
 			p.matches = append(p.matches, editMatchItem{name: mm.Str})
 			count++
-			if count >= maxRepoMatches {
+			if count >= MaxRepoMatches {
 				break
 			}
 		}

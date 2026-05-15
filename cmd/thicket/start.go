@@ -27,6 +27,7 @@ import (
 	"github.com/uribrecher/thicket/internal/ticket/shortcut"
 	"github.com/uribrecher/thicket/internal/tui"
 	"github.com/uribrecher/thicket/internal/tui/wizard"
+	"github.com/uribrecher/thicket/internal/tui/wizard/start"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
 
@@ -150,7 +151,7 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		deps.Preselected = preselected
 	}
 
-	res, err := wizard.Run(deps)
+	res, err := start.Run(deps)
 	if err != nil {
 		if errors.Is(err, tui.ErrCancelled) {
 			fmt.Fprintln(out, "cancelled.")
