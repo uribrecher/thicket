@@ -13,7 +13,7 @@ _Nothing yet._
 
 Patch release — a handful of UX papercuts surfaced by daily use of
 the v0.5.0 nickname + iTerm2 features, plus the v0.1.x
-`gh user/orgs` auto-detect behavior that got lost in the wizard
+`gh api user/orgs` auto-detect behavior that got lost in the wizard
 refactor.
 
 ### Changed
