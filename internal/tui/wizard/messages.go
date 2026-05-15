@@ -154,6 +154,17 @@ type SummarizedMsg struct {
 	Err      error
 }
 
+// ConfigOrgsLoadedMsg carries the result of probing `gh api
+// user/orgs` from the config wizard's Git page. The page uses it to
+// auto-populate the GitHub-orgs field: empty / nil Orgs leaves the
+// textinput as-is (user types manually), one org auto-fills the
+// field, and 2+ orgs flip the section into a checkbox multiselect.
+// Failures are non-fatal — the user can still type orgs by hand.
+type ConfigOrgsLoadedMsg struct {
+	Orgs []string
+	Err  error
+}
+
 // NicknameSuggestedMsg carries the LLM-suggested label (nickname +
 // optional tab color) for the current ticket. Only emitted when
 // Deps.Nickname is wired. The wizard caches the suggestion when

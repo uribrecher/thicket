@@ -4,6 +4,7 @@ import (
 	"github.com/uribrecher/thicket/internal/tui/wizard"
 
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -236,6 +237,89 @@ func findPage(t *testing.T, m *wizard.Model, title string) wizard.Page {
 
 // TestInitGitPageCommitsOnAdvance writes the input values back to the
 // shared config when the page receives wizard.GoNextMsg.
+func TestGitPage_singleOrgAutoFillsTextinput(t *testing.T) {
+	d := config.Default()
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	gp := m.Pages[0].(*gitPage)
+	gp.InitCmd(m)
+
+	gp.Update(m, wizard.ConfigOrgsLoadedMsg{Orgs: []string{"only-org"}})
+	if got := gp.inputs[gitFieldOrgs].Value(); got != "only-org" {
+		t.Errorf("single-org auto-fill: got %q, want %q", got, "only-org")
+	}
+	if gp.orgsPickerActive() {
+		t.Errorf("picker should NOT be active for a single-org probe result")
+	}
+}
+
+func TestGitPage_multiOrgFlipsToPicker(t *testing.T) {
+	d := config.Default()
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	gp := m.Pages[0].(*gitPage)
+	gp.InitCmd(m)
+
+	gp.Update(m, wizard.ConfigOrgsLoadedMsg{Orgs: []string{"alpha", "beta", "gamma"}})
+	if !gp.orgsPickerActive() {
+		t.Fatalf("picker should be active for 3-org probe result")
+	}
+	// All orgs should be checked by default; textinput synced.
+	got := splitOrgs(gp.inputs[gitFieldOrgs].Value())
+	if strings.Join(got, ",") != "alpha,beta,gamma" {
+		t.Errorf("default selection synced to textinput = %v, want all three", got)
+	}
+}
+
+func TestGitPage_pickerSpaceTogglesAndSyncs(t *testing.T) {
+	d := config.Default()
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	gp := m.Pages[0].(*gitPage)
+	gp.InitCmd(m)
+	// Focus the orgs field so picker-mode key handling kicks in.
+	gp.focus = gitFieldOrgs
+
+	gp.Update(m, wizard.ConfigOrgsLoadedMsg{Orgs: []string{"alpha", "beta"}})
+	// Cursor starts at row 0 (alpha). Space toggles it off.
+	gp.Update(m, tea.KeyMsg{Type: tea.KeySpace})
+	if gp.selOrgs["alpha"] {
+		t.Errorf("alpha should be deselected after space toggle")
+	}
+	if got := splitOrgs(gp.inputs[gitFieldOrgs].Value()); strings.Join(got, ",") != "beta" {
+		t.Errorf("textinput after toggling alpha off: got %v, want [beta]", got)
+	}
+}
+
+func TestGitPage_probeErrorLeavesTextinputAlone(t *testing.T) {
+	d := config.Default()
+	d.GithubOrgs = []string{"already-set"}
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	gp := m.Pages[0].(*gitPage)
+	gp.InitCmd(m) // seeds textinput from cfg
+
+	gp.Update(m, wizard.ConfigOrgsLoadedMsg{Err: errors.New("gh: not authenticated")})
+	if got := gp.inputs[gitFieldOrgs].Value(); got != "already-set" {
+		t.Errorf("probe error should leave textinput alone: got %q", got)
+	}
+	if gp.orgsPickerActive() {
+		t.Errorf("picker should not activate on probe error")
+	}
+}
+
+func TestGitPage_pickerRespectsPreseedSelection(t *testing.T) {
+	// User re-running `thicket config` with a saved GithubOrgs
+	// subset should land in the picker with only the previously-
+	// selected orgs checked.
+	d := config.Default()
+	d.GithubOrgs = []string{"alpha", "gamma"} // beta already deselected
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	gp := m.Pages[0].(*gitPage)
+	gp.InitCmd(m)
+
+	gp.Update(m, wizard.ConfigOrgsLoadedMsg{Orgs: []string{"alpha", "beta", "gamma"}})
+	if !gp.selOrgs["alpha"] || gp.selOrgs["beta"] || !gp.selOrgs["gamma"] {
+		t.Errorf("preseed not honored: sel=%+v", gp.selOrgs)
+	}
+}
+
 func TestInitGitPageCommitsOnAdvance(t *testing.T) {
 	t.Setenv("SHORTCUT_API_TOKEN", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
