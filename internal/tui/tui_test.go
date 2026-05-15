@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/mattn/go-runewidth"
 
 	"github.com/uribrecher/thicket/internal/catalog"
 	"github.com/uribrecher/thicket/internal/detector"
@@ -69,16 +72,56 @@ func TestTruncate(t *testing.T) {
 		n   int
 		out string
 	}{
-		"short":   {"hello", 10, "hello"},
-		"exact":   {"hello", 5, "hello"},
-		"trim":    {"helloworld", 6, "hello…"},
-		"zero":    {"hi", 0, ""},
-		"unicode": {"αβγδε", 4, "αβγ…"},
+		"short":          {"hello", 10, "hello"},
+		"exact":          {"hello", 5, "hello"},
+		"trim":           {"helloworld", 6, "hello…"},
+		"zero":           {"hi", 0, ""},
+		"unicode 1-wide": {"αβγδε", 4, "αβγ…"},
+		// Wide-cell handling: emoji are 2 cells visually but 1
+		// rune. A pre-runewidth truncate would keep the emoji and
+		// still report width 6 when the visible width is 7.
+		// 🐛 + " " + "fix" = 2+1+3 = 6 cells, exact.
+		"emoji within budget": {"🐛 fix", 6, "🐛 fix"},
+		// 🐛 + " " + "pick" + "…" = 2+1+4+1 = 8 cells; runewidth
+		// keeps the ellipsis inside the budget.
+		"emoji needs trimming": {"🐛 picker fix", 8, "🐛 pick…"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			if got := Truncate(tc.in, tc.n); got != tc.out {
 				t.Errorf("Truncate(%q, %d) = %q, want %q", tc.in, tc.n, got, tc.out)
+			}
+		})
+	}
+}
+
+// TestPadRight covers the alignment fix: emoji are 2 visible cells
+// but only 1 rune, so a rune-count pad under-fills the column by
+// the emoji's extra cell. PadRight now uses visible-cell width so
+// columns line up regardless of which rows contain emoji.
+func TestPadRight(t *testing.T) {
+	cases := map[string]struct {
+		in     string
+		n      int
+		wantW  int    // visible width after padding
+		wantHi string // suffix the result must end with (asserts the pad chars)
+	}{
+		"ascii pads to 10":     {"abc", 10, 10, "       "},
+		"ascii already exact":  {"abcdef", 6, 6, ""},
+		"emoji pads correctly": {"🐛 fix", 10, 10, "    "},
+		// 🐛 + " fix" = 6 cells; budget 5 → already too wide, no
+		// pad chars added (width stays at 6).
+		"emoji over budget no-op": {"🐛 fix", 5, 6, ""},
+		"empty input":             {"", 5, 5, "     "},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := PadRight(tc.in, tc.n)
+			if w := runewidth.StringWidth(got); w != tc.wantW {
+				t.Errorf("visible width = %d, want %d (result=%q)", w, tc.wantW, got)
+			}
+			if !strings.HasSuffix(got, tc.wantHi) {
+				t.Errorf("expected pad suffix %q in %q", tc.wantHi, got)
 			}
 		})
 	}

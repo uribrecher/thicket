@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/uribrecher/thicket/internal/catalog"
 	"github.com/uribrecher/thicket/internal/detector"
@@ -84,23 +85,34 @@ func (HuhSelector) ConfirmClone(repoName, targetPath string) (bool, error) {
 
 // ----- helpers -----
 
+// Truncate caps s at n visible terminal cells, appending an ellipsis
+// when truncation actually happens. "Visible cells" rather than runes
+// because emoji and East-Asian wide characters render as two cells —
+// a rune-count truncation would let the row overflow its column and
+// shift neighbouring columns right. Backed by runewidth so it stays
+// in sync with PadRight, which uses the same metric.
 func Truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
+	if runewidth.StringWidth(s) <= n {
 		return s
 	}
 	if n < 1 {
 		return ""
 	}
-	return string(r[:n-1]) + "…"
+	return runewidth.Truncate(s, n, "…")
 }
 
+// PadRight right-pads s with spaces until it occupies exactly n
+// visible terminal cells. Visible-cell math matters for any column
+// that may contain emoji or other wide runes — a rune-count pad
+// silently under-fills those cells by one column per wide rune,
+// which is exactly the bug that misaligned the `thicket rm` /
+// `thicket list` tables once nicknames started carrying emoji.
 func PadRight(s string, n int) string {
-	r := []rune(s)
-	if len(r) >= n {
+	w := runewidth.StringWidth(s)
+	if w >= n {
 		return s
 	}
-	return s + strings.Repeat(" ", n-len(r))
+	return s + strings.Repeat(" ", n-w)
 }
 
 // ----- non-interactive selector -----

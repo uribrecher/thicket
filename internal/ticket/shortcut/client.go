@@ -283,6 +283,38 @@ var excludedStateNames = map[string]bool{
 	"ready for deploy":       true,
 }
 
+// stateRank assigns each surfaced workflow-state name a sort tier so
+// the picker shows the tickets a developer is most likely to start
+// a fresh workspace on FIRST, and stalled-or-done-from-dev work last.
+// Within a tier, the caller breaks ties by UpdatedAt descending.
+//
+// Tier 2 (top) — live dev work: explicitly in-flight or ready-to-pick
+// up. Backlog is included because "I haven't started yet" is exactly
+// the case where the picker is useful.
+//
+// Tier 0 (bottom) — handed off or paused. Code review work is
+// effectively finished from the dev's POV; "Waiting for CS" means
+// the ball is in the customer's court; Paused is explicitly stalled.
+//
+// Tier 1 — everything else, including custom workflow names we don't
+// recognize. Sensible neutral default so a renamed state doesn't
+// accidentally land in tier 0.
+//
+// Names are matched case-insensitively after trimming so minor
+// formatting variation in Shortcut workspaces (extra spaces, etc.)
+// doesn't break the bucket.
+func stateRank(name string) int {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "in development", "ready for development",
+		"backlog", "waiting for r&d":
+		return 2
+	case "in code review", "waiting for cs", "paused":
+		return 0
+	default:
+		return 1
+	}
+}
+
 // ListAssigned returns the authenticated user's currently-active
 // assigned tickets — excluding archived stories, anything in a
 // workflow state of type "done", and a handful of "out of dev hands"
@@ -311,13 +343,15 @@ func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 		return nil, fmt.Errorf("search stories: %w", err)
 	}
 
-	// Most-recently-touched first. Stable so stories with identical
-	// (or zero) updated_at keep the order Shortcut returned them in.
-	sort.SliceStable(stories, func(i, j int) bool {
-		return stories[i].UpdatedAt.After(stories[j].UpdatedAt)
-	})
-
-	out := make([]ticket.Ticket, 0, len(stories))
+	// Filter first so the sort key (state-rank tier + UpdatedAt) only
+	// has to look at stories the user is actually going to see. We
+	// keep the resolved state name alongside the story so the sort
+	// doesn't have to re-map workflow IDs.
+	type filtered struct {
+		sr    storyResponse
+		state string
+	}
+	kept := make([]filtered, 0, len(stories))
 	for _, sr := range stories {
 		if sr.Archived {
 			continue
@@ -329,7 +363,24 @@ func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 		if excludedStateNames[strings.ToLower(st.Name)] {
 			continue
 		}
-		out = append(out, s.toTicket(sr, st.Name))
+		kept = append(kept, filtered{sr, st.Name})
+	}
+
+	// Primary key: state-rank tier (live dev work on top, stalled at
+	// the bottom). Secondary: UpdatedAt descending — most-recently-
+	// touched first within a tier. Stable so stories with identical
+	// keys keep the order Shortcut returned them in.
+	sort.SliceStable(kept, func(i, j int) bool {
+		ri, rj := stateRank(kept[i].state), stateRank(kept[j].state)
+		if ri != rj {
+			return ri > rj
+		}
+		return kept[i].sr.UpdatedAt.After(kept[j].sr.UpdatedAt)
+	})
+
+	out := make([]ticket.Ticket, 0, len(kept))
+	for _, k := range kept {
+		out = append(out, s.toTicket(k.sr, k.state))
 	}
 	return out, nil
 }

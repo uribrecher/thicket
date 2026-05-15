@@ -319,6 +319,74 @@ func TestListAssigned_sortsByUpdatedAtDescending(t *testing.T) {
 	}
 }
 
+func TestListAssigned_tieredSortByStateThenUpdatedAt(t *testing.T) {
+	// Three stories per tier — mixed UpdatedAt so we can confirm
+	// the secondary key still works within a tier, and that tier
+	// boundaries override UpdatedAt across tiers.
+	member := memberResponse{ID: "u"}
+	workflows := []workflowResponse{{
+		States: []workflowStateResponse{
+			{ID: 10, Name: "In Development", Type: "started"},         // tier 2
+			{ID: 20, Name: "Doing Something Custom", Type: "started"}, // tier 1 (unknown name)
+			{ID: 30, Name: "Paused", Type: "started"},                 // tier 0
+		},
+	}}
+	t0 := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
+	stories := []storyResponse{
+		// Paused (tier 0) — most recently touched of all, but
+		// should still sort to the bottom.
+		{ID: 1, Name: "paused-newest", WorkflowStateID: 30, UpdatedAt: t0.Add(100 * time.Hour)},
+		// In Development (tier 2) — should land at the top even
+		// though older than the paused one.
+		{ID: 2, Name: "dev-older", WorkflowStateID: 10, UpdatedAt: t0.Add(10 * time.Hour)},
+		// Custom state (tier 1) — middle.
+		{ID: 3, Name: "custom-mid", WorkflowStateID: 20, UpdatedAt: t0.Add(50 * time.Hour)},
+		// Another In Development — newer than dev-older, so
+		// should sort first overall.
+		{ID: 4, Name: "dev-newest", WorkflowStateID: 10, UpdatedAt: t0.Add(20 * time.Hour)},
+	}
+	srv := listAssignedServer(t, member, workflows, stories)
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	// Expected order:
+	//   tier 2: dev-newest (newer UpdatedAt within tier), dev-older
+	//   tier 1: custom-mid
+	//   tier 0: paused-newest
+	want := []string{"sc-4", "sc-2", "sc-3", "sc-1"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d tickets, want %d: %+v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if got[i].SourceID != w {
+			t.Errorf("position %d: got %s (%s), want %s", i, got[i].SourceID, got[i].State, w)
+		}
+	}
+}
+
+func TestStateRank(t *testing.T) {
+	cases := map[string]int{
+		"In Development":        2,
+		"in development":        2, // case-insensitive
+		"  Backlog  ":           2, // trimmed
+		"Ready for Development": 2,
+		"Waiting for R&D":       2,
+		"In Code Review":        0,
+		"Waiting for CS":        0,
+		"Paused":                0,
+		"Custom Workflow State": 1, // unknown → neutral
+		"":                      1,
+	}
+	for in, want := range cases {
+		if got := stateRank(in); got != want {
+			t.Errorf("stateRank(%q) = %d, want %d", in, got, want)
+		}
+	}
+}
+
 func TestListAssigned_emptyStoriesNotAnError(t *testing.T) {
 	srv := listAssignedServer(t,
 		memberResponse{ID: "u"},
