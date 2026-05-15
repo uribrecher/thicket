@@ -33,8 +33,8 @@ existing config on re-run).
     than a chain of `huh` sub-prompts. Items are cached per account
     so the Tickets and Agent pages share a single biometric prompt
     instead of paying for it twice.
-  - **macOS App Management hint.** After the first 1Password
-    walk-through on darwin, the picker offers to open System
+  - **macOS App Management hint.** On macOS, after the first
+    1Password walk-through, the picker offers to open System
     Settings → Privacy & Security → App Management directly via
     `x-apple.systempreferences:`. Granting iTerm there silences
     the recurring "iTerm would like to access data from other apps"
