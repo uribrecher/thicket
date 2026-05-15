@@ -216,8 +216,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Cache wins-once-set, same shape as SummarizedMsg. We fall
 		// through (not return) so the active page — usually the Plan
 		// page — can react: pre-fill its editable input from the new
-		// suggestion if the user hasn't typed yet.
-		if v.Err == nil && v.TicketID == m.TicketID && v.Suggestion.Nickname != "" {
+		// suggestion if the user hasn't typed yet. Accept the
+		// suggestion as long as EITHER field is usable — a
+		// color-only response is still actionable (we'll tint the
+		// tab even if the user types their own nickname).
+		if v.Err == nil && v.TicketID == m.TicketID &&
+			(v.Suggestion.Nickname != "" || v.Suggestion.Color != "") {
 			if m.NicknameCache == nil {
 				m.NicknameCache = make(map[string]detector.NicknameSuggestion)
 			}

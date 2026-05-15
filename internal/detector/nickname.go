@@ -130,6 +130,16 @@ func parseSuggestion(raw string) NicknameSuggestion {
 			candidate := strings.TrimSpace(line[idx+1:])
 			if candidate != "" {
 				line = candidate
+			} else {
+				// Empty value after the separator. If the prefix
+				// mentions "nickname" or "color" (e.g. "Sure!
+				// Here's a nickname:"), the real content is on
+				// the next line — skip this entirely so it
+				// doesn't become the nickname by default.
+				lower := strings.ToLower(line[:idx])
+				if strings.Contains(lower, "nickname") || strings.Contains(lower, "color") {
+					continue
+				}
 			}
 		}
 		// Try color first — if it parses as hex, it's the color

@@ -36,9 +36,10 @@ type PlanRepo struct {
 type Plan struct {
 	WorkspaceDir string
 	Branch       string
-	// Nickname is a short, human-friendly label (max 20 chars,
-	// spaces and emoji allowed, uniqueness not required). Optional —
-	// when empty, display sites fall back to the workspace slug.
+	// Nickname is a short, human-friendly label (max
+	// NicknameMaxChars runes, spaces and emoji allowed, uniqueness
+	// not required). Optional — when empty, display sites fall back
+	// to the workspace slug.
 	Nickname string
 	// Color is the workspace's tab-color hint, hex `#RRGGBB`. Used
 	// by iTerm2 to tint the tab background so concurrent workspace

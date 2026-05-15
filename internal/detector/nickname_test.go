@@ -45,16 +45,18 @@ func TestParseSuggestion(t *testing.T) {
 			wantNickname: "picker fix",
 			wantColor:    "#FF5733",
 		},
-		"chatty preamble": {
-			raw: "Sure! Here's a nickname:\n🐛 picker fix\n#ff5733",
-			// The "Sure!..." line ends in a colon with nothing
-			// after it, so the prefix-stripping branch declines
-			// it and the whole line lands as the nickname
-			// (truncated to NicknameMaxChars runes). Imperfect —
-			// the prompt explicitly asks for no preamble — but
-			// flagged here so any future tightening of
-			// parseSuggestion has a regression hook.
-			wantNickname: "Sure! Here's a nickname:",
+		"chatty preamble skipped": {
+			// "Here's a nickname:" ends in a bare colon AND the
+			// prefix mentions "nickname" → parser skips it and
+			// the next line lands as the real nickname.
+			raw:          "Sure! Here's a nickname:\n🐛 picker fix\n#ff5733",
+			wantNickname: "🐛 picker fix",
+			wantColor:    "#FF5733",
+		},
+		"chatty color preamble skipped": {
+			// Same trick on a "color:" line.
+			raw:          "🐛 picker fix\nAnd the color:\n#ff5733",
+			wantNickname: "🐛 picker fix",
 			wantColor:    "#FF5733",
 		},
 		"empty input": {

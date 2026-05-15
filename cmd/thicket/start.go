@@ -395,22 +395,33 @@ func findWorkspaceForTicket(cfg *config.Config, ticketID string, errOut io.Write
 // Claude's prompt box, /resume picker, and the terminal title.
 // Honors --no-launch by printing the cd line instead.
 //
-// Before the syscall.Exec hand-off, when running under iTerm2, also
-// emits OSC escapes to set the tab title (= name), the tab badge
-// (= name), and the tab background color (= color, when valid).
-// These persist for the lifetime of the tab so concurrent workspace
-// sessions stay visually distinct.
+// Before the syscall.Exec hand-off, when running under iTerm2 AND
+// stdout is a TTY, also emits OSC escapes to set the tab title
+// (= name), the tab badge (= name), and the tab background color
+// (= color, when valid). These persist for the lifetime of the tab
+// so concurrent workspace sessions stay visually distinct. Piped
+// stdout (`thicket start … | tee …`) skips the escapes so the pipe
+// doesn't see gibberish.
 //
 // Callers pass the workspace's nickname when set (short, human-
-// friendly), falling back to the slug. See nicknameOrSlug.
+// friendly), falling back to the slug. See nicknameOrSlug. We
+// re-run name through workspace.SanitizeNickname here so a hand-
+// edited or freshly-typed value can't smuggle escape characters
+// into the `--name` arg or the OSC stream.
 func launchClaudeIn(out io.Writer, cfg *config.Config, name, color,
 	workspaceDir string, noLaunch bool) error {
+
+	// Defensive: SanitizeNickname drops control chars / ANSI
+	// escapes. writeState already does this on persistence, but
+	// the wizard's Plan-page input flows straight into launchClaudeIn
+	// without going through writeState in the reuse paths.
+	name = workspace.SanitizeNickname(name)
 
 	if noLaunch {
 		fmt.Fprintf(out, "cd %s\n", workspaceDir)
 		return nil
 	}
-	if thicketterm.IsITerm2() {
+	if thicketterm.IsITerm2() && term.IsTerminal(int(os.Stdout.Fd())) {
 		// Write to stdout — that's the terminal fd we'll hand off
 		// to claude via syscall.Exec, so the escapes are
 		// interpreted by the parent iTerm2 tab before claude takes

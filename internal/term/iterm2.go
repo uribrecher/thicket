@@ -1,13 +1,15 @@
 // Package term writes terminal-specific OSC escape sequences so a
 // long-running workspace session is visually distinguishable in the
 // terminal's tab strip. The only terminal currently supported is
-// iTerm2 — every helper is a no-op on other terminals.
+// iTerm2; callers MUST gate Write* calls behind IsITerm2 themselves.
+// The helpers do not re-check, so unit tests can verify the exact
+// emitted bytes without env-mocking.
 //
 // Why iTerm2 only: tab color and per-tab badge are non-standard
 // extensions, and iTerm2's documented escape codes are stable and
 // widely deployed on macOS. Other terminals either ignore the
-// escapes (harmless) or render gibberish; we detect iTerm2 first and
-// skip the writes when we're somewhere else.
+// escapes (harmless on most modern emulators) or render gibberish
+// (older ones, raw pipes) — hence the caller-side gate.
 package term
 
 import (
