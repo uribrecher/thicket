@@ -391,39 +391,3 @@ func (p *ticketPage) View(m *Model) string {
 	return indent(b.String(), 2)
 }
 
-// firstNonEmptyLines returns up to n trimmed non-empty lines from s.
-func firstNonEmptyLines(s string, n int) []string {
-	var out []string
-	for _, raw := range strings.Split(s, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		out = append(out, line)
-		if len(out) == n {
-			break
-		}
-	}
-	return out
-}
-
-// padRight/truncate are duplicated here (cheap) instead of exported
-// from internal/tui — keeps the wizard's surface area small.
-func padRight(s string, n int) string {
-	r := []rune(s)
-	if len(r) >= n {
-		return s
-	}
-	return s + strings.Repeat(" ", n-len(r))
-}
-
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	if n < 1 {
-		return ""
-	}
-	return string(r[:n-1]) + "…"
-}

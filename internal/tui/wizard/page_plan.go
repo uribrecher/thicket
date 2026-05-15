@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -566,17 +565,3 @@ func (p *planPage) finalSelection() []catalog.Repo {
 	return out
 }
 
-// abbrevHome collapses an absolute path under $HOME to a leading `~`.
-func abbrevHome(path string) string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return path
-	}
-	if path == home {
-		return "~"
-	}
-	if strings.HasPrefix(path, home+string(os.PathSeparator)) {
-		return "~" + path[len(home):]
-	}
-	return path
-}

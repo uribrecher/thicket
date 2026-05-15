@@ -21,7 +21,6 @@ package wizard
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -489,67 +488,3 @@ func (m *Model) gotoPage(idx int) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// Render-time helper shared by page bodies: indent each line by `n`
-// spaces so the body sits flush under the tab bar at a consistent
-// inset. Empty lines stay empty (no trailing spaces).
-func indent(s string, n int) string {
-	if s == "" {
-		return s
-	}
-	pad := strings.Repeat(" ", n)
-	lines := strings.Split(s, "\n")
-	for i, ln := range lines {
-		if ln == "" {
-			continue
-		}
-		lines[i] = pad + ln
-	}
-	return strings.Join(lines, "\n")
-}
-
-// fmtErr formats a chain of errors for inline rendering.
-func fmtErr(err error) string {
-	return fmt.Sprintf("error: %s", err.Error())
-}
-
-// renderTicketSummary draws a short header for the picked ticket:
-// "<id> — <title>" plus an up-to-3-line summary, requester, and the
-// first 3 labels. `summary` is the LLM-generated summary when available
-// (nil while the call is in flight or when no Summarizer is wired);
-// in that case the renderer falls back to the first non-empty lines of
-// the description so the panel always shows context.
-//
-// Returns "" when there is no ticket to summarize so callers can
-// skip the surrounding padding.
-func renderTicketSummary(tk ticket.Ticket, summary []string) string {
-	if tk.SourceID == "" && tk.Title == "" {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString(warnStyle.Render(fmt.Sprintf("%s — %s", tk.SourceID, tk.Title)))
-	b.WriteString("\n")
-	lines := summary
-	if len(lines) == 0 {
-		lines = firstNonEmptyLines(tk.Body, detector.SummaryLines)
-	}
-	// Defensive clamp — Summarize promises "up to SummaryLines", but a
-	// future backend that ignores the cap shouldn't be able to blow
-	// out the summary panel.
-	if len(lines) > detector.SummaryLines {
-		lines = lines[:detector.SummaryLines]
-	}
-	for _, line := range lines {
-		b.WriteString("  " + line + "\n")
-	}
-	if tk.Requester != "" {
-		b.WriteString("  " + hintStyle.Render("requester: "+tk.Requester) + "\n")
-	}
-	if len(tk.Labels) > 0 {
-		shown := tk.Labels
-		if len(shown) > 3 {
-			shown = shown[:3]
-		}
-		b.WriteString("  " + hintStyle.Render("labels: "+strings.Join(shown, ", ")) + "\n")
-	}
-	return b.String()
-}
