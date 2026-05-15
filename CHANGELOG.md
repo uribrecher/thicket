@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.5.0] - 2026-05-15
+
+Workspace-ergonomics pass on `thicket start`: skip the picker when
+you're already cd'd into a workspace, get an LLM-suggested
+nickname + iTerm2 tab tint per workspace so concurrent Claude
+sessions are visually distinct in the tab strip, and stop fighting
+macOS over per-`op` permission prompts in `thicket config`.
+
 ### Added
 
 - **iTerm2 tab tinting + title + badge per workspace.** When `thicket
