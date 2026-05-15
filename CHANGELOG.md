@@ -7,13 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.4.0] - 2026-05-15
+
+Replaces `thicket init` with `thicket config` — a 5-page Bubble Tea
+wizard that walks you through first-run setup (or lets you edit an
+existing config on re-run).
+
 ### Changed
 
-- **`thicket init` is now `thicket config`.** The wizard reads and writes
-  `~/.config/thicket/config.toml`, so `config` describes the user-visible
-  thing it does (and avoids the confusion of "init" looking like
-  `git init`). `thicket init` is no longer recognized — re-run with
-  `thicket config`. The wizard's behavior is otherwise unchanged.
+- **`thicket init` is now `thicket config`.** The wizard reads and
+  writes `~/.config/thicket/config.toml`, so `config` describes the
+  user-visible thing it does (and avoids the confusion of "init"
+  looking like `git init`). `thicket init` is no longer recognized
+  — re-run with `thicket config`.
+
+- **`thicket config` is a 5-page Bubble Tea wizard.** Welcome → Git
+  → Tickets → Agent → Submit, with the same tab/footer/← /→ keymap
+  as `thicket start` and `thicket edit`. Pages render conditionally:
+  Welcome only on first run, Tickets only when `$SHORTCUT_API_TOKEN`
+  is unset — so the tab bar shows exactly the steps you'll see.
+  - **1Password picker preserved inline.** The account → item →
+    field cascade is a 9-state state machine in the wizard rather
+    than a chain of `huh` sub-prompts. Items are cached per account
+    so the Tickets and Agent pages share a single biometric prompt
+    instead of paying for it twice.
+  - **macOS App Management hint.** After the first 1Password
+    walk-through on darwin, the picker offers to open System
+    Settings → Privacy & Security → App Management directly via
+    `x-apple.systempreferences:`. Granting iTerm there silences
+    the recurring "iTerm would like to access data from other apps"
+    prompt that fires on every `op` invocation.
+  - **Re-running is safe.** Existing values pre-fill every input;
+    the Welcome page is skipped on re-run; an existing `op://…`
+    reference jumps straight to "validated" so you don't have to
+    re-walk the cascade just to confirm what's already saved.
 
 ## [0.3.0] - 2026-05-14
 
