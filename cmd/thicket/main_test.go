@@ -34,6 +34,15 @@ func TestRoot_help_listsAllSubcommands(t *testing.T) {
 	}
 }
 
+// TestRoot_init_rejected guards the `thicket init` → `thicket config`
+// rename: the old verb must not silently dispatch to anything.
+func TestRoot_init_rejected(t *testing.T) {
+	_, _, err := runCmd(t, "init")
+	if err == nil {
+		t.Fatalf("expected error from `thicket init`, got nil (rename to `config` regressed?)")
+	}
+}
+
 func TestStart_help_listsFlags(t *testing.T) {
 	out, _, err := runCmd(t, "start", "--help")
 	if err != nil {

@@ -92,7 +92,7 @@ dev task set.
 
 ```sh
 # One-time setup wizard: prompts for tokens, GitHub orgs, and paths.
-thicket init
+thicket config
 
 # Sanity check.
 thicket doctor
@@ -240,7 +240,7 @@ a TTY (no `--no-interactive` path).
 
 ### Other pickers
 
-- **1Password item picker** (`thicket init` under 1Password) — tabular
+- **1Password item picker** (`thicket config` under 1Password) — tabular
   view: `Item | Vault | Type`, live filter, ↑/↓ + Enter.
 - **Workspace picker** (`thicket rm`) — tabular view:
   `Slug | Ticket | Created | Repos`, newest first.
@@ -277,7 +277,7 @@ name    = "service-name"
 aliases = ["short", "alias"]
 ```
 
-`thicket init` populates `github_orgs` from a multi-select over the
+`thicket config` populates `github_orgs` from a multi-select over the
 orgs your `gh` user actually belongs to (no typed placeholders) and
 runs `gh repo list <org> --limit 1` for each to warn if any are
 unreachable (auth vs. typo distinguished).
@@ -288,7 +288,7 @@ Thicket **never asks you to paste raw tokens**. Instead, you point it at
 your password manager and we fetch on demand. The config records only a
 *reference* per secret — the live value never touches `config.toml`.
 
-Supported managers (pick one in `thicket init`):
+Supported managers (pick one in `thicket config`):
 
 | Manager | CLI | Reference format |
 | ------- | --- | ---------------- |
@@ -322,7 +322,7 @@ anthropic_key_ref     = "op://Personal/Anthropic/credential"
 anthropic_key_account = "CUFCNCRFFVCXLBZ2BJCBZGVFOY"
 ```
 
-When `claude_backend = "cli"`, `thicket init` skips the Anthropic key
+When `claude_backend = "cli"`, `thicket config` skips the Anthropic key
 slot entirely. For 1Password, init walks each secret one at a time:
 account picker → item autocomplete → field picker. The previous slot's
 account is offered as the default for the next, so single-account users
@@ -336,7 +336,7 @@ Two env vars always short-circuit the password manager at runtime:
 - `ANTHROPIC_API_KEY` — used as the Anthropic key if set (irrelevant when
   `claude_backend = "cli"`)
 
-If either is set when you run `thicket init`, the corresponding slot is
+If either is set when you run `thicket config`, the corresponding slot is
 skipped with a notice. Useful for CI, one-off runs, and the
 `SHORTCUT_API_TOKEN=… thicket start sc-123` quick-test pattern.
 
@@ -346,7 +346,7 @@ each reference resolves to a value — without ever showing the value.
 ## Command reference
 
 ```
-thicket init            First-run wizard (or re-run to edit existing config).
+thicket config            First-run wizard (or re-run to edit existing config).
 thicket start <ticket>  Spawn a workspace.
    --only foo,bar       Skip the LLM; use exactly these repos.
    --branch <name>      Override the branch name (slug stays ticket-id-prefixed).
@@ -413,7 +413,7 @@ Thicket still works; it just won't auto-launch your AI session and instead
 prints `cd` instructions when the workspace is ready.
 
 **`gh` 401 / 403** — run `gh auth login` and ensure the resulting token has
-read access to your orgs. `thicket init` will say so explicitly.
+read access to your orgs. `thicket config` will say so explicitly.
 
 **LLM picks the wrong repos** (or none) — type in the bubbletea picker
 to fuzzy-add, prefix the query with `-` to drop, or pass `--only foo,bar`

@@ -11,7 +11,7 @@ import (
 // welcomePage is the first page of `thicket config` on first run. It
 // shows a short intro and is always Complete() — the user just hits
 // → to move on. Re-runs of `thicket config` skip this page entirely
-// (newConfigModel doesn't add it when FirstRun is false).
+// (newModel doesn't add it when FirstRun is false).
 type welcomePage struct{}
 
 func newWelcomePage() *welcomePage { return &welcomePage{} }
