@@ -124,6 +124,11 @@ func (p *reposPage) InitCmd(m *wizard.Model) tea.Cmd {
 			cmds = append(cmds, summarizeCmd(m))
 		}
 	}
+	if m.Deps.Nickname != nil {
+		if _, ok := m.NicknameCache[m.TicketID]; !ok {
+			cmds = append(cmds, nicknameCmd(m))
+		}
+	}
 
 	if cached, ok := m.LLMCache[m.TicketID]; ok {
 		p.setLLMPicks(cached)
@@ -238,6 +243,22 @@ func summarizeCmd(m *wizard.Model) tea.Cmd {
 		}
 		lines, err := m.Deps.Summarize(ctx, tk)
 		return wizard.SummarizedMsg{TicketID: id, Lines: lines, Err: err}
+	}
+}
+
+// nicknameCmd runs the (optional) Nickname closure for the current
+// ticket. Failures aren't fatal — the Plan page's input just stays
+// empty and the user can type their own (or leave it blank).
+func nicknameCmd(m *wizard.Model) tea.Cmd {
+	tk := m.Ticket
+	id := m.TicketID
+	return func() tea.Msg {
+		ctx := m.Deps.Ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		nn, err := m.Deps.Nickname(ctx, tk)
+		return wizard.NicknameSuggestedMsg{TicketID: id, Nickname: nn, Err: err}
 	}
 }
 

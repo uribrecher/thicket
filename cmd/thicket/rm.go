@@ -143,6 +143,9 @@ func doRemove(cmd *cobra.Command, dir string, st *workspace.State, force, skipCo
 func printRemovePreview(out io.Writer, dir string, st *workspace.State, force bool) {
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "About to remove this workspace:")
+	if st != nil && st.Nickname != "" {
+		fmt.Fprintf(out, "  nickname: %s\n", st.Nickname)
+	}
 	fmt.Fprintf(out, "  path:    %s\n", dir)
 	if st != nil {
 		fmt.Fprintf(out, "  ticket:  %s\n", st.TicketID)
@@ -197,7 +200,8 @@ func validateSlug(s string) error {
 
 func pickWorkspaceForRm(workspaces []workspace.ManagedWorkspace, prefilter string) (*workspace.ManagedWorkspace, error) {
 	columns := []tui.Column{
-		{Title: "Slug", Width: 50},
+		{Title: "Nickname", Width: 22},
+		{Title: "Slug", Width: 40},
 		{Title: "Ticket", Width: 10},
 		{Title: "Created", Width: 17},
 		{Title: "Repos", Width: 5},
@@ -207,8 +211,8 @@ func pickWorkspaceForRm(workspaces []workspace.ManagedWorkspace, prefilter strin
 		when := w.State.CreatedAt.Local().Format("2006-01-02 15:04")
 		rows[i] = tui.Row{
 			Key:    w.Slug,
-			Cells:  []string{w.Slug, w.State.TicketID, when, fmt.Sprintf("%d", len(w.State.Repos))},
-			Filter: w.Slug + " " + w.State.TicketID + " " + w.State.Branch,
+			Cells:  []string{w.State.Nickname, w.Slug, w.State.TicketID, when, fmt.Sprintf("%d", len(w.State.Repos))},
+			Filter: w.State.Nickname + " " + w.Slug + " " + w.State.TicketID + " " + w.State.Branch,
 		}
 	}
 	key, err := tui.PickOne("Select a workspace to remove", columns, rows,

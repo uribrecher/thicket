@@ -154,6 +154,17 @@ type SummarizedMsg struct {
 	Err      error
 }
 
+// NicknameSuggestedMsg carries the LLM-suggested short label for the
+// current ticket. Only emitted when Deps.Nickname is wired. A non-nil
+// Err or empty Nickname means the suggester produced no usable output;
+// the Plan page's input then stays empty (user can type their own).
+// Failure is non-fatal.
+type NicknameSuggestedMsg struct {
+	TicketID string
+	Nickname string
+	Err      error
+}
+
 // ReposCommittedMsg fires when the user advances past the Repos page.
 type ReposCommittedMsg struct {
 	Chosen []catalog.Repo

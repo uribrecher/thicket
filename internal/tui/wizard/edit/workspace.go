@@ -89,7 +89,7 @@ func (p *workspacePage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.C
 		p.rows = make([]workspaceRow, len(v.Workspaces))
 		p.haystack = make([]string, len(v.Workspaces))
 		for i, ws := range v.Workspaces {
-			f := ws.Slug + " " + ws.State.TicketID + " " + ws.State.Branch
+			f := ws.State.Nickname + " " + ws.Slug + " " + ws.State.TicketID + " " + ws.State.Branch
 			p.rows[i] = workspaceRow{ws: ws, filter: f}
 			p.haystack[i] = f
 		}
@@ -211,9 +211,10 @@ func (p *workspacePage) View(m *wizard.Model) string {
 	b.WriteString("\n\n")
 
 	const (
-		slugW   = 36
+		nickW   = 20
+		slugW   = 32
 		idW     = 10
-		branchW = 24
+		branchW = 20
 		whenW   = 16
 		reposW  = 5
 	)
@@ -221,12 +222,12 @@ func (p *workspacePage) View(m *wizard.Model) string {
 	for _, col := range []struct {
 		t string
 		w int
-	}{{"Slug", slugW}, {"Ticket", idW}, {"Branch", branchW}, {"Created", whenW}, {"Repos", reposW}} {
+	}{{"Nickname", nickW}, {"Slug", slugW}, {"Ticket", idW}, {"Branch", branchW}, {"Created", whenW}, {"Repos", reposW}} {
 		b.WriteString(wizard.SectionStyle.Render(wizard.PadRight(col.t, col.w)))
 		b.WriteString("  ")
 	}
 	b.WriteString("\n   ")
-	for _, w := range []int{slugW, idW, branchW, whenW, reposW} {
+	for _, w := range []int{nickW, slugW, idW, branchW, whenW, reposW} {
 		b.WriteString(wizard.HintStyle.Render(strings.Repeat("─", w)))
 		b.WriteString("  ")
 	}
@@ -242,6 +243,8 @@ func (p *workspacePage) View(m *wizard.Model) string {
 		}
 		when := row.ws.State.CreatedAt.Local().Format("2006-01-02 15:04")
 		b.WriteString(marker + "  ")
+		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.ws.State.Nickname, nickW), nickW)))
+		b.WriteString("  ")
 		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.ws.Slug, slugW), slugW)))
 		b.WriteString("  ")
 		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.ws.State.TicketID, idW), idW)))

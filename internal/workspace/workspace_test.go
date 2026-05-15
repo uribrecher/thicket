@@ -535,6 +535,95 @@ func TestListManaged_unreadableRootReturnsFatalError(t *testing.T) {
 	}
 }
 
+func TestState_NicknameRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	st := State{
+		TicketID:  "sc-7",
+		Branch:    "u/sc-7-fix",
+		Nickname:  "🐛 picker fix",
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Repos:     []StateRepo{{Name: "alpha", SourcePath: "/x", WorktreePath: "/y"}},
+	}
+	writeFakeState(t, dir, st)
+	got, err := ReadState(dir)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if got.Nickname != "🐛 picker fix" {
+		t.Errorf("nickname lost on roundtrip: got %q", got.Nickname)
+	}
+}
+
+func TestState_OmitsEmptyNickname(t *testing.T) {
+	dir := t.TempDir()
+	// Empty nickname: omitempty should keep it out of the JSON
+	// entirely so manifests written before this field existed look
+	// identical to those written after.
+	writeFakeState(t, dir, State{TicketID: "sc-8", Branch: "b", CreatedAt: time.Now()})
+	b, err := os.ReadFile(filepath.Join(dir, ".thicket", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "nickname") {
+		t.Errorf("empty nickname should be omitted; got JSON: %s", string(b))
+	}
+}
+
+func TestSanitizeNickname(t *testing.T) {
+	cases := map[string]struct {
+		in   string
+		want string
+	}{
+		"plain":                    {"flaky tests", "flaky tests"},
+		"trim spaces":              {"   flaky tests   ", "flaky tests"},
+		"emoji preserved":          {"🐛 picker fix", "🐛 picker fix"},
+		"interior newline → space": {"flaky\ntests", "flaky tests"},
+		"interior tab → space":     {"flaky\ttests", "flaky tests"},
+		"runs of whitespace":       {"flaky   tests", "flaky tests"},
+		"ansi escape stripped":     {"\x1b[31mred\x1b[0m", "[31mred[0m"},
+		"nul + bs stripped":        {"foo\x00\x08bar", "foobar"},
+		"truncate to 20 runes":     {"a very very long nickname that is way past twenty", "a very very long nic"},
+		"trim trailing space after truncate": {
+			// 19 chars + space + tail → the space lands right at
+			// the 20-rune cap; TrimRight drops it so we don't
+			// persist trailing whitespace.
+			"abcdefghijklmnopqrs xyz",
+			"abcdefghijklmnopqrs",
+		},
+		"empty input":        {"", ""},
+		"whitespace only":    {"   \t\n  ", ""},
+		"only control chars": {"\x00\x01\x1b", ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := SanitizeNickname(tc.in)
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestManagedWorkspace_DisplayName(t *testing.T) {
+	cases := []struct {
+		name     string
+		slug     string
+		nickname string
+		want     string
+	}{
+		{"nickname set", "sc-1-long-slug", "🐛 fix it", "🐛 fix it"},
+		{"nickname empty", "sc-2-other-slug", "", "sc-2-other-slug"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mw := ManagedWorkspace{Slug: tc.slug, State: State{Nickname: tc.nickname}}
+			if got := mw.DisplayName(); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func writeFakeState(t *testing.T, dir string, st State) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(dir, ".thicket"), 0o755); err != nil {

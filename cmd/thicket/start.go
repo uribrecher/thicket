@@ -56,8 +56,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 			ws, findErr := workspace.FindContainingWorkspace(cfg.WorkspaceRoot, cwd)
 			switch {
 			case findErr == nil:
-				fmt.Fprintf(out, "✓ using existing workspace %s\n", ws.Slug)
-				return launchClaudeIn(out, cfg, ws.Slug, ws.Path, flags.noLaunch || flags.dryRun)
+				if ws.State.Nickname != "" {
+					fmt.Fprintf(out, "✓ using existing workspace %q (%s)\n", ws.State.Nickname, ws.Slug)
+				} else {
+					fmt.Fprintf(out, "✓ using existing workspace %s\n", ws.Slug)
+				}
+				return launchClaudeIn(out, cfg, nicknameOrSlug(ws.State.Nickname, ws.Slug),
+					ws.Path, flags.noLaunch || flags.dryRun)
 			case errors.Is(findErr, workspace.ErrNoState):
 				// Normal "not in a workspace" — fall through silently.
 			default:
@@ -118,7 +123,9 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		}
 		if existing := findWorkspaceForTicket(cfg, tk.SourceID, errOut); existing != nil {
 			fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
-			return launchClaudeIn(out, cfg, workspace.Slug(tk.SourceID, tk.Title), existing.Path, flags.noLaunch)
+			return launchClaudeIn(out, cfg,
+				nicknameOrSlug(existing.State.Nickname, workspace.Slug(tk.SourceID, tk.Title)),
+				existing.Path, flags.noLaunch)
 		}
 		preselected = &tk
 	}
@@ -140,22 +147,37 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		}
 	}
 
-	// FindExistingWorkspace closure: returns the path of any
-	// managed workspace whose manifest matches the given ticket id,
-	// or "" if none. The Ticket page calls this once per listed
-	// ticket to populate the "Workspace" column, so we precompute a
-	// single ticketID→path map from one `workspace.ListManaged`
-	// scan instead of re-scanning workspace_root per row.
-	existingByTicket := make(map[string]string)
+	// Same shape for the nickname suggester. Failure to build leaves
+	// nickFn nil → the Plan page's input starts empty and the user
+	// can type their own.
+	var nickFn func(ctx context.Context, tk ticket.Ticket) (string, error)
+	if ns, nsErr := buildClaudeNicknameSuggester(cmd.Context(), cfg); nsErr == nil && ns != nil {
+		nickFn = func(ctx context.Context, tk ticket.Ticket) (string, error) {
+			return ns.Suggest(ctx, tk.Title, tk.Body)
+		}
+	}
+
+	// FindExistingWorkspace closure: returns the managed workspace
+	// whose manifest matches the given ticket id, or nil if none.
+	// The Ticket page calls this once per listed ticket to populate
+	// the "Workspace" column, so we precompute a single ticketID →
+	// ManagedWorkspace map from one `workspace.ListManaged` scan
+	// instead of re-scanning workspace_root per row.
+	existingByTicket := make(map[string]workspace.ManagedWorkspace)
 	if wsList, warnings, listErr := workspace.ListManaged(cfg.WorkspaceRoot); listErr == nil {
 		for _, w := range wsList {
-			existingByTicket[w.State.TicketID] = w.Path
+			existingByTicket[w.State.TicketID] = w
 		}
 		for _, warn := range warnings {
 			fmt.Fprintf(errOut, "warning: %v\n", warn)
 		}
 	}
-	findExisting := func(id string) string { return existingByTicket[id] }
+	findExisting := func(id string) *workspace.ManagedWorkspace {
+		if w, ok := existingByTicket[id]; ok {
+			return &w
+		}
+		return nil
+	}
 
 	deps := wizard.Deps{
 		Ctx:                   cmd.Context(),
@@ -164,6 +186,7 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		Repos:                 repos,
 		Detect:                detectFn,
 		Summarize:             summarizeFn,
+		Nickname:              nickFn,
 		Git:                   gitops.New(),
 		Flags:                 wizard.Flags{Branch: flags.branch},
 		FindExistingWorkspace: findExisting,
@@ -188,7 +211,11 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 	// matched the picked ticket): launch Claude in the existing dir.
 	if res.ReuseDir != "" {
 		fmt.Fprintf(out, "reusing existing workspace at %s\n", res.ReuseDir)
-		return launchClaudeIn(out, cfg, workspace.Slug(res.Ticket.SourceID, res.Ticket.Title), res.ReuseDir, flags.noLaunch)
+		name := workspace.Slug(res.Ticket.SourceID, res.Ticket.Title)
+		if st, err := workspace.ReadState(res.ReuseDir); err == nil && st.Nickname != "" {
+			name = st.Nickname
+		}
+		return launchClaudeIn(out, cfg, name, res.ReuseDir, flags.noLaunch)
 	}
 
 	// Surface any skipped/failed clones from the wizard's clone phase
@@ -207,7 +234,9 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		return err
 	}
 	fmt.Fprintf(out, "\nworkspace ready at %s\n", plan.WorkspaceDir)
-	return launchClaudeIn(out, cfg, workspace.Slug(res.Ticket.SourceID, res.Ticket.Title), plan.WorkspaceDir, flags.noLaunch)
+	return launchClaudeIn(out, cfg,
+		nicknameOrSlug(plan.Nickname, workspace.Slug(res.Ticket.SourceID, res.Ticket.Title)),
+		plan.WorkspaceDir, flags.noLaunch)
 }
 
 // runStartLegacy preserves the pre-wizard CLI flow for the cases
@@ -256,7 +285,9 @@ func runStartLegacy(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 	}
 	if existing := findWorkspaceForTicket(cfg, tk.SourceID, errOut); existing != nil {
 		fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
-		return launchClaudeIn(out, cfg, workspace.Slug(tk.SourceID, tk.Title), existing.Path, flags.noLaunch)
+		return launchClaudeIn(out, cfg,
+			nicknameOrSlug(existing.State.Nickname, workspace.Slug(tk.SourceID, tk.Title)),
+			existing.Path, flags.noLaunch)
 	}
 
 	repos, err := loadCatalog(cfg, errOut)
@@ -312,7 +343,9 @@ func runStartLegacy(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		return err
 	}
 	fmt.Fprintf(out, "\nworkspace ready at %s\n", plan.WorkspaceDir)
-	return launchClaudeIn(out, cfg, workspace.Slug(tk.SourceID, tk.Title), plan.WorkspaceDir, flags.noLaunch)
+	return launchClaudeIn(out, cfg,
+		nicknameOrSlug(plan.Nickname, workspace.Slug(tk.SourceID, tk.Title)),
+		plan.WorkspaceDir, flags.noLaunch)
 }
 
 // findWorkspaceForTicket scans the workspace root for a managed
@@ -343,14 +376,13 @@ func findWorkspaceForTicket(cfg *config.Config, ticketID string, errOut io.Write
 }
 
 // launchClaudeIn opens the configured Claude binary in workspaceDir,
-// passing `--name <slug>` so the session is distinguishable in
+// passing `--name <name>` so the session is distinguishable in
 // Claude's prompt box, /resume picker, and the terminal title.
 // Honors --no-launch by printing the cd line instead.
 //
-// Takes the slug as a string (rather than reconstructing it from a
-// ticket.Ticket) because the cwd-shortcut entry point doesn't have a
-// Ticket — only a workspace directory whose basename IS the slug.
-func launchClaudeIn(out io.Writer, cfg *config.Config, slug,
+// Callers pass the workspace's nickname when set (short, human-
+// friendly), falling back to the slug. See nicknameOrSlug.
+func launchClaudeIn(out io.Writer, cfg *config.Config, name,
 	workspaceDir string, noLaunch bool) error {
 
 	if noLaunch {
@@ -358,7 +390,7 @@ func launchClaudeIn(out io.Writer, cfg *config.Config, slug,
 		return nil
 	}
 	l := launcher.New(cfg.ClaudeBinary)
-	l.ExtraArgs = []string{"--name", slug}
+	l.ExtraArgs = []string{"--name", name}
 	if err := l.Launch(workspaceDir); err != nil {
 		if errors.Is(err, launcher.ErrMissingBinary) {
 			launcher.PrintFallback(out, workspaceDir)
@@ -369,11 +401,22 @@ func launchClaudeIn(out io.Writer, cfg *config.Config, slug,
 	return nil
 }
 
+// nicknameOrSlug returns the nickname when non-empty, the slug
+// otherwise — the resolution used for Claude's --name flag and other
+// human-facing labels.
+func nicknameOrSlug(nickname, slug string) string {
+	if nickname != "" {
+		return nickname
+	}
+	return slug
+}
+
 // ----- helpers below -----
 
 type startFlags struct {
 	only          []string
 	branch        string
+	nickname      string
 	noInteractive bool
 	noLaunch      bool
 	dryRun        bool
@@ -383,12 +426,14 @@ func readStartFlags(cmd *cobra.Command) (startFlags, error) {
 	f := cmd.Flags()
 	only, _ := f.GetStringSlice("only")
 	branch, _ := f.GetString("branch")
+	nickname, _ := f.GetString("nickname")
 	noInteractive, _ := f.GetBool("no-interactive")
 	noLaunch, _ := f.GetBool("no-launch")
 	dryRun, _ := f.GetBool("dry-run")
 	return startFlags{
 		only:          only,
 		branch:        branch,
+		nickname:      nickname,
 		noInteractive: noInteractive,
 		noLaunch:      noLaunch,
 		dryRun:        dryRun,
@@ -673,6 +718,32 @@ func buildClaudeSummarizer(ctx context.Context, cfg *config.Config) (detector.Su
 	}
 }
 
+// buildClaudeNicknameSuggester mirrors buildClaudeSummarizer — same
+// backend selection, same secret-fetch path. Separate from the
+// summarizer builder so an interface change to one doesn't cascade.
+func buildClaudeNicknameSuggester(ctx context.Context, cfg *config.Config) (detector.NicknameSuggester, error) {
+	backend := cfg.ClaudeBackend
+	if backend == "" {
+		backend = "cli"
+	}
+	switch backend {
+	case "cli":
+		bin := cfg.ClaudeBinary
+		if bin == "" {
+			bin = "claude"
+		}
+		return detector.NewClaudeCLINicknameSuggester(bin, cfg.ClaudeModel), nil
+	case "api":
+		key, err := fetchSecret(ctx, cfg, secretAnthropic)
+		if err != nil {
+			return nil, fmt.Errorf("fetch anthropic key: %w", err)
+		}
+		return detector.NewAnthropicNicknameSuggester(key, "", anthropic.Model(cfg.ClaudeModel)), nil
+	default:
+		return nil, fmt.Errorf("unknown claude_backend %q (want \"cli\" or \"api\")", backend)
+	}
+}
+
 func pickSelector(noInteractive bool) tui.Selector {
 	if noInteractive {
 		return tui.AutoSelector{AutoClone: true}
@@ -777,6 +848,7 @@ func buildPlanLegacy(cfg *config.Config, flags startFlags, src ticket.Source, tk
 	return workspace.Plan{
 		WorkspaceDir: wsDir,
 		Branch:       branch,
+		Nickname:     flags.nickname,
 		Repos:        planRepos,
 		Memory: memory.Input{
 			TicketID:     tk.SourceID,

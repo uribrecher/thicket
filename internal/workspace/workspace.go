@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/uribrecher/thicket/internal/git"
 	"github.com/uribrecher/thicket/internal/memory"
@@ -34,8 +35,12 @@ type PlanRepo struct {
 type Plan struct {
 	WorkspaceDir string
 	Branch       string
-	Repos        []PlanRepo
-	Memory       memory.Input
+	// Nickname is a short, human-friendly label (max 20 chars,
+	// spaces and emoji allowed, uniqueness not required). Optional —
+	// when empty, display sites fall back to the workspace slug.
+	Nickname string
+	Repos    []PlanRepo
+	Memory   memory.Input
 
 	// Progress, when non-nil, receives one line per materialization
 	// step (`✓ worktree: …`, `✓ wrote CLAUDE.local.md (…)`, etc.).
@@ -48,8 +53,12 @@ type Plan struct {
 // State is the persisted manifest written into <workspace>/.thicket/state.json.
 // It lets `thicket rm` clean up worktrees without scanning every repo.
 type State struct {
-	TicketID  string      `json:"ticket_id"`
-	Branch    string      `json:"branch"`
+	TicketID string `json:"ticket_id"`
+	Branch   string `json:"branch"`
+	// Nickname is the per-workspace display label set at creation
+	// time. `omitempty` so manifests written before this field
+	// existed round-trip cleanly.
+	Nickname  string      `json:"nickname,omitempty"`
 	CreatedAt time.Time   `json:"created_at"`
 	Repos     []StateRepo `json:"repos"`
 }
@@ -379,6 +388,79 @@ type ManagedWorkspace struct {
 	State State
 }
 
+// DisplayName returns the workspace's nickname when set, falling back
+// to the slug. Use in human-facing UI columns and prompts; never use
+// for filesystem paths or unique keys (the slug is the only safe
+// identifier on disk).
+func (m ManagedWorkspace) DisplayName() string {
+	if m.State.Nickname != "" {
+		return m.State.Nickname
+	}
+	return m.Slug
+}
+
+// NicknameMaxChars is the upper bound on a workspace nickname in
+// runes. Enforced at persistence time by SanitizeNickname; the
+// wizard's textinput and the LLM prompt also reference it so the
+// rule lives in exactly one place.
+const NicknameMaxChars = 20
+
+// SanitizeNickname normalizes a candidate nickname before persistence
+// or display: trims surrounding whitespace, replaces interior runs of
+// any whitespace (incl. tab/newline) with a single ASCII space, drops
+// control characters and other non-printables (including ANSI
+// escapes), and truncates the result at NicknameMaxChars runes
+// (preserving multi-byte runes like emoji intact).
+//
+// Inputs originate from three sources — the LLM suggester, the
+// `--nickname` CLI flag, and the Plan-page textinput. The textinput
+// already enforces a length cap; the other two come in unfiltered.
+// Calling this at the persistence boundary in writeState means the
+// rule applies regardless of caller, and downstream display code can
+// treat the field as already-sanitized.
+func SanitizeNickname(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	prevSpace := false
+	count := 0
+	for _, r := range s {
+		// Cap check up top so we never write past the limit — a
+		// whitespace push at exactly the cap would otherwise let a
+		// trailing rune sneak in.
+		if count >= NicknameMaxChars {
+			break
+		}
+		// Collapse any whitespace (incl. \t \n \r) into a single
+		// space — the persisted nickname must be a single-line label.
+		if unicode.IsSpace(r) {
+			if !prevSpace && count > 0 {
+				b.WriteByte(' ')
+				count++
+			}
+			prevSpace = true
+			continue
+		}
+		// Drop control characters (Unicode category Cc, e.g. ANSI
+		// escape 0x1b, NUL, backspace) and other non-printables.
+		// IsPrint covers letters/digits/punct/symbols across the
+		// whole Unicode range, so emoji survive.
+		if !unicode.IsPrint(r) {
+			prevSpace = false
+			continue
+		}
+		b.WriteRune(r)
+		count++
+		prevSpace = false
+	}
+	// Trailing space cleanup (we may have emitted one right before
+	// the truncate cutoff).
+	return strings.TrimRight(b.String(), " ")
+}
+
 // ListManaged enumerates thicket-managed workspaces under root, newest
 // first by CreatedAt. Three return values keep the failure modes
 // distinct:
@@ -480,8 +562,13 @@ var ErrNoState = errors.New("no state manifest")
 
 func writeState(p Plan) error {
 	st := State{
-		TicketID:  p.Memory.TicketID,
-		Branch:    p.Branch,
+		TicketID: p.Memory.TicketID,
+		Branch:   p.Branch,
+		// Sanitize at the persistence boundary: any caller (wizard,
+		// legacy --nickname flag, future API) writes through here, so
+		// downstream display code can trust the field is already
+		// normalized.
+		Nickname:  SanitizeNickname(p.Nickname),
 		CreatedAt: p.Memory.CreatedAt,
 		Repos:     make([]StateRepo, 0, len(p.Repos)),
 	}

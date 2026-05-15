@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/uribrecher/thicket/internal/tui/wizard"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/uribrecher/thicket/internal/catalog"
@@ -35,7 +37,20 @@ type planPage struct {
 	// silently start unchecked when the user moves to ticket B.
 	cloneInclude map[string]bool
 	cursor       int  // index into a flat cursor space: 0..len(toClone)-1
-	focusBtn     bool // true when the cursor is on the Create button (no toggleable rows or below the list)
+	focusBtn     bool // true when the cursor is on the Create button
+	// focusNickname is true when the nickname input owns key events.
+	// Up/down move focus between clone rows, nickname, and Create.
+	// At most one of focusNickname / focusBtn is true; when both
+	// are false, the cursor is on a clone row at index `cursor`.
+	focusNickname bool
+
+	// Nickname input — short human-friendly label persisted into the
+	// workspace state manifest. Pre-filled from m.NicknameCache when
+	// the suggester has produced a value; the user can edit freely.
+	// nicknameDirty flips to true on the first user keystroke so a
+	// late-arriving suggester response doesn't overwrite the edit.
+	nicknameInput textinput.Model
+	nicknameDirty bool
 
 	// Post-Create state.
 	creating  bool
@@ -45,8 +60,14 @@ type planPage struct {
 }
 
 func newPlanPage() *planPage {
+	ni := textinput.New()
+	ni.CharLimit = workspace.NicknameMaxChars
+	ni.Width = 26
+	ni.Prompt = "› "
+	ni.Placeholder = "short label (≤20 chars, spaces & emoji ok)"
 	return &planPage{
-		cloneInclude: make(map[string]bool),
+		cloneInclude:  make(map[string]bool),
+		nicknameInput: ni,
 	}
 }
 
@@ -59,10 +80,13 @@ func (p *planPage) Hints() string {
 	if p.creating {
 		return ""
 	}
+	if p.focusNickname {
+		return "type nickname (≤20) · ↑/↓ leaves · enter accepts & focuses Create"
+	}
 	if len(p.toClone) > 0 {
 		return "↑/↓ cursor · space toggles clone · enter creates"
 	}
-	return "enter creates"
+	return "↑/↓ moves to nickname · enter creates"
 }
 
 // Complete is true once the plan is built without error. The page is
@@ -201,13 +225,38 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 				p.cloneInclude[r.Name] = true
 			}
 		}
-		// Reset the cursor — focus the first toggleable row if any,
-		// otherwise the Create button.
-		if len(p.toClone) > 0 {
+		// Pre-fill the nickname input from cache when it has a
+		// suggestion and the user hasn't typed anything yet.
+		if !p.nicknameDirty {
+			if cached, ok := m.NicknameCache[m.TicketID]; ok && cached != "" {
+				p.nicknameInput.SetValue(cached)
+			}
+		}
+		// Reset focus — clone rows first if any, then nickname, then
+		// Create. The user's most common edit (the nickname) sits at
+		// the natural "where do I go next?" spot regardless.
+		var focusCmd tea.Cmd
+		switch {
+		case len(p.toClone) > 0:
 			p.cursor = 0
 			p.focusBtn = false
-		} else {
-			p.focusBtn = true
+			p.focusNickname = false
+			p.nicknameInput.Blur()
+		default:
+			p.focusBtn = false
+			p.focusNickname = true
+			focusCmd = p.nicknameInput.Focus()
+		}
+		return p, focusCmd
+
+	case wizard.NicknameSuggestedMsg:
+		// Late-arriving suggester result: only pre-fill if the user
+		// hasn't started typing AND the input is currently empty (so
+		// a previous suggestion the user explicitly cleared stays
+		// cleared).
+		if !p.nicknameDirty && v.Err == nil && v.TicketID == m.TicketID &&
+			v.Nickname != "" && p.nicknameInput.Value() == "" {
+			p.nicknameInput.SetValue(v.Nickname)
 		}
 		return p, nil
 
@@ -247,41 +296,108 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 		if p.creating {
 			return p, nil // input locked while clones run
 		}
-		switch v.String() {
+		key := v.String()
+		switch key {
 		case "up", "k":
-			if p.focusBtn && len(p.toClone) > 0 {
-				p.focusBtn = false
-				p.cursor = len(p.toClone) - 1
-			} else if p.cursor > 0 {
-				p.cursor--
-			}
-			return p, nil
+			return p, p.moveFocusUp()
 		case "down", "j":
-			if !p.focusBtn {
-				if p.cursor < len(p.toClone)-1 {
-					p.cursor++
-				} else {
-					p.focusBtn = true
-				}
+			return p, p.moveFocusDown()
+		case "enter":
+			switch {
+			case p.focusNickname:
+				// Enter on nickname accepts the typed value and moves
+				// to Create — it does NOT fire create. Two presses
+				// (one to commit nickname, one on Create) keeps the
+				// flow predictable.
+				p.focusNickname = false
+				p.focusBtn = true
+				p.nicknameInput.Blur()
+				return p, nil
+			case p.focusBtn || len(p.toClone) == 0:
+				return p, p.startCloneCmd(m)
+			default:
+				// Enter on a missing-clone row toggles it (mirror "space").
+				name := p.toClone[p.cursor].Name
+				p.cloneInclude[name] = !p.cloneInclude[name]
+				return p, nil
 			}
-			return p, nil
 		case " ":
-			if !p.focusBtn && len(p.toClone) > 0 {
+			if !p.focusBtn && !p.focusNickname && len(p.toClone) > 0 {
 				name := p.toClone[p.cursor].Name
 				p.cloneInclude[name] = !p.cloneInclude[name]
 			}
-			return p, nil
-		case "enter":
-			if p.focusBtn || len(p.toClone) == 0 {
-				return p, p.startCloneCmd(m)
+			// Space inside the nickname falls through to the
+			// textinput forwarder below.
+			if !p.focusNickname {
+				return p, nil
 			}
-			// Enter on a missing-clone row toggles it (mirror "space").
-			name := p.toClone[p.cursor].Name
-			p.cloneInclude[name] = !p.cloneInclude[name]
-			return p, nil
+		}
+		// Forward any unhandled key to the nickname input when it's
+		// focused. Tracks dirtiness for the suggester pre-fill policy.
+		if p.focusNickname {
+			prev := p.nicknameInput.Value()
+			var cmd tea.Cmd
+			p.nicknameInput, cmd = p.nicknameInput.Update(v)
+			if p.nicknameInput.Value() != prev {
+				p.nicknameDirty = true
+			}
+			return p, cmd
 		}
 	}
 	return p, nil
+}
+
+// moveFocusUp shifts focus toward the top of the page across the
+// three zones: clone rows → nickname → (above-nothing). Wraps the
+// textinput focus state so the cursor renders correctly.
+func (p *planPage) moveFocusUp() tea.Cmd {
+	switch {
+	case p.focusBtn:
+		// Create → nickname.
+		p.focusBtn = false
+		p.focusNickname = true
+		return p.nicknameInput.Focus()
+	case p.focusNickname:
+		// Nickname → last clone row (if any). If none, stay on
+		// nickname (no clone rows above).
+		if len(p.toClone) > 0 {
+			p.focusNickname = false
+			p.cursor = len(p.toClone) - 1
+			p.nicknameInput.Blur()
+		}
+		return nil
+	default:
+		// On a clone row.
+		if p.cursor > 0 {
+			p.cursor--
+		}
+		return nil
+	}
+}
+
+// moveFocusDown is the mirror: nickname → Create, last clone row →
+// nickname, intermediate clone rows → next clone row.
+func (p *planPage) moveFocusDown() tea.Cmd {
+	switch {
+	case p.focusBtn:
+		// Already at the bottom.
+		return nil
+	case p.focusNickname:
+		// Nickname → Create.
+		p.focusNickname = false
+		p.focusBtn = true
+		p.nicknameInput.Blur()
+		return nil
+	default:
+		// On a clone row.
+		if p.cursor < len(p.toClone)-1 {
+			p.cursor++
+			return nil
+		}
+		// Last clone row → nickname.
+		p.focusNickname = true
+		return p.nicknameInput.Focus()
+	}
 }
 
 // allClonesDone reports whether every started clone has finished.
@@ -425,6 +541,7 @@ func (p *planPage) finalizeCmd(m *wizard.Model) tea.Cmd {
 		plan := workspace.Plan{
 			WorkspaceDir: p.workspace,
 			Branch:       p.branch,
+			Nickname:     strings.TrimSpace(p.nicknameInput.Value()),
 			Repos:        planRepos,
 			Memory:       m.Result.Plan.Memory,
 		}
@@ -490,6 +607,16 @@ func (p *planPage) View(m *wizard.Model) string {
 		b.WriteString("  " + wizard.PlanHeaderStyle.Render("The following will be created:") + "\n")
 		b.WriteString(fmt.Sprintf("    workspace dir: %s\n", wizard.AbbrevHome(p.workspace)))
 		b.WriteString(fmt.Sprintf("    branch:        %s\n", p.branch))
+		// Nickname row: editable input with a live char counter.
+		// Cursor marker when focused.
+		nnMarker := "  "
+		if p.focusNickname {
+			nnMarker = wizard.CursorStyle.Render("▶ ")
+		}
+		nnCount := utf8.RuneCountInString(p.nicknameInput.Value())
+		b.WriteString(fmt.Sprintf("  %snickname:      %s  %s\n",
+			nnMarker, p.nicknameInput.View(),
+			wizard.HintStyle.Render(fmt.Sprintf("(%d/%d)", nnCount, workspace.NicknameMaxChars))))
 		final := p.finalSelection()
 		b.WriteString(fmt.Sprintf("    worktrees:     %d\n", len(final)))
 		for _, r := range final {

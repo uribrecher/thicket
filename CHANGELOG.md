@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Per-workspace nicknames — short, friendly, LLM-suggested.**
+  Every new workspace now carries an optional `nickname` field
+  alongside its slug: a short (≤20 chars), human-readable label that
+  allows spaces and emoji and doesn't have to be unique. The Plan
+  page in the `thicket start` wizard shows an editable input
+  pre-populated with an LLM-suggested label (built from the ticket
+  title + body, fired in parallel with the existing summary call so
+  it doesn't add to perceived latency). The user can accept the
+  suggestion or type their own; ↑/↓ moves between the missing-clones
+  rows, the nickname input, and the Create button.
+  - Stored in `<workspace>/.thicket/state.json` as a new
+    `nickname` JSON field (`omitempty` — existing manifests
+    round-trip cleanly with no migration).
+  - Displayed in `thicket list` (new `NICKNAME` column), `thicket
+    rm` (picker column + confirmation header), `thicket edit`
+    (picker column + filter haystack), and the cwd-shortcut log
+    line (`✓ using existing workspace "🐛 picker fix" (sc-12-fix-flaky-picker)`).
+  - Passed to Claude as `--name <nickname>` when set (slug
+    otherwise), so the session label in Claude's prompt box,
+    `/resume` picker, and terminal title is the friendly label
+    instead of the long slug.
+  - `thicket start --nickname '<label>'` for the non-interactive /
+    scripted path: overrides the LLM suggestion.
+
 - **`thicket start` from inside a workspace skips the ticket picker.**
   When the working directory is already under an existing thicket
   workspace (`workspace_root/<slug>/...`, including any worktree
@@ -18,10 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   no network round-trip. Same end state as the existing
   "ticket-id-already-has-a-workspace" reuse shortcut, just driven by
   pwd. Explicit `thicket start <id>` still wins (the user picked a
-  specific ticket; don't second-guess), and `--no-launch` still
-  prints the `cd` line instead of execing claude. Applies to both
-  the interactive wizard path and the legacy non-interactive path —
-  the pwd signal is unambiguous either way.
+  specific ticket; don't second-guess). `--no-launch` and `--dry-run`
+  both print the `cd` line instead of execing claude. Applies to
+  both the interactive wizard path and the legacy non-interactive
+  path — the pwd signal is unambiguous either way.
 
 ### Changed
 

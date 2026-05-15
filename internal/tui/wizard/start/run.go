@@ -41,10 +41,11 @@ func Run(deps wizard.Deps) (wizard.Result, error) {
 
 func newModel(deps wizard.Deps) *wizard.Model {
 	m := &wizard.Model{
-		Deps:         deps,
-		LLMCache:     make(map[string][]detector.RepoMatch),
-		SummaryCache: make(map[string][]string),
-		CloneInclude: make(map[string]bool),
+		Deps:          deps,
+		LLMCache:      make(map[string][]detector.RepoMatch),
+		SummaryCache:  make(map[string][]string),
+		NicknameCache: make(map[string]string),
+		CloneInclude:  make(map[string]bool),
 	}
 	m.Pages = []wizard.Page{
 		newTicketPage(),
