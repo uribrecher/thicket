@@ -1,12 +1,14 @@
-package wizard
+package config
 
 import (
+	"github.com/uribrecher/thicket/internal/tui/wizard"
+
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// configTicketsPage asks where the Shortcut API token lives. It's only
+// ticketsPage asks where the Shortcut API token lives. It's only
 // included in the page list when SHORTCUT_API_TOKEN is unset at init
 // time (see newConfigModel). When it *is* set, the env var wins at
 // runtime and no PM reference is needed, so the page is omitted
@@ -18,28 +20,28 @@ import (
 // machine; the page just calls into it and writes the resulting
 // (manager, ref [, account]) tuple back to the working config when
 // the picker reaches `validated`.
-type configTicketsPage struct {
+type ticketsPage struct {
 	picker *secretPicker
 	seeded bool
 }
 
-func newConfigTicketsPage() *configTicketsPage {
-	return &configTicketsPage{
+func newTicketsPage() *ticketsPage {
+	return &ticketsPage{
 		picker: newSecretPicker("Shortcut API token", "SHORTCUT_API_TOKEN"),
 	}
 }
 
-func (p *configTicketsPage) Title() string { return "Tickets" }
+func (p *ticketsPage) Title() string { return "Tickets" }
 
-func (p *configTicketsPage) Hints() string { return p.picker.hints() }
+func (p *ticketsPage) Hints() string { return p.picker.hints() }
 
 // Complete is true once the picker has a validated (manager, ref)
 // pair. Validation is live: mgr.Get for non-env managers, shape-
 // check for env, and "user actually walked through the field picker"
 // for 1Password.
-func (p *configTicketsPage) Complete() bool { return p.picker.validated() }
+func (p *ticketsPage) Complete() bool { return p.picker.validated() }
 
-func (p *configTicketsPage) InitCmd(m *Model) tea.Cmd {
+func (p *ticketsPage) InitCmd(m *wizard.Model) tea.Cmd {
 	if !p.seeded {
 		p.picker.preseed(m.ConfigDeps.Cfg.Passwords.Manager, m.ConfigDeps.Cfg.Passwords.ShortcutTokenRef)
 		// If preseed jumped us into stateValidated (e.g. re-running
@@ -54,8 +56,8 @@ func (p *configTicketsPage) InitCmd(m *Model) tea.Cmd {
 	return nil
 }
 
-func (p *configTicketsPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
-	if _, ok := msg.(GoNextMsg); ok {
+func (p *ticketsPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
+	if _, ok := msg.(wizard.GoNextMsg); ok {
 		p.commit(m)
 		return p, nil
 	}
@@ -66,7 +68,7 @@ func (p *configTicketsPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	return p, cmd
 }
 
-func (p *configTicketsPage) commit(m *Model) {
+func (p *ticketsPage) commit(m *wizard.Model) {
 	cfg := m.ConfigDeps.Cfg
 	if mgr := p.picker.finalManager(); mgr != "" {
 		cfg.Passwords.Manager = mgr
@@ -77,12 +79,12 @@ func (p *configTicketsPage) commit(m *Model) {
 	cfg.Passwords.ShortcutTokenAccount = p.picker.finalAccount()
 }
 
-func (p *configTicketsPage) View(m *Model) string {
+func (p *ticketsPage) View(m *wizard.Model) string {
 	var b strings.Builder
-	b.WriteString(TitleStyle.Render("Where is your Shortcut API token?"))
+	b.WriteString(wizard.TitleStyle.Render("Where is your Shortcut API token?"))
 	b.WriteString("\n\n")
-	b.WriteString("  " + HintStyle.Render(
+	b.WriteString("  " + wizard.HintStyle.Render(
 		"$SHORTCUT_API_TOKEN isn't set — thicket needs a password-manager reference so it can fetch the token at runtime.") + "\n\n")
 	b.WriteString(p.picker.view(m))
-	return Indent(b.String(), 2)
+	return wizard.Indent(b.String(), 2)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/uribrecher/thicket/internal/config"
 	"github.com/uribrecher/thicket/internal/tui"
 	"github.com/uribrecher/thicket/internal/tui/wizard"
+	cfgwiz "github.com/uribrecher/thicket/internal/tui/wizard/config"
 )
 
 func runConfig(cmd *cobra.Command, _ []string) error {
@@ -38,7 +39,7 @@ func runConfig(cmd *cobra.Command, _ []string) error {
 		firstRun = true
 	}
 
-	res, err := wizard.RunConfig(wizard.ConfigDeps{
+	res, err := cfgwiz.Run(wizard.ConfigDeps{
 		Ctx:      ctx,
 		Cfg:      cfg,
 		FirstRun: firstRun,

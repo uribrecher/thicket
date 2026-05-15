@@ -1,6 +1,8 @@
-package wizard
+package config
 
 import (
+	"github.com/uribrecher/thicket/internal/tui/wizard"
+
 	"context"
 	"strings"
 	"testing"
@@ -26,7 +28,7 @@ func TestInitModelFirstRunPages(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
 
 	want := []string{"Welcome", "Git", "Tickets", "Agent", "Submit"}
 	if len(m.Pages) != len(want) {
@@ -46,7 +48,7 @@ func TestInitModelSkipWelcomeOnReRun(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 
 	if m.Pages[0].Title() == "Welcome" {
 		t.Fatalf("Welcome page included on re-run")
@@ -63,7 +65,7 @@ func TestInitModelSkipTicketsWithEnv(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: true})
 
 	for _, p := range m.Pages {
 		if p.Title() == "Tickets" {
@@ -82,7 +84,7 @@ func TestInitSubmitConfirms(t *testing.T) {
 	d.GithubOrgs = []string{"my-org"}
 	d.ClaudeBackend = "cli"
 
-	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 	// Re-run + both env vars set → only Git, Agent, Submit pages.
 	m.Active = len(m.Pages) - 1
 	if m.Pages[m.Active].Title() != "Submit" {
@@ -90,8 +92,8 @@ func TestInitSubmitConfirms(t *testing.T) {
 	}
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	mm := updated.(*Model)
-	// The submit page emits ConfigDoneMsg as a cmd; deliver it.
+	mm := updated.(*wizard.Model)
+	// The submit page emits wizard.ConfigDoneMsg as a cmd; deliver it.
 	page, _ := mm.Pages[mm.Active].Update(mm, tea.KeyMsg{Type: tea.KeyEnter})
 	mm.Pages[mm.Active] = page
 	// Run the cmd manually.
@@ -119,8 +121,8 @@ func TestSecretPicker1PFieldPickerSkippedOnSingle(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
-	tp := findPage(t, m, "Tickets").(*configTicketsPage)
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	tp := findPage(t, m, "Tickets").(*ticketsPage)
 	tp.InitCmd(m)
 	sp := tp.picker
 
@@ -128,7 +130,7 @@ func TestSecretPicker1PFieldPickerSkippedOnSingle(t *testing.T) {
 	sp.chosenAccount = "acct-1"
 	it := secretsItem("itm-1", "Shortcut Token")
 	sp.chosenItem = &it
-	sp.onItemDetailLoaded(OpItemDetailLoadedMsg{
+	sp.onItemDetailLoaded(wizard.OpItemDetailLoadedMsg{
 		PickerID: sp.id,
 		ItemID:   "itm-1",
 		Detail: &secrets.OnePasswordItemDetail{
@@ -176,7 +178,7 @@ func TestDarwinHintGatedOnWalk1P(t *testing.T) {
 	sp := newSecretPicker("Shortcut API token", "SHORTCUT_API_TOKEN")
 	sp.preseed("1password", "op://Prod/Shortcut/credential")
 	d := config.Default()
-	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 	if sp.shouldShowDarwinHint(m) {
 		t.Errorf("hint shown even though user did not walk the 1P picker (walked1P=%v)", sp.walked1P)
 	}
@@ -191,7 +193,7 @@ func TestDarwinHintSuppressedOnDismiss(t *testing.T) {
 	sp.state = stateValidated
 	sp.chosenMgr = "1password"
 	d := config.Default()
-	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 	m.ConfigOpHintDismissed = true
 	if sp.shouldShowDarwinHint(m) {
 		t.Errorf("hint shown despite m.ConfigOpHintDismissed=true")
@@ -205,13 +207,13 @@ func TestDarwinHintSuppressedOnDismiss(t *testing.T) {
 func TestSecretPickerStaleMsgsDropped(t *testing.T) {
 	t.Setenv("SHORTCUT_API_TOKEN", "")
 	d := config.Default()
-	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
-	tp := findPage(t, m, "Tickets").(*configTicketsPage)
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	tp := findPage(t, m, "Tickets").(*ticketsPage)
 	tp.InitCmd(m)
 	sp := tp.picker
 	sp.state = stateOpLoadingItems
 	sp.chosenAccount = "acct-1"
-	sp.update(m, OpItemsLoadedMsg{
+	sp.update(m, wizard.OpItemsLoadedMsg{
 		PickerID: sp.id + 99, // someone else's load
 		Account:  "acct-1",
 		Items:    []secrets.OnePasswordItem{secretsItem("x", "Other")},
@@ -221,7 +223,7 @@ func TestSecretPickerStaleMsgsDropped(t *testing.T) {
 	}
 }
 
-func findPage(t *testing.T, m *Model, title string) Page {
+func findPage(t *testing.T, m *wizard.Model, title string) wizard.Page {
 	t.Helper()
 	for _, pg := range m.Pages {
 		if pg.Title() == title {
@@ -233,14 +235,14 @@ func findPage(t *testing.T, m *Model, title string) Page {
 }
 
 // TestInitGitPageCommitsOnAdvance writes the input values back to the
-// shared config when the page receives GoNextMsg.
+// shared config when the page receives wizard.GoNextMsg.
 func TestInitGitPageCommitsOnAdvance(t *testing.T) {
 	t.Setenv("SHORTCUT_API_TOKEN", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	d := config.Default()
-	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
-	gp, ok := m.Pages[0].(*configGitPage)
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	gp, ok := m.Pages[0].(*gitPage)
 	if !ok {
 		t.Fatalf("first page is not the Git page: %T", m.Pages[0])
 	}
@@ -248,7 +250,7 @@ func TestInitGitPageCommitsOnAdvance(t *testing.T) {
 	gp.inputs[gitFieldReposRoot].SetValue("/tmp/code")
 	gp.inputs[gitFieldWorkspaceRoot].SetValue("/tmp/work")
 	gp.inputs[gitFieldOrgs].SetValue("alpha, beta")
-	gp.Update(m, GoNextMsg{})
+	gp.Update(m, wizard.GoNextMsg{})
 	if d.ReposRoot != "/tmp/code" {
 		t.Errorf("ReposRoot = %q", d.ReposRoot)
 	}
