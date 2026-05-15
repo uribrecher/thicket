@@ -2,14 +2,10 @@ package wizard
 
 import (
 	"context"
-	"errors"
-
-	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/uribrecher/thicket/internal/catalog"
 	"github.com/uribrecher/thicket/internal/config"
 	gitops "github.com/uribrecher/thicket/internal/git"
-	"github.com/uribrecher/thicket/internal/tui"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
 
@@ -32,7 +28,7 @@ type EditDeps struct {
 	PreselectedWorkspace *workspace.ManagedWorkspace
 }
 
-// EditResult is what RunEdit returns on success.
+// EditResult is what edit.Run returns on success.
 type EditResult struct {
 	// Workspace is the workspace the user picked / preselected. The
 	// caller pairs it with AddPlan + a ticket Source to do the post-
@@ -49,53 +45,4 @@ type EditResult struct {
 	// or that failed to clone in-wizard. The caller surfaces these
 	// on stderr after the wizard exits.
 	Skipped []SkipReport
-}
-
-// RunEdit shows the edit wizard. Returns the EditResult on success,
-// tui.ErrCancelled on Esc/Ctrl-C, or any underlying tea error.
-func RunEdit(deps EditDeps) (EditResult, error) {
-	if deps.Ctx == nil {
-		deps.Ctx = context.Background()
-	}
-	m := newEditModel(deps)
-	finalModel, err := tea.NewProgram(m).Run()
-	if err != nil {
-		return EditResult{}, err
-	}
-	fm := finalModel.(*Model)
-	if errors.Is(fm.Err, tui.ErrCancelled) {
-		return EditResult{}, tui.ErrCancelled
-	}
-	if fm.Err != nil {
-		return EditResult{}, fm.Err
-	}
-	return fm.EditResult, nil
-}
-
-// newEditModel constructs the Model for the edit flow. Shares Model
-// machinery with the start flow (tab rendering, key routing, advance/
-// gotoPage) but with a different page triple and editMode-only state
-// fields. The start-only fields (ticket, llmCache, summaryCache, …)
-// stay zero-valued and are never read in this flow.
-func newEditModel(deps EditDeps) *Model {
-	m := &Model{
-		EditMode:     true,
-		EditDeps:     deps,
-		CloneInclude: make(map[string]bool),
-	}
-	m.Pages = []Page{
-		newEditWorkspacePage(),
-		newEditReposPage(),
-		newEditSubmitPage(),
-	}
-	if deps.PreselectedWorkspace != nil {
-		// Same shape as the start flow's preselected Path: seed the
-		// first page so it renders a read-only summary and start the
-		// wizard on Repos.
-		wp := m.Pages[0].(*editWorkspacePage)
-		wp.preseed(*deps.PreselectedWorkspace)
-		m.SelectedWorkspace = deps.PreselectedWorkspace
-		m.Active = 1
-	}
-	return m
 }

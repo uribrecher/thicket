@@ -1,6 +1,8 @@
-package wizard
+package edit
 
 import (
+	"github.com/uribrecher/thicket/internal/tui/wizard"
+
 	"bytes"
 	"context"
 	"errors"
@@ -16,13 +18,13 @@ import (
 	"github.com/uribrecher/thicket/internal/workspace"
 )
 
-// editSubmitPage is the third page of the edit wizard: build an
+// submitPage is the third page of the edit wizard: build an
 // AddPlan from m.Additions + m.SelectedWorkspace, show the user what
 // will be cloned and what worktrees will be attached, then run the
 // clones in-page. workspace.Add itself runs AFTER the wizard exits
 // (in cmd/thicket/edit.go), mirroring start's post-wizard
 // workspace.Create.
-type editSubmitPage struct {
+type submitPage struct {
 	// Built lazily on first activation.
 	built      bool
 	buildErr   error
@@ -41,20 +43,20 @@ type editSubmitPage struct {
 	focusBtn     bool
 
 	creating  bool
-	clones    map[string]*CloneState
+	clones    map[string]*wizard.CloneState
 	cloneOrd  []string
 	startedAt time.Time
 }
 
-func newEditSubmitPage() *editSubmitPage {
-	return &editSubmitPage{
+func newSubmitPage() *submitPage {
+	return &submitPage{
 		cloneInclude: make(map[string]bool),
 	}
 }
 
-func (p *editSubmitPage) Title() string { return "Submit" }
+func (p *submitPage) Title() string { return "Submit" }
 
-func (p *editSubmitPage) Hints() string {
+func (p *submitPage) Hints() string {
 	if p.creating {
 		return ""
 	}
@@ -64,11 +66,11 @@ func (p *editSubmitPage) Hints() string {
 	return "enter adds"
 }
 
-func (p *editSubmitPage) Complete() bool { return p.built && p.buildErr == nil }
+func (p *submitPage) Complete() bool { return p.built && p.buildErr == nil }
 
-func (p *editSubmitPage) Locked() bool { return p.creating }
+func (p *submitPage) Locked() bool { return p.creating }
 
-func (p *editSubmitPage) InitCmd(m *Model) tea.Cmd {
+func (p *submitPage) InitCmd(m *wizard.Model) tea.Cmd {
 	key := ""
 	if m.SelectedWorkspace != nil {
 		key = m.SelectedWorkspace.Slug
@@ -80,14 +82,14 @@ func (p *editSubmitPage) InitCmd(m *Model) tea.Cmd {
 	}
 	p.built = false
 	p.buildErr = nil
-	return buildEditPlanCmd(m)
+	return buildPlanCmd(m)
 }
 
-func buildEditPlanCmd(m *Model) tea.Cmd {
+func buildPlanCmd(m *wizard.Model) tea.Cmd {
 	return func() tea.Msg {
 		ws := m.SelectedWorkspace
 		if ws == nil {
-			return EditPlanBuiltMsg{Err: errors.New("no workspace selected")}
+			return wizard.EditPlanBuiltMsg{Err: errors.New("no workspace selected")}
 		}
 		branch := ws.State.Branch
 		// Probe BranchExists for additions that are already cloned;
@@ -99,7 +101,7 @@ func buildEditPlanCmd(m *Model) tea.Cmd {
 			}
 			ok, err := m.EditDeps.Git.BranchExists(r.LocalPath, branch)
 			if err != nil {
-				return EditPlanBuiltMsg{Err: fmt.Errorf("check branch in %s: %w", r.Name, err)}
+				return wizard.EditPlanBuiltMsg{Err: fmt.Errorf("check branch in %s: %w", r.Name, err)}
 			}
 			exist[r.Name] = ok
 		}
@@ -163,13 +165,13 @@ func buildEditPlanCmd(m *Model) tea.Cmd {
 				// the ticket post-wizard.
 			},
 		}
-		return EditPlanBuiltMsg{AddPlan: addPlan, ToClone: toClone, Branch: branch}
+		return wizard.EditPlanBuiltMsg{AddPlan: addPlan, ToClone: toClone, Branch: branch}
 	}
 }
 
-func (p *editSubmitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
+func (p *submitPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 	switch v := msg.(type) {
-	case EditPlanBuiltMsg:
+	case wizard.EditPlanBuiltMsg:
 		if v.Err != nil {
 			p.buildErr = v.Err
 			return p, nil
@@ -199,13 +201,13 @@ func (p *editSubmitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		}
 		return p, nil
 
-	case CloneStartedMsg:
+	case wizard.CloneStartedMsg:
 		if cs, ok := p.clones[v.Name]; ok {
 			cs.Started = time.Now()
 		}
 		return p, p.tickCmd()
 
-	case CloneDoneMsg:
+	case wizard.CloneDoneMsg:
 		cs, ok := p.clones[v.Name]
 		if !ok {
 			return p, nil
@@ -225,7 +227,7 @@ func (p *editSubmitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		}
 		return p, nil
 
-	case TickMsg:
+	case wizard.TickMsg:
 		return p, p.tickCmd()
 
 	case tea.KeyMsg:
@@ -268,7 +270,7 @@ func (p *editSubmitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	return p, nil
 }
 
-func (p *editSubmitPage) allClonesDone() bool {
+func (p *submitPage) allClonesDone() bool {
 	if len(p.clones) == 0 {
 		return false
 	}
@@ -280,14 +282,14 @@ func (p *editSubmitPage) allClonesDone() bool {
 	return true
 }
 
-func (p *editSubmitPage) tickCmd() tea.Cmd {
+func (p *submitPage) tickCmd() tea.Cmd {
 	if !p.creating {
 		return nil
 	}
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return TickMsg(t) })
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return wizard.TickMsg(t) })
 }
 
-func (p *editSubmitPage) startCloneCmd(m *Model) tea.Cmd {
+func (p *submitPage) startCloneCmd(m *wizard.Model) tea.Cmd {
 	final := make([]catalog.Repo, 0, len(p.allRepos))
 	var pending []catalog.Repo
 	for _, r := range p.allRepos {
@@ -299,7 +301,7 @@ func (p *editSubmitPage) startCloneCmd(m *Model) tea.Cmd {
 			final = append(final, r)
 			pending = append(pending, r)
 		} else {
-			m.EditResult.Skipped = append(m.EditResult.Skipped, SkipReport{
+			m.EditResult.Skipped = append(m.EditResult.Skipped, wizard.SkipReport{
 				Name:   r.Name,
 				Reason: "deselected before add",
 			})
@@ -312,7 +314,7 @@ func (p *editSubmitPage) startCloneCmd(m *Model) tea.Cmd {
 	p.allRepos = final
 	p.creating = true
 	p.startedAt = time.Now()
-	p.clones = make(map[string]*CloneState, len(pending))
+	p.clones = make(map[string]*wizard.CloneState, len(pending))
 	p.cloneOrd = p.cloneOrd[:0]
 	if len(pending) == 0 {
 		return p.finalizeCmd(m)
@@ -320,11 +322,11 @@ func (p *editSubmitPage) startCloneCmd(m *Model) tea.Cmd {
 	cmds := make([]tea.Cmd, 0, 2*len(pending))
 	for _, r := range pending {
 		target := filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name)
-		cs := &CloneState{Name: r.Name, CloneURL: r.CloneURL, TargetDir: target}
+		cs := &wizard.CloneState{Name: r.Name, CloneURL: r.CloneURL, TargetDir: target}
 		p.clones[r.Name] = cs
 		p.cloneOrd = append(p.cloneOrd, r.Name)
 		started := func(name string) tea.Cmd {
-			return func() tea.Msg { return CloneStartedMsg{Name: name} }
+			return func() tea.Msg { return wizard.CloneStartedMsg{Name: name} }
 		}(r.Name)
 		clone := func(name, url, dir string) tea.Cmd {
 			return func() tea.Msg {
@@ -332,9 +334,9 @@ func (p *editSubmitPage) startCloneCmd(m *Model) tea.Cmd {
 				err := m.EditDeps.Git.Clone(url, dir, &buf, &buf)
 				out := strings.TrimSpace(buf.String())
 				if err != nil {
-					return CloneDoneMsg{Name: name, Err: fmt.Errorf("%s: %w (git output: %s)", name, err, Truncate(out, 200))}
+					return wizard.CloneDoneMsg{Name: name, Err: fmt.Errorf("%s: %w (git output: %s)", name, err, wizard.Truncate(out, 200))}
 				}
-				return CloneDoneMsg{Name: name, LocalPath: dir}
+				return wizard.CloneDoneMsg{Name: name, LocalPath: dir}
 			}
 		}(r.Name, r.CloneURL, target)
 		cmds = append(cmds, started, clone)
@@ -343,13 +345,13 @@ func (p *editSubmitPage) startCloneCmd(m *Model) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (p *editSubmitPage) finalizeCmd(m *Model) tea.Cmd {
+func (p *submitPage) finalizeCmd(m *wizard.Model) tea.Cmd {
 	return func() tea.Msg {
 		// Filter failed clones (proceed-without-failed-repo).
 		var kept []catalog.Repo
 		for _, r := range p.allRepos {
 			if cs, ok := p.clones[r.Name]; ok && cs.Err != nil {
-				m.EditResult.Skipped = append(m.EditResult.Skipped, SkipReport{
+				m.EditResult.Skipped = append(m.EditResult.Skipped, wizard.SkipReport{
 					Name:   r.Name,
 					Reason: cs.Err.Error(),
 				})
@@ -358,7 +360,7 @@ func (p *editSubmitPage) finalizeCmd(m *Model) tea.Cmd {
 			kept = append(kept, r)
 		}
 		if len(kept) == 0 {
-			return EditDoneMsg{Err: errors.New("every add failed — nothing to attach")}
+			return wizard.EditDoneMsg{Err: errors.New("every add failed — nothing to attach")}
 		}
 		// Re-probe BranchExists for newly-cloned repos.
 		newPlanRepos := make([]workspace.PlanRepo, 0, len(kept))
@@ -371,7 +373,7 @@ func (p *editSubmitPage) finalizeCmd(m *Model) tea.Cmd {
 			if cs, ok := p.clones[r.Name]; ok && cs.Err == nil {
 				e, err := m.EditDeps.Git.BranchExists(src, p.branch)
 				if err != nil {
-					return EditDoneMsg{Err: fmt.Errorf("check branch in %s after clone: %w", r.Name, err)}
+					return wizard.EditDoneMsg{Err: fmt.Errorf("check branch in %s after clone: %w", r.Name, err)}
 				}
 				exists = e
 			}
@@ -407,34 +409,34 @@ func (p *editSubmitPage) finalizeCmd(m *Model) tea.Cmd {
 		addPlan.NewRepos = newPlanRepos
 		addPlan.Memory.Repos = memRepos
 		_ = context.Background // imported elsewhere; placeholder keeps import set stable
-		return EditDoneMsg{Result: EditResult{
+		return wizard.EditDoneMsg{Result: wizard.EditResult{
 			AddPlan: addPlan,
 			Skipped: m.EditResult.Skipped,
 		}}
 	}
 }
 
-func (p *editSubmitPage) View(m *Model) string {
+func (p *submitPage) View(m *wizard.Model) string {
 	var b strings.Builder
-	b.WriteString(TitleStyle.Render("Review and add to workspace"))
+	b.WriteString(wizard.TitleStyle.Render("Review and add to workspace"))
 	b.WriteString("\n\n")
 
 	if m.SelectedWorkspace != nil {
-		b.WriteString(renderEditWorkspaceSummary(*m.SelectedWorkspace))
+		b.WriteString(renderWorkspaceSummary(*m.SelectedWorkspace))
 		b.WriteString("\n")
 	}
 
 	if !p.built {
 		if p.buildErr != nil {
-			b.WriteString("  " + ErrStyle.Render(FmtErr(p.buildErr)) + "\n")
-			return Indent(b.String(), 2)
+			b.WriteString("  " + wizard.ErrStyle.Render(wizard.FmtErr(p.buildErr)) + "\n")
+			return wizard.Indent(b.String(), 2)
 		}
-		b.WriteString("  " + HintStyle.Render("building plan…") + "\n")
-		return Indent(b.String(), 2)
+		b.WriteString("  " + wizard.HintStyle.Render("building plan…") + "\n")
+		return wizard.Indent(b.String(), 2)
 	}
 
 	if len(p.toClone) > 0 && !p.creating {
-		b.WriteString("  " + SectionStyle.Render("Missing clones") + "\n")
+		b.WriteString("  " + wizard.SectionStyle.Render("Missing clones") + "\n")
 		for i, r := range p.toClone {
 			check := "[ ]"
 			if p.cloneInclude[r.Name] {
@@ -443,13 +445,13 @@ func (p *editSubmitPage) View(m *Model) string {
 			cursor := " "
 			line := fmt.Sprintf("%s  %s %-32s → %s",
 				cursor, check, r.Name,
-				AbbrevHome(filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name)))
+				wizard.AbbrevHome(filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name)))
 			if !p.focusBtn && i == p.cursor {
-				cursor = CursorStyle.Render("▶")
+				cursor = wizard.CursorStyle.Render("▶")
 				line = fmt.Sprintf("%s  %s %s",
 					cursor,
-					CursorStyle.Render(check+" "+PadRight(r.Name, 32)),
-					DimStyle.Render("→ "+AbbrevHome(filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name))))
+					wizard.CursorStyle.Render(check+" "+wizard.PadRight(r.Name, 32)),
+					wizard.DimStyle.Render("→ "+wizard.AbbrevHome(filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name))))
 			}
 			b.WriteString("  " + line + "\n")
 		}
@@ -459,17 +461,17 @@ func (p *editSubmitPage) View(m *Model) string {
 	if !p.creating {
 		toClone := p.checkedClones()
 		if len(toClone) > 0 {
-			b.WriteString("  " + PlanHeaderStyle.Render(
+			b.WriteString("  " + wizard.PlanHeaderStyle.Render(
 				fmt.Sprintf("The following repos will be cloned into %s:",
-					AbbrevHome(m.EditDeps.Cfg.ReposRoot))) + "\n")
+					wizard.AbbrevHome(m.EditDeps.Cfg.ReposRoot))) + "\n")
 			for _, r := range toClone {
 				b.WriteString(fmt.Sprintf("      • %s\n", r.Name))
 			}
 			b.WriteString("\n")
 		}
 
-		b.WriteString("  " + PlanHeaderStyle.Render("The following will be attached:") + "\n")
-		b.WriteString(fmt.Sprintf("    workspace: %s\n", AbbrevHome(p.workspace)))
+		b.WriteString("  " + wizard.PlanHeaderStyle.Render("The following will be attached:") + "\n")
+		b.WriteString(fmt.Sprintf("    workspace: %s\n", wizard.AbbrevHome(p.workspace)))
 		b.WriteString(fmt.Sprintf("    branch:    %s\n", p.branch))
 		final := p.finalSelection()
 		b.WriteString(fmt.Sprintf("    new worktrees: %d\n", len(final)))
@@ -481,21 +483,21 @@ func (p *editSubmitPage) View(m *Model) string {
 			b.WriteString(fmt.Sprintf("      • %s (%s)\n", r.Name, mode))
 		}
 		b.WriteString("\n")
-		btn := CreateBtnIdle.Render("[ Add to workspace ]")
+		btn := wizard.CreateBtnIdle.Render("[ Add to workspace ]")
 		if p.focusBtn {
-			btn = CreateBtnStyle.Render("Add to workspace")
+			btn = wizard.CreateBtnStyle.Render("Add to workspace")
 		}
 		b.WriteString("  " + btn + "\n")
 	} else {
-		b.WriteString("  " + SectionStyle.Render("Cloning…") + "\n")
+		b.WriteString("  " + wizard.SectionStyle.Render("Cloning…") + "\n")
 		for _, name := range p.cloneOrd {
 			cs := p.clones[name]
 			switch {
 			case cs.Done && cs.Err == nil:
-				b.WriteString("    " + SelectedTagStyle.Render("✓") +
-					fmt.Sprintf(" cloned %s → %s\n", name, AbbrevHome(cs.TargetDir)))
+				b.WriteString("    " + wizard.SelectedTagStyle.Render("✓") +
+					fmt.Sprintf(" cloned %s → %s\n", name, wizard.AbbrevHome(cs.TargetDir)))
 			case cs.Done && cs.Err != nil:
-				b.WriteString("    " + ErrStyle.Render("✗") +
+				b.WriteString("    " + wizard.ErrStyle.Render("✗") +
 					fmt.Sprintf(" clone failed for %s: %s — skipping\n", name, cs.Err.Error()))
 			default:
 				elapsed := 0
@@ -503,14 +505,14 @@ func (p *editSubmitPage) View(m *Model) string {
 					elapsed = int(time.Since(cs.Started).Seconds())
 				}
 				b.WriteString("    " +
-					fmt.Sprintf("cloning %s → %s… %ds\n", name, AbbrevHome(cs.TargetDir), elapsed))
+					fmt.Sprintf("cloning %s → %s… %ds\n", name, wizard.AbbrevHome(cs.TargetDir), elapsed))
 			}
 		}
 	}
-	return Indent(b.String(), 2)
+	return wizard.Indent(b.String(), 2)
 }
 
-func (p *editSubmitPage) checkedClones() []catalog.Repo {
+func (p *submitPage) checkedClones() []catalog.Repo {
 	out := make([]catalog.Repo, 0, len(p.toClone))
 	for _, r := range p.toClone {
 		if p.cloneInclude[r.Name] {
@@ -520,7 +522,7 @@ func (p *editSubmitPage) checkedClones() []catalog.Repo {
 	return out
 }
 
-func (p *editSubmitPage) finalSelection() []catalog.Repo {
+func (p *submitPage) finalSelection() []catalog.Repo {
 	out := make([]catalog.Repo, 0, len(p.allRepos))
 	for _, r := range p.allRepos {
 		if r.LocalPath != "" || p.cloneInclude[r.Name] {
