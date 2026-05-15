@@ -52,7 +52,7 @@ func newEditWorkspacePage() *editWorkspacePage {
 // read-only summary the user can peek at via ←.
 func (p *editWorkspacePage) preseed(ws workspace.ManagedWorkspace) {
 	p.loading = false
-	p.rows = []editWorkspaceRow{} // non-nil so initCmd's guard treats us as "loaded"
+	p.rows = []editWorkspaceRow{} // non-nil so InitCmd's guard treats us as "loaded"
 	p.committed = &ws
 }
 
@@ -62,23 +62,23 @@ func (p *editWorkspacePage) Hints() string { return "↑/↓ navigate · enter p
 
 func (p *editWorkspacePage) Complete() bool { return p.committed != nil }
 
-// initCmd fires the ListManaged call on first activation. Sync under
+// InitCmd fires the ListManaged call on first activation. Sync under
 // the hood (file-system scan), but routed through a cmd so the page
 // doesn't block render setup.
-func (p *editWorkspacePage) initCmd(m *Model) tea.Cmd {
+func (p *editWorkspacePage) InitCmd(m *Model) tea.Cmd {
 	if p.rows != nil || p.loadErr != nil {
 		return nil
 	}
 	root := m.editDeps.Cfg.WorkspaceRoot
 	return func() tea.Msg {
 		ws, _, err := workspace.ListManaged(root)
-		return workspacesLoadedMsg{workspaces: ws, err: err}
+		return WorkspacesLoadedMsg{workspaces: ws, err: err}
 	}
 }
 
 func (p *editWorkspacePage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	switch v := msg.(type) {
-	case workspacesLoadedMsg:
+	case WorkspacesLoadedMsg:
 		p.loading = false
 		if v.err != nil {
 			p.loadErr = v.err
@@ -94,22 +94,22 @@ func (p *editWorkspacePage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		p.recompute()
 		return p, nil
 
-	case goNextMsg:
+	case GoNextMsg:
 		if p.committed == nil {
 			return p, nil
 		}
 		// Update shared state SYNCHRONOUSLY here — wizard.advance()
-		// fires the Repos page's initCmd immediately after this
-		// returns, and that initCmd reads m.selectedWorkspace to
+		// fires the Repos page's InitCmd immediately after this
+		// returns, and that InitCmd reads m.selectedWorkspace to
 		// build the locked-rows view. Deferring via a cmd would
 		// leave Repos staring at a nil workspace until the user
 		// went ← back and forward again (which was the
 		// reproducible "empty Repos page on first visit" bug).
 		m.selectedWorkspace = p.committed
-		// Still emit workspaceCommittedMsg for observers / future
+		// Still emit WorkspaceCommittedMsg for observers / future
 		// listeners — the wizard's handler is a no-op once state
 		// is already current.
-		return p, func() tea.Msg { return workspaceCommittedMsg{ws: p.committed} }
+		return p, func() tea.Msg { return WorkspaceCommittedMsg{ws: p.committed} }
 
 	case tea.KeyMsg:
 		switch v.String() {
@@ -128,11 +128,11 @@ func (p *editWorkspacePage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 				return p, nil
 			}
 			row := p.rows[p.matches[p.cursor]]
-			// Mirror the Ticket page's auto-advance: emit goNextMsg
+			// Mirror the Ticket page's auto-advance: emit GoNextMsg
 			// after committing so the user doesn't have to press
 			// Enter a second time.
 			p.committed = &row.ws
-			return p, func() tea.Msg { return goNextMsg{} }
+			return p, func() tea.Msg { return GoNextMsg{} }
 		}
 	}
 
@@ -171,40 +171,40 @@ func (p *editWorkspacePage) recompute() {
 
 func (p *editWorkspacePage) View(m *Model) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Pick a workspace to edit"))
+	b.WriteString(TitleStyle.Render("Pick a workspace to edit"))
 	b.WriteString("\n\n")
 
 	if p.loading {
-		b.WriteString(hintStyle.Render("  loading workspaces…\n"))
-		return indent(b.String(), 2)
+		b.WriteString(HintStyle.Render("  loading workspaces…\n"))
+		return Indent(b.String(), 2)
 	}
 	if p.loadErr != nil {
-		b.WriteString(errStyle.Render("  " + fmtErr(p.loadErr) + "\n"))
-		return indent(b.String(), 2)
+		b.WriteString(ErrStyle.Render("  " + FmtErr(p.loadErr) + "\n"))
+		return Indent(b.String(), 2)
 	}
 	if len(p.rows) == 0 {
 		if p.committed != nil {
 			// Preselected mode — just the summary.
 			b.WriteString(renderEditWorkspaceSummary(*p.committed))
-			b.WriteString("\n  " + hintStyle.Render(
+			b.WriteString("\n  " + HintStyle.Render(
 				"workspace was supplied on the command line — → to continue") + "\n")
-			return indent(b.String(), 2)
+			return Indent(b.String(), 2)
 		}
-		b.WriteString(hintStyle.Render(
+		b.WriteString(HintStyle.Render(
 			"  no managed workspaces found (run `thicket start` first)\n"))
-		return indent(b.String(), 2)
+		return Indent(b.String(), 2)
 	}
 
 	b.WriteString("  " + p.input.View() + "\n")
 	q := strings.TrimSpace(p.input.Value())
 	switch {
 	case q == "":
-		b.WriteString("  " + hintStyle.Render(
+		b.WriteString("  " + HintStyle.Render(
 			fmt.Sprintf("showing first %d of %d", len(p.matches), len(p.rows))))
 	case len(p.matches) == 0:
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("no match for %q", q)))
+		b.WriteString("  " + HintStyle.Render(fmt.Sprintf("no match for %q", q)))
 	default:
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("%d match(es)", len(p.matches))))
+		b.WriteString("  " + HintStyle.Render(fmt.Sprintf("%d match(es)", len(p.matches))))
 	}
 	b.WriteString("\n\n")
 
@@ -220,12 +220,12 @@ func (p *editWorkspacePage) View(m *Model) string {
 		t string
 		w int
 	}{{"Slug", slugW}, {"Ticket", idW}, {"Branch", branchW}, {"Created", whenW}, {"Repos", reposW}} {
-		b.WriteString(sectionStyle.Render(padRight(col.t, col.w)))
+		b.WriteString(SectionStyle.Render(PadRight(col.t, col.w)))
 		b.WriteString("  ")
 	}
 	b.WriteString("\n   ")
 	for _, w := range []int{slugW, idW, branchW, whenW, reposW} {
-		b.WriteString(hintStyle.Render(strings.Repeat("─", w)))
+		b.WriteString(HintStyle.Render(strings.Repeat("─", w)))
 		b.WriteString("  ")
 	}
 	b.WriteString("\n")
@@ -233,26 +233,26 @@ func (p *editWorkspacePage) View(m *Model) string {
 	for vi, ri := range p.matches {
 		row := p.rows[ri]
 		marker := " "
-		style := dimStyle
+		style := DimStyle
 		if vi == p.cursor {
-			marker = cursorStyle.Render("▶")
-			style = cursorStyle
+			marker = CursorStyle.Render("▶")
+			style = CursorStyle
 		}
 		when := row.ws.State.CreatedAt.Local().Format("2006-01-02 15:04")
 		b.WriteString(marker + "  ")
-		b.WriteString(style.Render(padRight(truncate(row.ws.Slug, slugW), slugW)))
+		b.WriteString(style.Render(PadRight(Truncate(row.ws.Slug, slugW), slugW)))
 		b.WriteString("  ")
-		b.WriteString(style.Render(padRight(truncate(row.ws.State.TicketID, idW), idW)))
+		b.WriteString(style.Render(PadRight(Truncate(row.ws.State.TicketID, idW), idW)))
 		b.WriteString("  ")
-		b.WriteString(style.Render(padRight(truncate(row.ws.State.Branch, branchW), branchW)))
+		b.WriteString(style.Render(PadRight(Truncate(row.ws.State.Branch, branchW), branchW)))
 		b.WriteString("  ")
-		b.WriteString(style.Render(padRight(when, whenW)))
+		b.WriteString(style.Render(PadRight(when, whenW)))
 		b.WriteString("  ")
-		b.WriteString(style.Render(padRight(fmt.Sprintf("%d", len(row.ws.State.Repos)), reposW)))
+		b.WriteString(style.Render(PadRight(fmt.Sprintf("%d", len(row.ws.State.Repos)), reposW)))
 		b.WriteString("\n")
 	}
 	_ = m // unused for now; kept to match the Page interface
-	return indent(b.String(), 2)
+	return Indent(b.String(), 2)
 }
 
 // renderEditWorkspaceSummary renders the picked-workspace header that
@@ -260,9 +260,9 @@ func (p *editWorkspacePage) View(m *Model) string {
 // page that owns the workspace-picker semantics.
 func renderEditWorkspaceSummary(ws workspace.ManagedWorkspace) string {
 	var b strings.Builder
-	b.WriteString(warnStyle.Render(fmt.Sprintf("%s — %s", ws.Slug, ws.State.TicketID)))
+	b.WriteString(WarnStyle.Render(fmt.Sprintf("%s — %s", ws.Slug, ws.State.TicketID)))
 	b.WriteString("\n")
-	b.WriteString("  " + hintStyle.Render(fmt.Sprintf("branch: %s", ws.State.Branch)) + "\n")
-	b.WriteString("  " + hintStyle.Render(fmt.Sprintf("worktrees: %d", len(ws.State.Repos))) + "\n")
+	b.WriteString("  " + HintStyle.Render(fmt.Sprintf("branch: %s", ws.State.Branch)) + "\n")
+	b.WriteString("  " + HintStyle.Render(fmt.Sprintf("worktrees: %d", len(ws.State.Repos))) + "\n")
 	return b.String()
 }

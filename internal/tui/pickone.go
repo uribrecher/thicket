@@ -205,7 +205,7 @@ func (m pickOneModel) View() string {
 	// Header
 	b.WriteString("   ")
 	for _, c := range m.columns {
-		b.WriteString(pickOneHeaderStyle.Render(padRight(c.Title, c.Width)))
+		b.WriteString(pickOneHeaderStyle.Render(PadRight(c.Title, c.Width)))
 		b.WriteString("  ")
 	}
 	b.WriteString("\n")
@@ -231,7 +231,7 @@ func (m pickOneModel) View() string {
 			if i >= len(m.columns) {
 				break
 			}
-			b.WriteString(style.Render(padRight(truncate(cell, m.columns[i].Width), m.columns[i].Width)))
+			b.WriteString(style.Render(PadRight(Truncate(cell, m.columns[i].Width), m.columns[i].Width)))
 			b.WriteString("  ")
 		}
 		b.WriteString("\n")

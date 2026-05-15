@@ -71,7 +71,7 @@ func newTicketPage() *ticketPage {
 // ticket so the picker would be busywork.
 func (p *ticketPage) preseed(tk ticket.Ticket) {
 	p.loading = false
-	p.rows = []ticketRow{} // non-nil so initCmd's guard treats us as "loaded"
+	p.rows = []ticketRow{} // non-nil so InitCmd's guard treats us as "loaded"
 	p.fetchedTk = tk
 	p.fetchedID = tk.SourceID
 }
@@ -84,8 +84,8 @@ func (p *ticketPage) Hints() string { return "↑/↓ navigate · enter picks" }
 // the info downstream needs.
 func (p *ticketPage) Complete() bool { return p.fetchedID != "" && p.fetchErr == nil }
 
-// initCmd fires the ListAssigned call on first activation.
-func (p *ticketPage) initCmd(m *Model) tea.Cmd {
+// InitCmd fires the ListAssigned call on first activation.
+func (p *ticketPage) InitCmd(m *Model) tea.Cmd {
 	if p.rows != nil || p.loadErr != nil {
 		return nil // already loaded — going-back/forward shouldn't re-fetch
 	}
@@ -95,17 +95,17 @@ func (p *ticketPage) initCmd(m *Model) tea.Cmd {
 func listTicketsCmd(m *Model) tea.Cmd {
 	return func() tea.Msg {
 		if m.deps.Lister == nil {
-			return ticketsLoadedMsg{err: errors.New("ticket source does not support listing — pass a ticket id explicitly")}
+			return TicketsLoadedMsg{err: errors.New("ticket source does not support listing — pass a ticket id explicitly")}
 		}
 		tks, err := m.deps.Lister.ListAssigned(m.deps.Ctx)
-		return ticketsLoadedMsg{tickets: tks, err: err}
+		return TicketsLoadedMsg{tickets: tks, err: err}
 	}
 }
 
 func fetchTicketCmd(m *Model, id ticket.ID) tea.Cmd {
 	return func() tea.Msg {
 		tk, err := m.deps.Src.Fetch(id)
-		return ticketFetchedMsg{tk: tk, err: err}
+		return TicketFetchedMsg{tk: tk, err: err}
 	}
 }
 
@@ -115,12 +115,12 @@ func (p *ticketPage) tickCmd() tea.Cmd {
 	if !p.loading && !p.fetching {
 		return nil
 	}
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return TickMsg(t) })
 }
 
 func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	switch v := msg.(type) {
-	case ticketsLoadedMsg:
+	case TicketsLoadedMsg:
 		p.loading = false
 		if v.err != nil {
 			p.loadErr = v.err
@@ -151,7 +151,7 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		p.recompute()
 		return p, nil
 
-	case ticketFetchedMsg:
+	case TicketFetchedMsg:
 		p.fetching = false
 		if v.err != nil {
 			p.fetchErr = v.err
@@ -166,21 +166,21 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		}
 		// Auto-advance: the user already committed by pressing Enter
 		// on a row. Forcing them to press Enter again to step past a
-		// completed page is dead weight, so emit goNextMsg and let
+		// completed page is dead weight, so emit GoNextMsg and let
 		// the wizard's advance flow handle it.
-		return p, func() tea.Msg { return goNextMsg{} }
+		return p, func() tea.Msg { return GoNextMsg{} }
 
-	case tickMsg:
+	case TickMsg:
 		return p, p.tickCmd()
 
-	case goNextMsg:
+	case GoNextMsg:
 		// User is advancing past Ticket. We must update the model's
 		// shared ticket state SYNCHRONOUSLY here — `wizard.advance()`
-		// fires the next page's `initCmd` immediately after this
-		// returns, and that initCmd reads `m.ticketID` to decide
+		// fires the next page's `InitCmd` immediately after this
+		// returns, and that InitCmd reads `m.ticketID` to decide
 		// whether to fire the LLM detect call. If we deferred the
-		// state update via a cmd (ticketCommittedMsg), the Repos
-		// page's initCmd would see an empty ticketID and short-circuit
+		// state update via a cmd (TicketCommittedMsg), the Repos
+		// page's InitCmd would see an empty ticketID and short-circuit
 		// to "nothing to load" — which is exactly the bug that
 		// silently broke the Repos page.
 		if !p.Complete() {
@@ -205,10 +205,10 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 			m.done = true
 			return p, tea.Quit
 		}
-		// Still emit ticketCommittedMsg for observers (tests, future
+		// Still emit TicketCommittedMsg for observers (tests, future
 		// listeners). Wizard's handler is a no-op once state is
 		// already current, so this stays safe.
-		return p, func() tea.Msg { return ticketCommittedMsg{tk: tk} }
+		return p, func() tea.Msg { return TicketCommittedMsg{tk: tk} }
 
 	case tea.KeyMsg:
 		// The wizard's global handler eats "esc", "ctrl+c", "left",
@@ -227,7 +227,7 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 			return p, nil
 		case "enter":
 			// Fetch the row under the cursor. This is what locks in a
-			// ticket on this page — the resulting ticketFetchedMsg
+			// ticket on this page — the resulting TicketFetchedMsg
 			// arms Complete() so the next Enter / → advances.
 			if p.cursor >= len(p.matches) {
 				return p, nil
@@ -289,31 +289,31 @@ func (p *ticketPage) recompute() {
 func (p *ticketPage) View(m *Model) string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("Pick a ticket to start a workspace for"))
+	b.WriteString(TitleStyle.Render("Pick a ticket to start a workspace for"))
 	b.WriteString("\n\n")
 
 	if p.loading {
 		secs := int(time.Since(p.startAt).Seconds())
-		b.WriteString(hintStyle.Render(fmt.Sprintf("  fetching your open assigned tickets… %ds", secs)))
+		b.WriteString(HintStyle.Render(fmt.Sprintf("  fetching your open assigned tickets… %ds", secs)))
 		b.WriteString("\n")
-		return indent(b.String(), 2)
+		return Indent(b.String(), 2)
 	}
 	if p.loadErr != nil {
-		b.WriteString(errStyle.Render("  " + fmtErr(p.loadErr)))
+		b.WriteString(ErrStyle.Render("  " + FmtErr(p.loadErr)))
 		b.WriteString("\n")
-		return indent(b.String(), 2)
+		return Indent(b.String(), 2)
 	}
 	if len(p.rows) == 0 {
 		// Preselected-ticket mode: no list to render, just the summary.
 		if p.fetchedID != "" {
-			b.WriteString(renderTicketSummary(p.fetchedTk, m.summaryCache[m.ticketID]))
-			b.WriteString("\n  " + hintStyle.Render(
+			b.WriteString(RenderTicketSummary(p.fetchedTk, m.summaryCache[m.ticketID]))
+			b.WriteString("\n  " + HintStyle.Render(
 				"ticket was supplied on the command line — → to continue") + "\n")
-			return indent(b.String(), 2)
+			return Indent(b.String(), 2)
 		}
-		b.WriteString(hintStyle.Render("  no open assigned tickets found"))
+		b.WriteString(HintStyle.Render("  no open assigned tickets found"))
 		b.WriteString("\n")
-		return indent(b.String(), 2)
+		return Indent(b.String(), 2)
 	}
 
 	// Search box + status. The textinput's placeholder ("type to
@@ -324,12 +324,12 @@ func (p *ticketPage) View(m *Model) string {
 	q := strings.TrimSpace(p.input.Value())
 	switch {
 	case q == "":
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("showing first %d of %d",
+		b.WriteString("  " + HintStyle.Render(fmt.Sprintf("showing first %d of %d",
 			len(p.matches), len(p.rows))))
 	case len(p.matches) == 0:
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("no match for %q", q)))
+		b.WriteString("  " + HintStyle.Render(fmt.Sprintf("no match for %q", q)))
 	default:
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("%d match(es)", len(p.matches))))
+		b.WriteString("  " + HintStyle.Render(fmt.Sprintf("%d match(es)", len(p.matches))))
 	}
 	b.WriteString("\n\n")
 
@@ -345,12 +345,12 @@ func (p *ticketPage) View(m *Model) string {
 		t string
 		w int
 	}{{"Ticket", idW}, {"State", stateW}, {"Title", titleW}, {"Workspace", wsW}} {
-		b.WriteString(sectionStyle.Render(padRight(col.t, col.w)))
+		b.WriteString(SectionStyle.Render(PadRight(col.t, col.w)))
 		b.WriteString("  ")
 	}
 	b.WriteString("\n   ")
 	for _, w := range []int{idW, stateW, titleW, wsW} {
-		b.WriteString(hintStyle.Render(strings.Repeat("─", w)))
+		b.WriteString(HintStyle.Render(strings.Repeat("─", w)))
 		b.WriteString("  ")
 	}
 	b.WriteString("\n")
@@ -358,19 +358,19 @@ func (p *ticketPage) View(m *Model) string {
 	for vi, ri := range p.matches {
 		row := p.rows[ri]
 		marker := " "
-		style := dimStyle // unfocused rows; pendingTabStyle has padding which would break column alignment
+		style := DimStyle // unfocused rows; PendingTabStyle has padding which would break column alignment
 		if vi == p.cursor {
-			marker = cursorStyle.Render("▶")
-			style = cursorStyle
+			marker = CursorStyle.Render("▶")
+			style = CursorStyle
 		}
 		b.WriteString(marker + "  ")
-		b.WriteString(style.Render(padRight(truncate(row.tk.SourceID, idW), idW)))
+		b.WriteString(style.Render(PadRight(Truncate(row.tk.SourceID, idW), idW)))
 		b.WriteString("  ")
-		b.WriteString(style.Render(padRight(truncate(row.tk.State, stateW), stateW)))
+		b.WriteString(style.Render(PadRight(Truncate(row.tk.State, stateW), stateW)))
 		b.WriteString("  ")
-		b.WriteString(style.Render(padRight(truncate(row.tk.Title, titleW), titleW)))
+		b.WriteString(style.Render(PadRight(Truncate(row.tk.Title, titleW), titleW)))
 		b.WriteString("  ")
-		b.WriteString(style.Render(padRight(truncate(row.workspace, wsW), wsW)))
+		b.WriteString(style.Render(PadRight(Truncate(row.workspace, wsW), wsW)))
 		b.WriteString("\n")
 	}
 
@@ -381,13 +381,12 @@ func (p *ticketPage) View(m *Model) string {
 	if p.fetching {
 		secs := int(time.Since(p.fetchStartAt).Seconds())
 		b.WriteString("\n")
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("loading ticket details… %ds", secs)))
+		b.WriteString("  " + HintStyle.Render(fmt.Sprintf("loading ticket details… %ds", secs)))
 		b.WriteString("\n")
 	} else if p.fetchErr != nil {
 		b.WriteString("\n")
-		b.WriteString("  " + errStyle.Render(fmtErr(p.fetchErr)))
+		b.WriteString("  " + ErrStyle.Render(FmtErr(p.fetchErr)))
 		b.WriteString("\n")
 	}
-	return indent(b.String(), 2)
+	return Indent(b.String(), 2)
 }
-

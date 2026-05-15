@@ -217,19 +217,19 @@ func newModel(deps Deps) *Model {
 
 // Init kicks off any page-init commands. The Ticket page fires its
 // ListAssigned cmd here. Pages that don't need a startup cmd simply
-// don't implement initCmder.
+// don't implement InitCmder.
 func (m *Model) Init() tea.Cmd {
-	if ic, ok := m.pages[m.active].(initCmder); ok {
-		return ic.initCmd(m)
+	if ic, ok := m.pages[m.active].(InitCmder); ok {
+		return ic.InitCmd(m)
 	}
 	return nil
 }
 
-// initCmder lets the wizard fire each page's startup cmd at the moment
+// InitCmder lets the wizard fire each page's startup cmd at the moment
 // it becomes active for the first time, without forcing pages to know
 // about each other.
-type initCmder interface {
-	initCmd(m *Model) tea.Cmd
+type InitCmder interface {
+	InitCmd(m *Model) tea.Cmd
 }
 
 // Update routes messages: global keys first (cancel + nav), then
@@ -264,29 +264,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-	case goNextMsg:
-		// Pages can emit goNextMsg to auto-advance once they finish
+	case GoNextMsg:
+		// Pages can emit GoNextMsg to auto-advance once they finish
 		// their own commit work (e.g. the Ticket page after Fetch).
 		// We intercept it here and route through advance() instead of
 		// letting the default fallthrough re-deliver it to the active
-		// page — advance() itself re-sends goNextMsg to the page, so
+		// page — advance() itself re-sends GoNextMsg to the page, so
 		// double-forwarding would cause the page to see two of them.
 		if m.canGoNext() {
 			return m.advance()
 		}
 		return m, nil
 
-	case cancelledMsg:
+	case CancelledMsg:
 		m.err = tui.ErrCancelled
 		return m, tea.Quit
 
-	case existingWorkspaceMsg:
+	case ExistingWorkspaceMsg:
 		m.result.ReuseDir = v.path
 		m.result.Ticket = m.ticket
 		m.done = true
 		return m, tea.Quit
 
-	case ticketCommittedMsg:
+	case TicketCommittedMsg:
 		// Cache + chosen invalidation policy: if the user changed
 		// tickets (or this is the first commit), wipe downstream
 		// state so we don't carry over picks/toggles from the old id.
@@ -300,13 +300,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ticketID = v.tk.SourceID
 		// Fall through so the active page sees the message too.
 
-	case picksLoadedMsg:
+	case PicksLoadedMsg:
 		if v.err == nil && v.ticketID == m.ticketID {
 			m.llmCache[v.ticketID] = v.picks
 		}
 		// Fall through so the Repos page can render the result.
 
-	case summarizedMsg:
+	case SummarizedMsg:
 		// Cache wins-once-set. Summary failures are silent: the
 		// renderer falls back to the dumb first-N-lines view, so we
 		// just drop the message. Returning here keeps the active page
@@ -316,11 +316,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case reposCommittedMsg:
+	case ReposCommittedMsg:
 		m.chosen = append(m.chosen[:0], v.chosen...)
 		// Fall through.
 
-	case createDoneMsg:
+	case CreateDoneMsg:
 		if v.err != nil {
 			m.err = v.err
 			return m, tea.Quit
@@ -330,15 +330,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.done = true
 		return m, tea.Quit
 
-	case workspaceCommittedMsg:
+	case WorkspaceCommittedMsg:
 		m.selectedWorkspace = v.ws
 		// Fall through so the active page sees the message too.
 
-	case additionsCommittedMsg:
+	case AdditionsCommittedMsg:
 		m.additions = append(m.additions[:0], v.additions...)
 		// Fall through.
 
-	case editDoneMsg:
+	case EditDoneMsg:
 		if v.err != nil {
 			m.err = v.err
 			return m, tea.Quit
@@ -350,7 +350,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.done = true
 		return m, tea.Quit
 
-	case configDoneMsg:
+	case ConfigDoneMsg:
 		if v.err != nil {
 			m.err = v.err
 			return m, tea.Quit
@@ -390,14 +390,14 @@ func (m *Model) renderHeader() string {
 		label := p.Title()
 		switch {
 		case i == m.active:
-			cells[i] = activeTabStyle.Render(label)
+			cells[i] = ActiveTabStyle.Render(label)
 		case i < m.active:
-			cells[i] = completedTabStyle.Render(label)
+			cells[i] = CompletedTabStyle.Render(label)
 		default:
-			cells[i] = pendingTabStyle.Render(label)
+			cells[i] = PendingTabStyle.Render(label)
 		}
 	}
-	return "  " + strings.Join(cells, tabSepStyle.Render(" "))
+	return "  " + strings.Join(cells, TabSepStyle.Render(" "))
 }
 
 // renderFooter draws a single hint line combining the active page's
@@ -416,7 +416,7 @@ func (m *Model) renderFooter() string {
 		parts = append(parts, "→ next")
 	}
 	parts = append(parts, "esc cancel")
-	return "  " + hintStyle.Render(strings.Join(parts, " · "))
+	return "  " + HintStyle.Render(strings.Join(parts, " · "))
 }
 
 // canGoPrev reports whether ← should be honored. Disabled while the
@@ -426,7 +426,7 @@ func (m *Model) canGoPrev() bool {
 	if m.active == 0 {
 		return false
 	}
-	if pp, ok := m.pages[m.active].(navLocker); ok && pp.locked() {
+	if pp, ok := m.pages[m.active].(NavLocker); ok && pp.Locked() {
 		return false
 	}
 	return true
@@ -441,10 +441,10 @@ func (m *Model) canGoNext() bool {
 	return m.pages[m.active].Complete()
 }
 
-// navLocker is implemented by pages that need to block tab nav (e.g.
+// NavLocker is implemented by pages that need to block tab nav (e.g.
 // the Plan page while a workspace is being created).
-type navLocker interface {
-	locked() bool
+type NavLocker interface {
+	Locked() bool
 }
 
 // advance moves to the next page and fires its init cmd if it has one.
@@ -459,9 +459,9 @@ type navLocker interface {
 // only to throw it away when the program quits.
 func (m *Model) advance() (tea.Model, tea.Cmd) {
 	// Let the current page collect its commit message before we move on.
-	// We achieve this by routing a synthetic goNextMsg to the page;
+	// We achieve this by routing a synthetic GoNextMsg to the page;
 	// the page returns a cmd that yields the appropriate commit msg.
-	page, cmd := m.pages[m.active].Update(m, goNextMsg{})
+	page, cmd := m.pages[m.active].Update(m, GoNextMsg{})
 	m.pages[m.active] = page
 	if m.done {
 		return m, cmd
@@ -469,9 +469,9 @@ func (m *Model) advance() (tea.Model, tea.Cmd) {
 	if m.active < len(m.pages)-1 {
 		m.active++
 		// Fire init cmd for the newly-active page if it has one.
-		if ic, ok := m.pages[m.active].(initCmder); ok {
-			if initCmd := ic.initCmd(m); initCmd != nil {
-				return m, tea.Batch(cmd, initCmd)
+		if ic, ok := m.pages[m.active].(InitCmder); ok {
+			if InitCmd := ic.InitCmd(m); InitCmd != nil {
+				return m, tea.Batch(cmd, InitCmd)
 			}
 		}
 	}
@@ -487,4 +487,3 @@ func (m *Model) gotoPage(idx int) (tea.Model, tea.Cmd) {
 	m.active = idx
 	return m, nil
 }
-

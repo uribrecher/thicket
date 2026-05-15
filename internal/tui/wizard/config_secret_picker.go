@@ -245,22 +245,22 @@ func (sp *secretPicker) update(m *Model, msg tea.Msg) tea.Cmd {
 	// up the active state with messages meant for a previous picker
 	// generation.
 	switch v := msg.(type) {
-	case opAccountsLoadedMsg:
+	case OpAccountsLoadedMsg:
 		if v.pickerID != sp.id || sp.state != stateOpLoadingAccounts {
 			return nil
 		}
 		return sp.onAccountsLoaded(m, v)
-	case opItemsLoadedMsg:
+	case OpItemsLoadedMsg:
 		if v.pickerID != sp.id || sp.state != stateOpLoadingItems {
 			return nil
 		}
 		return sp.onItemsLoaded(m, v)
-	case opItemDetailLoadedMsg:
+	case OpItemDetailLoadedMsg:
 		if v.pickerID != sp.id || sp.state != stateOpLoadingItemDetail {
 			return nil
 		}
 		return sp.onItemDetailLoaded(v)
-	case secretValidatedMsg:
+	case SecretValidatedMsg:
 		if v.ref != sp.ref() || v.manager != sp.manager() || sp.state != stateTypedRef {
 			return nil
 		}
@@ -272,7 +272,7 @@ func (sp *secretPicker) update(m *Model, msg tea.Msg) tea.Cmd {
 			sp.state = stateValidated
 		}
 		return nil
-	case tickMsg:
+	case TickMsg:
 		// Drive elapsed-seconds counters during loading states.
 		if sp.isLoading() {
 			return sp.tickCmd()
@@ -473,7 +473,7 @@ func (sp *secretPicker) enterAccountPick(m *Model) tea.Cmd {
 	return nil
 }
 
-func (sp *secretPicker) onAccountsLoaded(m *Model, msg opAccountsLoadedMsg) tea.Cmd {
+func (sp *secretPicker) onAccountsLoaded(m *Model, msg OpAccountsLoadedMsg) tea.Cmd {
 	if msg.err != nil {
 		sp.lastErr = msg.err
 		sp.state = stateManager
@@ -499,7 +499,7 @@ func (sp *secretPicker) commitAccount(m *Model, account string) tea.Cmd {
 	return tea.Batch(sp.tickCmd(), loadOpItemsCmd(sp.id, account))
 }
 
-func (sp *secretPicker) onItemsLoaded(m *Model, msg opItemsLoadedMsg) tea.Cmd {
+func (sp *secretPicker) onItemsLoaded(m *Model, msg OpItemsLoadedMsg) tea.Cmd {
 	if msg.err != nil {
 		sp.lastErr = msg.err
 		sp.state = stateOpPickAccount
@@ -571,7 +571,7 @@ func (sp *secretPicker) commitItem(it secrets.OnePasswordItem) tea.Cmd {
 	return tea.Batch(sp.tickCmd(), loadOpItemDetailCmd(sp.id, sp.chosenAccount, it.ID))
 }
 
-func (sp *secretPicker) onItemDetailLoaded(msg opItemDetailLoadedMsg) tea.Cmd {
+func (sp *secretPicker) onItemDetailLoaded(msg OpItemDetailLoadedMsg) tea.Cmd {
 	if msg.err != nil {
 		sp.lastErr = msg.err
 		sp.state = stateOpPickItem
@@ -679,22 +679,22 @@ func (sp *secretPicker) startTypedRefValidation(ctx context.Context) tea.Cmd {
 	return func() tea.Msg {
 		if mgrName == "env" {
 			if !looksLikeEnvVarName(ref) {
-				return secretValidatedMsg{
+				return SecretValidatedMsg{
 					ref:     ref,
 					manager: mgrName,
 					err:     fmt.Errorf("env-var name must match [A-Z_][A-Z0-9_]* (uppercase, underscores)"),
 				}
 			}
-			return secretValidatedMsg{ref: ref, manager: mgrName}
+			return SecretValidatedMsg{ref: ref, manager: mgrName}
 		}
 		mgr, err := secrets.New(mgrName)
 		if err != nil {
-			return secretValidatedMsg{ref: ref, manager: mgrName, err: err}
+			return SecretValidatedMsg{ref: ref, manager: mgrName, err: err}
 		}
 		if _, err := mgr.Get(ctx, ref); err != nil {
-			return secretValidatedMsg{ref: ref, manager: mgrName, err: err}
+			return SecretValidatedMsg{ref: ref, manager: mgrName, err: err}
 		}
-		return secretValidatedMsg{ref: ref, manager: mgrName}
+		return SecretValidatedMsg{ref: ref, manager: mgrName}
 	}
 }
 
@@ -710,29 +710,29 @@ func (sp *secretPicker) tickCmd() tea.Cmd {
 	if !sp.isLoading() {
 		return nil
 	}
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return TickMsg(t) })
 }
 
 // view renders the picker's current state. Composes the section
 // header (set by the page) with the per-state body.
 func (sp *secretPicker) view(m *Model) string {
 	var b strings.Builder
-	b.WriteString(sectionStyle.Render("Password manager") + "\n")
+	b.WriteString(SectionStyle.Render("Password manager") + "\n")
 	for i, name := range secrets.Supported {
 		marker := "  "
-		style := dimStyle
+		style := DimStyle
 		if i == sp.managerIdx {
 			if sp.state == stateManager {
-				marker = cursorStyle.Render("▶ ")
-				style = cursorStyle
+				marker = CursorStyle.Render("▶ ")
+				style = CursorStyle
 			} else {
-				marker = selectedTagStyle.Render("● ")
-				style = highlightStyle
+				marker = SelectedTagStyle.Render("● ")
+				style = HighlightStyle
 			}
 		}
 		b.WriteString("  " + marker + style.Render(name))
 		if i == sp.managerIdx {
-			b.WriteString("  " + hintStyle.Render(describeManager(name)))
+			b.WriteString("  " + HintStyle.Render(describeManager(name)))
 		}
 		b.WriteString("\n")
 	}
@@ -740,38 +740,38 @@ func (sp *secretPicker) view(m *Model) string {
 
 	switch sp.state {
 	case stateManager:
-		b.WriteString("  " + hintStyle.Render("press enter to choose this manager") + "\n")
+		b.WriteString("  " + HintStyle.Render("press enter to choose this manager") + "\n")
 	case stateOpLoadingAccounts:
 		secs := int(time.Since(sp.loadingSince).Seconds())
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("loading 1Password accounts… %ds", secs)) + "\n")
+		b.WriteString("  " + HintStyle.Render(fmt.Sprintf("loading 1Password accounts… %ds", secs)) + "\n")
 	case stateOpPickAccount:
-		b.WriteString("  " + sectionStyle.Render("Pick a 1Password account") + "\n")
+		b.WriteString("  " + SectionStyle.Render("Pick a 1Password account") + "\n")
 		for i, a := range m.configOpAccounts {
 			marker := "  "
-			style := dimStyle
+			style := DimStyle
 			if i == sp.accountCursor {
-				marker = cursorStyle.Render("▶ ")
-				style = cursorStyle
+				marker = CursorStyle.Render("▶ ")
+				style = CursorStyle
 			}
 			b.WriteString("    " + marker + style.Render(fmt.Sprintf("%s  (%s)", a.Email, a.URL)) + "\n")
 		}
 	case stateOpLoadingItems:
 		secs := int(time.Since(sp.loadingSince).Seconds())
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf(
+		b.WriteString("  " + HintStyle.Render(fmt.Sprintf(
 			"loading 1Password items for %s… %ds  (may prompt for biometric auth)",
 			abbrevAccount(m, sp.chosenAccount), secs)) + "\n")
 	case stateOpPickItem:
 		items := m.configOpItemCache[sp.chosenAccount]
-		b.WriteString("  " + sectionStyle.Render(fmt.Sprintf("Pick the item for %s", sp.secretLabel)) + "\n")
+		b.WriteString("  " + SectionStyle.Render(fmt.Sprintf("Pick the item for %s", sp.secretLabel)) + "\n")
 		b.WriteString("  " + sp.itemInput.View() + "\n")
 		q := strings.TrimSpace(sp.itemInput.Value())
 		switch {
 		case q == "":
-			b.WriteString("  " + hintStyle.Render(fmt.Sprintf("showing first %d of %d", len(sp.itemMatches), len(items))) + "\n")
+			b.WriteString("  " + HintStyle.Render(fmt.Sprintf("showing first %d of %d", len(sp.itemMatches), len(items))) + "\n")
 		case len(sp.itemMatches) == 0:
-			b.WriteString("  " + hintStyle.Render(fmt.Sprintf("no match for %q", q)) + "\n")
+			b.WriteString("  " + HintStyle.Render(fmt.Sprintf("no match for %q", q)) + "\n")
 		default:
-			b.WriteString("  " + hintStyle.Render(fmt.Sprintf("%d match(es)", len(sp.itemMatches))) + "\n")
+			b.WriteString("  " + HintStyle.Render(fmt.Sprintf("%d match(es)", len(sp.itemMatches))) + "\n")
 		}
 		b.WriteString("\n")
 		const (
@@ -784,81 +784,81 @@ func (sp *secretPicker) view(m *Model) string {
 			t string
 			w int
 		}{{"Item", titleW}, {"Vault", vaultW}, {"Type", typeW}} {
-			b.WriteString(sectionStyle.Render(padRight(c.t, c.w)) + "  ")
+			b.WriteString(SectionStyle.Render(PadRight(c.t, c.w)) + "  ")
 		}
 		b.WriteString("\n    ")
 		for _, w := range []int{titleW, vaultW, typeW} {
-			b.WriteString(hintStyle.Render(strings.Repeat("─", w)) + "  ")
+			b.WriteString(HintStyle.Render(strings.Repeat("─", w)) + "  ")
 		}
 		b.WriteString("\n")
 		for vi, idx := range sp.itemMatches {
 			it := items[idx]
 			marker := " "
-			style := dimStyle
+			style := DimStyle
 			if vi == sp.itemCursor {
-				marker = cursorStyle.Render("▶")
-				style = cursorStyle
+				marker = CursorStyle.Render("▶")
+				style = CursorStyle
 			}
 			b.WriteString("   " + marker + " ")
-			b.WriteString(style.Render(padRight(truncate(it.Title, titleW), titleW)) + "  ")
-			b.WriteString(style.Render(padRight(truncate(it.Vault.Name, vaultW), vaultW)) + "  ")
-			b.WriteString(style.Render(padRight(friendlyCategory(it.Category), typeW)))
+			b.WriteString(style.Render(PadRight(Truncate(it.Title, titleW), titleW)) + "  ")
+			b.WriteString(style.Render(PadRight(Truncate(it.Vault.Name, vaultW), vaultW)) + "  ")
+			b.WriteString(style.Render(PadRight(friendlyCategory(it.Category), typeW)))
 			b.WriteString("\n")
 		}
 	case stateOpLoadingItemDetail:
 		secs := int(time.Since(sp.loadingSince).Seconds())
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("loading item fields… %ds", secs)) + "\n")
+		b.WriteString("  " + HintStyle.Render(fmt.Sprintf("loading item fields… %ds", secs)) + "\n")
 	case stateOpPickField:
 		title := ""
 		if sp.itemDetail != nil {
 			title = sp.itemDetail.Title
 		}
-		b.WriteString("  " + sectionStyle.Render(fmt.Sprintf("Pick the field from %q", title)) + "\n")
+		b.WriteString("  " + SectionStyle.Render(fmt.Sprintf("Pick the field from %q", title)) + "\n")
 		for i, opt := range sp.fieldOptions {
 			marker := "  "
-			style := dimStyle
+			style := DimStyle
 			if i == sp.fieldCursor {
-				marker = cursorStyle.Render("▶ ")
-				style = cursorStyle
+				marker = CursorStyle.Render("▶ ")
+				style = CursorStyle
 			}
 			b.WriteString("    " + marker + style.Render(opt.label))
-			b.WriteString("  " + hintStyle.Render("("+opt.kind+")"))
+			b.WriteString("  " + HintStyle.Render("("+opt.kind+")"))
 			b.WriteString("\n")
 		}
 	case stateTypedRef:
-		b.WriteString("  " + sectionStyle.Render(sp.secretLabel+" reference") + "\n")
+		b.WriteString("  " + SectionStyle.Render(sp.secretLabel+" reference") + "\n")
 		b.WriteString("    " + sp.refInput.View() + "\n")
-		b.WriteString("    " + hintStyle.Render(refHintFor(sp.manager())) + "\n")
+		b.WriteString("    " + HintStyle.Render(refHintFor(sp.manager())) + "\n")
 		switch {
 		case sp.validating:
-			b.WriteString("\n  " + hintStyle.Render("validating…") + "\n")
+			b.WriteString("\n  " + HintStyle.Render("validating…") + "\n")
 		case sp.lastErr != nil:
-			b.WriteString("\n  " + errStyle.Render("✗ "+sp.lastErr.Error()) + "\n")
+			b.WriteString("\n  " + ErrStyle.Render("✗ "+sp.lastErr.Error()) + "\n")
 		case sp.ref() != "":
-			b.WriteString("\n  " + hintStyle.Render("press enter to validate the reference") + "\n")
+			b.WriteString("\n  " + HintStyle.Render("press enter to validate the reference") + "\n")
 		}
 	case stateValidated:
-		b.WriteString("  " + selectedTagStyle.Render("✓ "+sp.secretLabel+" — "+sp.chosenRef) + "\n")
+		b.WriteString("  " + SelectedTagStyle.Render("✓ "+sp.secretLabel+" — "+sp.chosenRef) + "\n")
 		if sp.chosenMgr == "1password" && sp.chosenAccount != "" {
-			b.WriteString("    " + hintStyle.Render("account: "+abbrevAccount(m, sp.chosenAccount)) + "\n")
+			b.WriteString("    " + HintStyle.Render("account: "+abbrevAccount(m, sp.chosenAccount)) + "\n")
 		}
 		if sp.shouldShowDarwinHint(m) {
 			b.WriteString("\n")
-			b.WriteString("  " + warnStyle.Render("macOS tip — silence the cross-app prompts") + "\n")
-			b.WriteString("  " + hintStyle.Render(
+			b.WriteString("  " + WarnStyle.Render("macOS tip — silence the cross-app prompts") + "\n")
+			b.WriteString("  " + HintStyle.Render(
 				"Each `op` call fires a \"iTerm would like to access data from other apps\" prompt") + "\n")
-			b.WriteString("  " + hintStyle.Render(
+			b.WriteString("  " + HintStyle.Render(
 				"until iTerm is enabled in System Settings → Privacy & Security → App Management.") + "\n")
 			b.WriteString("\n")
-			b.WriteString("  " + sectionStyle.Render("Open System Settings → App Management now?") + "  ")
-			b.WriteString(highlightStyle.Render("[y]") + hintStyle.Render(" yes  ") +
-				highlightStyle.Render("[n]") + hintStyle.Render(" skip") + "\n")
+			b.WriteString("  " + SectionStyle.Render("Open System Settings → App Management now?") + "  ")
+			b.WriteString(HighlightStyle.Render("[y]") + HintStyle.Render(" yes  ") +
+				HighlightStyle.Render("[n]") + HintStyle.Render(" skip") + "\n")
 		}
-		b.WriteString("\n  " + hintStyle.Render("press → to continue (shift+tab to re-pick)") + "\n")
+		b.WriteString("\n  " + HintStyle.Render("press → to continue (shift+tab to re-pick)") + "\n")
 	}
 	// Sticky error (from earlier load failures).
 	if sp.lastErr != nil && sp.state != stateTypedRef && sp.state != stateValidated {
-		b.WriteString("\n  " + errStyle.Render("✗ "+sp.lastErr.Error()) + "\n")
+		b.WriteString("\n  " + ErrStyle.Render("✗ "+sp.lastErr.Error()) + "\n")
 	}
 	return b.String()
 }
@@ -879,7 +879,7 @@ func abbrevAccount(m *Model, uuid string) string {
 func loadOpAccountsCmd(pickerID int) tea.Cmd {
 	return func() tea.Msg {
 		accs, err := secrets.ListOnePasswordAccounts(context.Background())
-		return opAccountsLoadedMsg{pickerID: pickerID, accounts: accs, err: err}
+		return OpAccountsLoadedMsg{pickerID: pickerID, accounts: accs, err: err}
 	}
 }
 
@@ -887,7 +887,7 @@ func loadOpItemsCmd(pickerID int, account string) tea.Cmd {
 	return func() tea.Msg {
 		op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
 		items, err := op.ListItems(context.Background())
-		return opItemsLoadedMsg{pickerID: pickerID, account: account, items: items, err: err}
+		return OpItemsLoadedMsg{pickerID: pickerID, account: account, items: items, err: err}
 	}
 }
 
@@ -895,7 +895,7 @@ func loadOpItemDetailCmd(pickerID int, account, itemID string) tea.Cmd {
 	return func() tea.Msg {
 		op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
 		detail, err := op.GetItem(context.Background(), itemID)
-		return opItemDetailLoadedMsg{pickerID: pickerID, itemID: itemID, detail: detail, err: err}
+		return OpItemDetailLoadedMsg{pickerID: pickerID, itemID: itemID, detail: detail, err: err}
 	}
 }
 

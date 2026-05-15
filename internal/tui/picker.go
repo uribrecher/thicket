@@ -24,13 +24,13 @@ const maxMatches = 8
 
 var (
 	headerStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
-	sectionStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
-	highlightStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
+	SectionStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
+	HighlightStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
 	selectedTag    = lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
 	llmTag         = lipgloss.NewStyle().Foreground(lipgloss.Color("99"))
-	dimStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	warnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	cursorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
+	DimStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	WarnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	CursorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
 )
 
 // ----- model -----
@@ -195,10 +195,10 @@ func (m pickerModel) View() string {
 	b.WriteString("\n\n")
 
 	// Selection section
-	b.WriteString(sectionStyle.Render(fmt.Sprintf("Selected (%d)", len(m.selectedOrder))))
+	b.WriteString(SectionStyle.Render(fmt.Sprintf("Selected (%d)", len(m.selectedOrder))))
 	b.WriteString("\n")
 	if len(m.selectedOrder) == 0 {
-		b.WriteString("  " + dimStyle.Render("none yet — type below to add"))
+		b.WriteString("  " + DimStyle.Render("none yet — type below to add"))
 		b.WriteString("\n")
 	} else {
 		b.WriteString(m.renderSelectedTable())
@@ -206,16 +206,16 @@ func (m pickerModel) View() string {
 	b.WriteString("\n")
 
 	// Input + matches
-	b.WriteString(sectionStyle.Render("Search"))
+	b.WriteString(SectionStyle.Render("Search"))
 	b.WriteString("\n")
 	b.WriteString("  " + m.input.View())
 	b.WriteString("\n")
 	if len(m.matches) > 0 {
 		isSelectionView := strings.TrimSpace(m.input.Value()) == ""
 		if isSelectionView {
-			b.WriteString("  " + dimStyle.Render("(showing current selection — enter drops the highlighted row, tab finishes)"))
+			b.WriteString("  " + DimStyle.Render("(showing current selection — enter drops the highlighted row, tab finishes)"))
 		} else {
-			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("%d match(es) — enter to toggle", len(m.matches))))
+			b.WriteString("  " + DimStyle.Render(fmt.Sprintf("%d match(es) — enter to toggle", len(m.matches))))
 		}
 		b.WriteString("\n")
 		b.WriteString(m.renderMatchTable())
@@ -223,12 +223,12 @@ func (m pickerModel) View() string {
 
 	if m.status != "" {
 		b.WriteString("\n")
-		b.WriteString("  " + warnStyle.Render(m.status))
+		b.WriteString("  " + WarnStyle.Render(m.status))
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("  ↑/↓ navigate · enter toggle · tab finish · esc cancel"))
+	b.WriteString(DimStyle.Render("  ↑/↓ navigate · enter toggle · tab finish · esc cancel"))
 	b.WriteString("\n")
 	return b.String()
 }
@@ -241,13 +241,13 @@ func (m pickerModel) renderSelectedTable() string {
 	var b strings.Builder
 	for _, n := range m.selectedOrder {
 		mark := selectedTag.Render("✓")
-		name := padRight(n, nameW)
+		name := PadRight(n, nameW)
 		var reason string
 		if p, ok := m.picks[n]; ok && p.Reason != "" {
 			reason = llmTag.Render(fmt.Sprintf("LLM %.0f%% ", p.Confidence*100)) +
-				truncate(p.Reason, reasonW-12)
+				Truncate(p.Reason, reasonW-12)
 		} else if d := m.descByName[n]; d != "" {
-			reason = dimStyle.Render(truncate(d, reasonW))
+			reason = DimStyle.Render(Truncate(d, reasonW))
 		}
 		b.WriteString(fmt.Sprintf("  %s %s %s\n", mark, name, reason))
 	}
@@ -263,11 +263,11 @@ func (m pickerModel) renderMatchTable() string {
 	for i, n := range m.matches {
 		var marker, name string
 		if i == m.cursor {
-			marker = cursorStyle.Render("▶")
-			name = highlightStyle.Render(padRight(n, nameW))
+			marker = CursorStyle.Render("▶")
+			name = HighlightStyle.Render(PadRight(n, nameW))
 		} else {
 			marker = " "
-			name = padRight(n, nameW)
+			name = PadRight(n, nameW)
 		}
 		tail := ""
 		if m.selected[n] {
@@ -275,7 +275,7 @@ func (m pickerModel) renderMatchTable() string {
 		}
 		desc := ""
 		if d := m.descByName[n]; d != "" {
-			desc = dimStyle.Render(truncate(d, descW))
+			desc = DimStyle.Render(Truncate(d, descW))
 		}
 		b.WriteString(fmt.Sprintf("  %s %s %s%s\n", marker, name, desc, tail))
 	}

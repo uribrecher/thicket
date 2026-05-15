@@ -57,7 +57,7 @@ func (p *configAgentPage) Complete() bool {
 	return p.picker.validated()
 }
 
-func (p *configAgentPage) initCmd(m *Model) tea.Cmd {
+func (p *configAgentPage) InitCmd(m *Model) tea.Cmd {
 	if !p.seeded {
 		_, err := exec.LookPath("claude")
 		p.claudeOnPath = err == nil
@@ -95,7 +95,7 @@ func (p *configAgentPage) pickerVisible() bool {
 }
 
 func (p *configAgentPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
-	if _, ok := msg.(goNextMsg); ok {
+	if _, ok := msg.(GoNextMsg); ok {
 		p.commit(m)
 		return p, nil
 	}
@@ -123,7 +123,7 @@ func (p *configAgentPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 				}
 				p.commit(m)
 				if p.Complete() {
-					return p, func() tea.Msg { return goNextMsg{} }
+					return p, func() tea.Msg { return GoNextMsg{} }
 				}
 				return p, nil
 			}
@@ -164,7 +164,7 @@ func (p *configAgentPage) commit(m *Model) {
 
 func (p *configAgentPage) View(m *Model) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("How should thicket talk to Claude?"))
+	b.WriteString(TitleStyle.Render("How should thicket talk to Claude?"))
 	b.WriteString("\n\n")
 
 	options := []struct {
@@ -175,31 +175,31 @@ func (p *configAgentPage) View(m *Model) string {
 	}
 	for i, opt := range options {
 		marker := "  "
-		style := dimStyle
+		style := DimStyle
 		if i == p.backendIdx {
 			if p.focus == 0 {
-				marker = cursorStyle.Render("▶ ")
-				style = cursorStyle
+				marker = CursorStyle.Render("▶ ")
+				style = CursorStyle
 			} else {
-				marker = selectedTagStyle.Render("● ")
-				style = highlightStyle
+				marker = SelectedTagStyle.Render("● ")
+				style = HighlightStyle
 			}
 		}
 		extra := ""
 		if i == 0 && !p.claudeOnPath {
-			extra = "  " + warnStyle.Render("(not on PATH)")
+			extra = "  " + WarnStyle.Render("(not on PATH)")
 		}
 		b.WriteString("  " + marker + style.Render(opt.label) + extra + "\n")
-		b.WriteString("    " + hintStyle.Render(opt.desc) + "\n")
+		b.WriteString("    " + HintStyle.Render(opt.desc) + "\n")
 	}
 	b.WriteString("\n")
 
 	switch {
 	case p.pickerVisible():
-		b.WriteString("  " + hintStyle.Render("(tab into the form below to set the API key reference)") + "\n\n")
+		b.WriteString("  " + HintStyle.Render("(tab into the form below to set the API key reference)") + "\n\n")
 		b.WriteString(p.picker.view(m))
 	case p.backendCurrent() == agentBackendAPI && p.apiKeyInEnv:
-		b.WriteString("  " + selectedTagStyle.Render("✓ $ANTHROPIC_API_KEY is set — no password-manager reference needed.") + "\n")
+		b.WriteString("  " + SelectedTagStyle.Render("✓ $ANTHROPIC_API_KEY is set — no password-manager reference needed.") + "\n")
 	}
-	return indent(b.String(), 2)
+	return Indent(b.String(), 2)
 }

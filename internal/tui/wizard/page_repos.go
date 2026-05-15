@@ -45,7 +45,7 @@ type reposPage struct {
 	loadFinishedAt time.Time
 
 	// Catalog + LLM picks for the current ticket. Catalog is seeded
-	// eagerly in initCmd so fuzzy search works while the LLM is still
+	// eagerly in InitCmd so fuzzy search works while the LLM is still
 	// in flight — the user shouldn't have to wait 15s before they can
 	// start typing.
 	repos      []catalog.Repo
@@ -98,10 +98,10 @@ func (p *reposPage) Hints() string { return "↑/↓ navigate · enter toggles" 
 
 func (p *reposPage) Complete() bool { return len(p.selectedOrder) > 0 }
 
-// initCmd seeds the catalog synchronously (so search is immediately
+// InitCmd seeds the catalog synchronously (so search is immediately
 // usable) and fires the LLM detect cmd if we don't already have picks
 // cached for this ticket.
-func (p *reposPage) initCmd(m *Model) tea.Cmd {
+func (p *reposPage) InitCmd(m *Model) tea.Cmd {
 	if m.ticketID == "" {
 		return nil
 	}
@@ -140,7 +140,7 @@ func (p *reposPage) initCmd(m *Model) tea.Cmd {
 }
 
 // resetForNewTicket clears the page-local state so the next ticket's
-// load starts from a clean slate. Called from initCmd when ticketID
+// load starts from a clean slate. Called from InitCmd when ticketID
 // changes — keeps stale state from leaking across tickets.
 func (p *reposPage) resetForNewTicket() {
 	p.repos = nil
@@ -220,7 +220,7 @@ func detectCmd(m *Model) tea.Cmd {
 			ctx = context.Background()
 		}
 		picks, err := m.deps.Detect(ctx, tk, m.deps.Repos)
-		return picksLoadedMsg{ticketID: id, picks: picks, err: err}
+		return PicksLoadedMsg{ticketID: id, picks: picks, err: err}
 	}
 }
 
@@ -236,13 +236,13 @@ func summarizeCmd(m *Model) tea.Cmd {
 			ctx = context.Background()
 		}
 		lines, err := m.deps.Summarize(ctx, tk)
-		return summarizedMsg{ticketID: id, lines: lines, err: err}
+		return SummarizedMsg{ticketID: id, lines: lines, err: err}
 	}
 }
 
 func (p *reposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	switch v := msg.(type) {
-	case picksLoadedMsg:
+	case PicksLoadedMsg:
 		if v.ticketID != m.ticketID {
 			return p, nil // stale msg from a previous ticket
 		}
@@ -265,7 +265,7 @@ func (p *reposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		p.spinner, cmd = p.spinner.Update(msg)
 		return p, cmd
 
-	case goNextMsg:
+	case GoNextMsg:
 		if !p.Complete() {
 			return p, nil
 		}
@@ -277,14 +277,14 @@ func (p *reposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		}
 		// Update m.chosen synchronously here — same reason as the
 		// Ticket page's commit: the wizard's advance() fires the
-		// Plan page's initCmd IMMEDIATELY after this returns, and
-		// initCmd reads m.chosen to decide whether to rebuild the
-		// plan. If we only emitted reposCommittedMsg as a deferred
-		// cmd, initCmd would see the OLD m.chosen and either keep
+		// Plan page's InitCmd IMMEDIATELY after this returns, and
+		// InitCmd reads m.chosen to decide whether to rebuild the
+		// plan. If we only emitted ReposCommittedMsg as a deferred
+		// cmd, InitCmd would see the OLD m.chosen and either keep
 		// the stale plan (if the count happened to match) or rebuild
 		// against outdated repos.
 		m.chosen = append(m.chosen[:0], chosen...)
-		return p, func() tea.Msg { return reposCommittedMsg{chosen: chosen} }
+		return p, func() tea.Msg { return ReposCommittedMsg{chosen: chosen} }
 
 	case tea.KeyMsg:
 		switch v.String() {
@@ -409,11 +409,11 @@ func (p *reposPage) View(m *Model) string {
 	var b strings.Builder
 
 	// Page title.
-	b.WriteString(titleStyle.Render("Select repos that are relevant for this ticket"))
+	b.WriteString(TitleStyle.Render("Select repos that are relevant for this ticket"))
 	b.WriteString("\n\n")
 
 	// Ticket summary directly under the title.
-	if s := renderTicketSummary(m.ticket, m.summaryCache[m.ticketID]); s != "" {
+	if s := RenderTicketSummary(m.ticket, m.summaryCache[m.ticketID]); s != "" {
 		b.WriteString(s)
 		b.WriteString("\n")
 	}
@@ -427,7 +427,7 @@ func (p *reposPage) View(m *Model) string {
 	b.WriteString(p.renderMatches())
 
 	if p.status != "" {
-		b.WriteString("\n  " + warnStyle.Render(p.status) + "\n")
+		b.WriteString("\n  " + WarnStyle.Render(p.status) + "\n")
 	}
 
 	// Two-line gap, then the LLM status (spinner while in flight,
@@ -436,7 +436,7 @@ func (p *reposPage) View(m *Model) string {
 	// in parallel.
 	b.WriteString("\n\n")
 	b.WriteString(p.renderLLMStatus(m))
-	return indent(b.String(), 2)
+	return Indent(b.String(), 2)
 }
 
 // renderLLMStatus draws the spinner + label while the LLM is in
@@ -448,12 +448,12 @@ func (p *reposPage) renderLLMStatus(m *Model) string {
 	case p.loading:
 		secs := int(time.Since(p.loadStartAt).Seconds())
 		return "  " + p.spinner.View() + " " +
-			dimStyle.Render(fmt.Sprintf("looking for relevant repos… (%ds)", secs))
+			DimStyle.Render(fmt.Sprintf("looking for relevant repos… (%ds)", secs))
 	case p.loadErr != nil:
-		return "  " + errStyle.Render("✗ LLM detection failed: "+p.loadErr.Error())
+		return "  " + ErrStyle.Render("✗ LLM detection failed: "+p.loadErr.Error())
 	case !p.loadStartAt.IsZero() && !p.loadFinishedAt.IsZero():
 		dur := p.loadFinishedAt.Sub(p.loadStartAt).Seconds()
-		return "  " + dimStyle.Render(fmt.Sprintf("● found %d relevant repo(s) in %.1fs",
+		return "  " + DimStyle.Render(fmt.Sprintf("● found %d relevant repo(s) in %.1fs",
 			len(p.picks), dur))
 	default:
 		return ""
@@ -494,7 +494,7 @@ func (p *reposPage) renderMatches() string {
 	if len(p.matches) == 0 {
 		q := strings.TrimSpace(p.input.Value())
 		if q != "" {
-			return "    " + dimStyle.Render(fmt.Sprintf("no match for %q", q)) + "\n"
+			return "    " + DimStyle.Render(fmt.Sprintf("no match for %q", q)) + "\n"
 		}
 		// Empty list + empty query: the textinput's own placeholder
 		// ("type to filter the catalog") is already visible above,
@@ -511,23 +511,23 @@ func (p *reposPage) renderMatches() string {
 			if prevGroup != -1 {
 				b.WriteString("\n")
 			}
-			b.WriteString("  " + sectionStyle.Render(headerFor(g, p)) + "\n")
+			b.WriteString("  " + SectionStyle.Render(headerFor(g, p)) + "\n")
 			prevGroup = g
 		}
 
 		var marker, name string
 		if i == p.cursor {
-			marker = cursorStyle.Render("▶")
-			name = highlightStyle.Render(padRight(it.name, nameW))
+			marker = CursorStyle.Render("▶")
+			name = HighlightStyle.Render(PadRight(it.name, nameW))
 		} else {
 			marker = " "
-			name = padRight(it.name, nameW)
+			name = PadRight(it.name, nameW)
 		}
 
 		// ✓ only on selected rows; plain space otherwise.
 		check := " "
 		if it.selected {
-			check = selectedTagStyle.Render("✓")
+			check = SelectedTagStyle.Render("✓")
 		}
 
 		// Meta column: LLM tag + reason whenever the row originated
@@ -536,11 +536,11 @@ func (p *reposPage) renderMatches() string {
 		var meta string
 		if it.llm {
 			if pk, ok := p.picks[it.name]; ok {
-				meta = relevanceTagStyle.Render(fmt.Sprintf("relevance %.0f%% ", pk.Confidence*100)) +
-					dimStyle.Render(truncate(pk.Reason, descW-12))
+				meta = RelevanceTagStyle.Render(fmt.Sprintf("relevance %.0f%% ", pk.Confidence*100)) +
+					DimStyle.Render(Truncate(pk.Reason, descW-12))
 			}
 		} else if d := p.descByName[it.name]; d != "" {
-			meta = dimStyle.Render(truncate(d, descW))
+			meta = DimStyle.Render(Truncate(d, descW))
 		}
 		b.WriteString(fmt.Sprintf("    %s %s %s %s\n", marker, check, name, meta))
 	}

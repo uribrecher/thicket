@@ -39,7 +39,7 @@ type planPage struct {
 
 	// "Missing clones" checkbox state: name → include in workspace.
 	// Defaults to true for every to-clone repo. Wiped on ticket
-	// change (see initCmd) so a repo unchecked for ticket A doesn't
+	// change (see InitCmd) so a repo unchecked for ticket A doesn't
 	// silently start unchecked when the user moves to ticket B.
 	cloneInclude map[string]bool
 	cursor       int  // index into a flat cursor space: 0..len(toClone)-1
@@ -81,16 +81,16 @@ func (p *planPage) Complete() bool { return p.built && p.buildErr == nil }
 // locked reports whether tab navigation should be blocked. We lock
 // once Create starts so the user can't unwind a half-materialized
 // workspace.
-func (p *planPage) locked() bool { return p.creating }
+func (p *planPage) Locked() bool { return p.creating }
 
-// initCmd rebuilds the plan on EVERY activation. Earlier we tried to
+// InitCmd rebuilds the plan on EVERY activation. Earlier we tried to
 // skip rebuilds when the chosen-repo list was unchanged, but that
 // invited a class of stale-state bugs: a repo's LocalPath could
 // change between activations (after a previous Create attempt
 // cloned it), the branch-exists probe could now return a different
 // answer, and so on. Rebuilding is cheap (a few BranchExists calls)
 // so we always rebuild and trust the latest state.
-func (p *planPage) initCmd(m *Model) tea.Cmd {
+func (p *planPage) InitCmd(m *Model) tea.Cmd {
 	// Drop checkbox state when the ticket changed — a repo unchecked
 	// for ticket A would otherwise start unchecked for ticket B if
 	// both happen to need it cloned, which is surprising.
@@ -122,7 +122,7 @@ func buildPlanCmd(m *Model) tea.Cmd {
 			}
 			ok, err := m.deps.Git.BranchExists(r.LocalPath, branch)
 			if err != nil {
-				return planBuiltMsg{err: fmt.Errorf("check branch in %s: %w", r.Name, err)}
+				return PlanBuiltMsg{err: fmt.Errorf("check branch in %s: %w", r.Name, err)}
 			}
 			exist[r.Name] = ok
 		}
@@ -176,13 +176,13 @@ func buildPlanCmd(m *Model) tea.Cmd {
 				CreatedAt:    time.Now(),
 			},
 		}
-		return planBuiltMsg{plan: plan, toClone: toClone}
+		return PlanBuiltMsg{plan: plan, toClone: toClone}
 	}
 }
 
 func (p *planPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	switch v := msg.(type) {
-	case planBuiltMsg:
+	case PlanBuiltMsg:
 		if v.err != nil {
 			p.built = false
 			p.buildErr = v.err
@@ -219,13 +219,13 @@ func (p *planPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		}
 		return p, nil
 
-	case cloneStartedMsg:
+	case CloneStartedMsg:
 		if cs, ok := p.clones[v.name]; ok {
 			cs.started = time.Now()
 		}
 		return p, p.tickCmd()
 
-	case cloneDoneMsg:
+	case CloneDoneMsg:
 		cs, ok := p.clones[v.name]
 		if !ok {
 			return p, nil
@@ -248,7 +248,7 @@ func (p *planPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		}
 		return p, nil
 
-	case tickMsg:
+	case TickMsg:
 		return p, p.tickCmd()
 
 	case tea.KeyMsg:
@@ -309,11 +309,11 @@ func (p *planPage) tickCmd() tea.Cmd {
 	if !p.creating {
 		return nil
 	}
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return TickMsg(t) })
 }
 
 // startCloneCmd kicks off the clone phase. After it returns, the
-// wizard receives one cloneStartedMsg + one cloneDoneMsg per repo.
+// wizard receives one CloneStartedMsg + one CloneDoneMsg per repo.
 // If nothing needs cloning, it skips straight to finalizeCmd.
 func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
 	// Build the final repo set, dropping unchecked to-clones.
@@ -357,7 +357,7 @@ func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
 		// Send the started msg immediately so the UI flips to "cloning…"
 		// while the actual git call runs.
 		started := func(name string) tea.Cmd {
-			return func() tea.Msg { return cloneStartedMsg{name: name} }
+			return func() tea.Msg { return CloneStartedMsg{name: name} }
 		}(r.Name)
 		clone := func(name, url, dir string) tea.Cmd {
 			return func() tea.Msg {
@@ -365,9 +365,9 @@ func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
 				err := m.deps.Git.Clone(url, dir, &buf, &buf)
 				out := strings.TrimSpace(buf.String())
 				if err != nil {
-					return cloneDoneMsg{name: name, err: fmt.Errorf("%s: %w (git output: %s)", name, err, truncate(out, 200))}
+					return CloneDoneMsg{name: name, err: fmt.Errorf("%s: %w (git output: %s)", name, err, Truncate(out, 200))}
 				}
-				return cloneDoneMsg{name: name, localPath: dir}
+				return CloneDoneMsg{name: name, localPath: dir}
 			}
 		}(r.Name, r.CloneURL, target)
 		cmds = append(cmds, started, clone)
@@ -376,7 +376,7 @@ func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// finalizeCmd builds the post-clone plan and emits createDoneMsg.
+// finalizeCmd builds the post-clone plan and emits CreateDoneMsg.
 // workspace.Create itself runs AFTER the wizard exits (in runStart),
 // so the result here carries a finalized plan ready to execute.
 func (p *planPage) finalizeCmd(m *Model) tea.Cmd {
@@ -394,7 +394,7 @@ func (p *planPage) finalizeCmd(m *Model) tea.Cmd {
 			kept = append(kept, r)
 		}
 		if len(kept) == 0 {
-			return createDoneMsg{err: errors.New("every clone failed — nothing to materialize")}
+			return CreateDoneMsg{err: errors.New("every clone failed — nothing to materialize")}
 		}
 		// Re-build the plan against the kept repos so PlanRepo.SourcePath
 		// uses the freshly-cloned target dirs.
@@ -412,7 +412,7 @@ func (p *planPage) finalizeCmd(m *Model) tea.Cmd {
 			if cs, ok := p.clones[r.Name]; ok && cs.err == nil {
 				ok, err := m.deps.Git.BranchExists(src, p.branch)
 				if err != nil {
-					return createDoneMsg{err: fmt.Errorf("check branch in %s after clone: %w", r.Name, err)}
+					return CreateDoneMsg{err: fmt.Errorf("check branch in %s after clone: %w", r.Name, err)}
 				}
 				exists = ok
 			}
@@ -437,26 +437,26 @@ func (p *planPage) finalizeCmd(m *Model) tea.Cmd {
 			Memory:       m.result.Plan.Memory,
 		}
 		plan.Memory.Repos = memRepos
-		return createDoneMsg{result: Result{Plan: plan, Skipped: m.result.Skipped}}
+		return CreateDoneMsg{result: Result{Plan: plan, Skipped: m.result.Skipped}}
 	}
 }
 
 func (p *planPage) View(m *Model) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Review and create workspace"))
+	b.WriteString(TitleStyle.Render("Review and create workspace"))
 	b.WriteString("\n\n")
 	if !p.built {
 		if p.buildErr != nil {
-			b.WriteString("  " + errStyle.Render(fmtErr(p.buildErr)) + "\n")
-			return indent(b.String(), 2)
+			b.WriteString("  " + ErrStyle.Render(FmtErr(p.buildErr)) + "\n")
+			return Indent(b.String(), 2)
 		}
-		b.WriteString("  " + hintStyle.Render("building plan…") + "\n")
-		return indent(b.String(), 2)
+		b.WriteString("  " + HintStyle.Render("building plan…") + "\n")
+		return Indent(b.String(), 2)
 	}
 
 	// Missing clones (only if non-empty).
 	if len(p.toClone) > 0 && !p.creating {
-		b.WriteString("  " + sectionStyle.Render("Missing clones") + "\n")
+		b.WriteString("  " + SectionStyle.Render("Missing clones") + "\n")
 		for i, r := range p.toClone {
 			check := "[ ]"
 			if p.cloneInclude[r.Name] {
@@ -465,13 +465,13 @@ func (p *planPage) View(m *Model) string {
 			cursor := " "
 			line := fmt.Sprintf("%s  %s %-32s → %s",
 				cursor, check, r.Name,
-				abbrevHome(filepath.Join(m.deps.Cfg.ReposRoot, r.Name)))
+				AbbrevHome(filepath.Join(m.deps.Cfg.ReposRoot, r.Name)))
 			if !p.focusBtn && i == p.cursor {
-				cursor = cursorStyle.Render("▶")
+				cursor = CursorStyle.Render("▶")
 				line = fmt.Sprintf("%s  %s %s",
 					cursor,
-					cursorStyle.Render(check+" "+padRight(r.Name, 32)),
-					dimStyle.Render("→ "+abbrevHome(filepath.Join(m.deps.Cfg.ReposRoot, r.Name))))
+					CursorStyle.Render(check+" "+PadRight(r.Name, 32)),
+					DimStyle.Render("→ "+AbbrevHome(filepath.Join(m.deps.Cfg.ReposRoot, r.Name))))
 			}
 			b.WriteString("  " + line + "\n")
 		}
@@ -486,17 +486,17 @@ func (p *planPage) View(m *Model) string {
 		// here". Hidden when there's nothing to clone.
 		toClone := p.checkedClones()
 		if len(toClone) > 0 {
-			b.WriteString("  " + planHeaderStyle.Render(
+			b.WriteString("  " + PlanHeaderStyle.Render(
 				fmt.Sprintf("The following repos will be cloned into %s:",
-					abbrevHome(m.deps.Cfg.ReposRoot))) + "\n")
+					AbbrevHome(m.deps.Cfg.ReposRoot))) + "\n")
 			for _, r := range toClone {
 				b.WriteString(fmt.Sprintf("      • %s\n", r.Name))
 			}
 			b.WriteString("\n")
 		}
 
-		b.WriteString("  " + planHeaderStyle.Render("The following will be created:") + "\n")
-		b.WriteString(fmt.Sprintf("    workspace dir: %s\n", abbrevHome(p.workspace)))
+		b.WriteString("  " + PlanHeaderStyle.Render("The following will be created:") + "\n")
+		b.WriteString(fmt.Sprintf("    workspace dir: %s\n", AbbrevHome(p.workspace)))
 		b.WriteString(fmt.Sprintf("    branch:        %s\n", p.branch))
 		final := p.finalSelection()
 		b.WriteString(fmt.Sprintf("    worktrees:     %d\n", len(final)))
@@ -509,22 +509,22 @@ func (p *planPage) View(m *Model) string {
 		}
 		b.WriteString("\n")
 		// Create button.
-		btn := createBtnIdle.Render("[ Create workspace ]")
+		btn := CreateBtnIdle.Render("[ Create workspace ]")
 		if p.focusBtn {
-			btn = createBtnStyle.Render("Create workspace")
+			btn = CreateBtnStyle.Render("Create workspace")
 		}
 		b.WriteString("  " + btn + "\n")
 	} else {
 		// Clone log.
-		b.WriteString("  " + sectionStyle.Render("Cloning…") + "\n")
+		b.WriteString("  " + SectionStyle.Render("Cloning…") + "\n")
 		for _, name := range p.cloneOrd {
 			cs := p.clones[name]
 			switch {
 			case cs.done && cs.err == nil:
-				b.WriteString("    " + selectedTagStyle.Render("✓") +
-					fmt.Sprintf(" cloned %s → %s\n", name, abbrevHome(cs.targetDir)))
+				b.WriteString("    " + SelectedTagStyle.Render("✓") +
+					fmt.Sprintf(" cloned %s → %s\n", name, AbbrevHome(cs.targetDir)))
 			case cs.done && cs.err != nil:
-				b.WriteString("    " + errStyle.Render("✗") +
+				b.WriteString("    " + ErrStyle.Render("✗") +
 					fmt.Sprintf(" clone failed for %s: %s — skipping\n", name, cs.err.Error()))
 			default:
 				elapsed := 0
@@ -532,11 +532,11 @@ func (p *planPage) View(m *Model) string {
 					elapsed = int(time.Since(cs.started).Seconds())
 				}
 				b.WriteString("    " +
-					fmt.Sprintf("cloning %s → %s… %ds\n", name, abbrevHome(cs.targetDir), elapsed))
+					fmt.Sprintf("cloning %s → %s… %ds\n", name, AbbrevHome(cs.targetDir), elapsed))
 			}
 		}
 	}
-	return indent(b.String(), 2)
+	return Indent(b.String(), 2)
 }
 
 // checkedClones returns the missing-clone repos the user has left
@@ -564,4 +564,3 @@ func (p *planPage) finalSelection() []catalog.Repo {
 	}
 	return out
 }
-

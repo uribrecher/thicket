@@ -61,7 +61,7 @@ func (p *editReposPage) Hints() string {
 
 func (p *editReposPage) Complete() bool { return len(p.selectedOrder) > 0 }
 
-func (p *editReposPage) initCmd(m *Model) tea.Cmd {
+func (p *editReposPage) InitCmd(m *Model) tea.Cmd {
 	if m.selectedWorkspace == nil {
 		return nil
 	}
@@ -107,7 +107,7 @@ func (p *editReposPage) resetFor(m *Model) {
 
 func (p *editReposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	switch v := msg.(type) {
-	case goNextMsg:
+	case GoNextMsg:
 		if !p.Complete() {
 			return p, nil
 		}
@@ -119,10 +119,10 @@ func (p *editReposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		}
 		// Update m.additions synchronously — same reason as the start
 		// flow's Repos page: the wizard's advance() fires the Submit
-		// page's initCmd immediately after this returns, and that
-		// initCmd reads m.additions.
+		// page's InitCmd immediately after this returns, and that
+		// InitCmd reads m.additions.
 		m.additions = append(m.additions[:0], chosen...)
-		return p, func() tea.Msg { return additionsCommittedMsg{additions: chosen} }
+		return p, func() tea.Msg { return AdditionsCommittedMsg{additions: chosen} }
 
 	case tea.KeyMsg:
 		switch v.String() {
@@ -213,7 +213,7 @@ func (p *editReposPage) recompute() {
 
 func (p *editReposPage) View(m *Model) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Add repos to this workspace"))
+	b.WriteString(TitleStyle.Render("Add repos to this workspace"))
 	b.WriteString("\n\n")
 
 	if m.selectedWorkspace != nil {
@@ -224,14 +224,14 @@ func (p *editReposPage) View(m *Model) string {
 	// Locked block first — informational, NOT navigable. The cursor
 	// arrows operate only on the match list below the search.
 	if len(p.locked) > 0 {
-		b.WriteString("  " + sectionStyle.Render(fmt.Sprintf("Already in workspace (%d)", len(p.locked))) + "\n")
+		b.WriteString("  " + SectionStyle.Render(fmt.Sprintf("Already in workspace (%d)", len(p.locked))) + "\n")
 		lockedNames := make([]string, 0, len(p.locked))
 		for n := range p.locked {
 			lockedNames = append(lockedNames, n)
 		}
 		sort.Strings(lockedNames)
 		for _, n := range lockedNames {
-			b.WriteString("      " + dimStyle.Render("· "+n) + "\n")
+			b.WriteString("      " + DimStyle.Render("· "+n) + "\n")
 		}
 		b.WriteString("\n")
 	}
@@ -240,9 +240,9 @@ func (p *editReposPage) View(m *Model) string {
 	b.WriteString(p.renderMatches())
 
 	if p.status != "" {
-		b.WriteString("\n  " + warnStyle.Render(p.status) + "\n")
+		b.WriteString("\n  " + WarnStyle.Render(p.status) + "\n")
 	}
-	return indent(b.String(), 2)
+	return Indent(b.String(), 2)
 }
 
 func (p *editReposPage) renderMatches() string {
@@ -268,24 +268,24 @@ func (p *editReposPage) renderMatches() string {
 			if g == 0 {
 				label = fmt.Sprintf("Adding (%d)", len(p.selectedOrder))
 			}
-			b.WriteString("  " + sectionStyle.Render(label) + "\n")
+			b.WriteString("  " + SectionStyle.Render(label) + "\n")
 			prevGroup = g
 		}
 
-		marker, name := " ", padRight(it.name, nameW)
+		marker, name := " ", PadRight(it.name, nameW)
 		if i == p.cursor {
-			marker = cursorStyle.Render("▶")
-			name = highlightStyle.Render(padRight(it.name, nameW))
+			marker = CursorStyle.Render("▶")
+			name = HighlightStyle.Render(PadRight(it.name, nameW))
 		}
 
 		check := " "
 		if it.selected {
-			check = selectedTagStyle.Render("✓")
+			check = SelectedTagStyle.Render("✓")
 		}
 
 		var meta string
 		if d := p.descByName[it.name]; d != "" {
-			meta = dimStyle.Render(truncate(d, descW))
+			meta = DimStyle.Render(Truncate(d, descW))
 		}
 		b.WriteString(fmt.Sprintf("    %s %s %s %s\n", marker, check, name, meta))
 	}

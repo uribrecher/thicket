@@ -22,20 +22,20 @@ func (p *configWelcomePage) Complete() bool { return true }
 
 func (p *configWelcomePage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok && k.String() == "enter" {
-		return p, func() tea.Msg { return goNextMsg{} }
+		return p, func() tea.Msg { return GoNextMsg{} }
 	}
 	return p, nil
 }
 
 func (p *configWelcomePage) View(m *Model) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Welcome to thicket"))
+	b.WriteString(TitleStyle.Render("Welcome to thicket"))
 	b.WriteString("\n\n")
 	b.WriteString("  First-time setup — let's wire up your workflow.\n")
 	b.WriteString("\n")
-	b.WriteString("  " + hintStyle.Render(
+	b.WriteString("  " + HintStyle.Render(
 		"You can re-run `thicket config` later to tweak any of these settings.") + "\n")
-	b.WriteString("  " + hintStyle.Render(
+	b.WriteString("  " + HintStyle.Render(
 		"Press → (or enter) to continue, esc to cancel.") + "\n")
-	return indent(b.String(), 2)
+	return Indent(b.String(), 2)
 }

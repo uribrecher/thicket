@@ -779,7 +779,7 @@ func printPlanLegacy(w io.Writer, p workspace.Plan, dryRun bool) {
 		label = "(dry-run) plan:"
 	}
 	fmt.Fprintf(w, "\n%s\n", planTitleStyle.Render(label))
-	fmt.Fprintf(w, "  workspace dir: %s\n", abbrevHome(p.WorkspaceDir))
+	fmt.Fprintf(w, "  workspace dir: %s\n", AbbrevHome(p.WorkspaceDir))
 	fmt.Fprintf(w, "  branch:        %s\n", p.Branch)
 	fmt.Fprintf(w, "  worktrees:     %d\n", len(p.Repos))
 	for _, r := range p.Repos {
@@ -788,13 +788,13 @@ func printPlanLegacy(w io.Writer, p workspace.Plan, dryRun bool) {
 			mode = "checkout existing"
 		}
 		fmt.Fprintf(w, "    • %s (%s) src=%s\n",
-			r.Name, mode, abbrevHome(r.SourcePath))
+			r.Name, mode, AbbrevHome(r.SourcePath))
 	}
 	fmt.Fprintln(w)
 }
 
-// abbrevHome collapses an absolute path under $HOME to a leading `~`.
-func abbrevHome(path string) string {
+// AbbrevHome collapses an absolute path under $HOME to a leading `~`.
+func AbbrevHome(path string) string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return path

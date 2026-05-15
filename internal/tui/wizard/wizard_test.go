@@ -111,7 +111,7 @@ func TestTicketCommitInvalidatesDownstream(t *testing.T) {
 	m.chosen = []catalog.Repo{{Name: "alpha"}}
 
 	// User commits a NEW ticket id.
-	m.Update(ticketCommittedMsg{tk: ticket.Ticket{SourceID: "sc-2", Title: "two"}})
+	m.Update(TicketCommittedMsg{tk: ticket.Ticket{SourceID: "sc-2", Title: "two"}})
 
 	if m.ticketID != "sc-2" {
 		t.Fatalf("ticketID = %q, want sc-2", m.ticketID)
@@ -133,7 +133,7 @@ func TestTicketCommitSameIDNoOp(t *testing.T) {
 	m.llmCache["sc-1"] = []detector.RepoMatch{{Name: "alpha"}}
 	m.chosen = []catalog.Repo{{Name: "alpha"}, {Name: "beta"}}
 
-	m.Update(ticketCommittedMsg{tk: ticket.Ticket{SourceID: "sc-1", Title: "one"}})
+	m.Update(TicketCommittedMsg{tk: ticket.Ticket{SourceID: "sc-1", Title: "one"}})
 
 	if _, ok := m.llmCache["sc-1"]; !ok {
 		t.Errorf("llmCache[sc-1] wiped on same-id commit")
@@ -144,12 +144,12 @@ func TestTicketCommitSameIDNoOp(t *testing.T) {
 }
 
 // TestExistingWorkspaceShortCircuit covers the reuse-existing-workspace
-// path: an existingWorkspaceMsg sets ReuseDir on the result and
+// path: an ExistingWorkspaceMsg sets ReuseDir on the result and
 // signals tea.Quit so runStart launches Claude on the existing dir.
 func TestExistingWorkspaceShortCircuit(t *testing.T) {
 	m := newTestModel()
 	m.ticket = ticket.Ticket{SourceID: "sc-9", Title: "existing"}
-	_, cmd := m.Update(existingWorkspaceMsg{path: "/tmp/ws/sc-9-existing"})
+	_, cmd := m.Update(ExistingWorkspaceMsg{path: "/tmp/ws/sc-9-existing"})
 	if !m.done {
 		t.Fatalf("done not set after existing-workspace msg")
 	}
@@ -176,8 +176,8 @@ func TestLLMCacheReseed(t *testing.T) {
 	m.llmCache["sc-1"] = []detector.RepoMatch{{Name: "alpha", Confidence: 0.9}}
 
 	rp := m.pages[1].(*reposPage)
-	if cmd := rp.initCmd(m); cmd != nil {
-		t.Fatalf("initCmd with cached LLM picks returned non-nil cmd (%v) — should reseed without firing", cmd)
+	if cmd := rp.InitCmd(m); cmd != nil {
+		t.Fatalf("InitCmd with cached LLM picks returned non-nil cmd (%v) — should reseed without firing", cmd)
 	}
 	if _, ok := rp.picks["alpha"]; !ok {
 		t.Errorf("repos page did not record alpha as an LLM pick")
@@ -203,7 +203,7 @@ func TestLLMCacheReseed(t *testing.T) {
 func TestReposCommitStoresChosen(t *testing.T) {
 	m := newTestModel()
 	chosen := []catalog.Repo{{Name: "alpha"}, {Name: "gamma"}}
-	m.Update(reposCommittedMsg{chosen: chosen})
+	m.Update(ReposCommittedMsg{chosen: chosen})
 	if len(m.chosen) != 2 || m.chosen[0].Name != "alpha" || m.chosen[1].Name != "gamma" {
 		t.Errorf("chosen = %+v", m.chosen)
 	}
@@ -257,7 +257,7 @@ func TestPlanCloneFailureProceeds(t *testing.T) {
 		"beta": {name: "beta", done: true, err: errors.New("auth denied")},
 	}
 
-	// Manually invoke finalize: emit the createDoneMsg, then drive it
+	// Manually invoke finalize: emit the CreateDoneMsg, then drive it
 	// through the wizard's Update.
 	msg := pp.finalizeCmd(m)()
 	updated, _ := m.Update(msg)

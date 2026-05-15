@@ -39,7 +39,7 @@ func (p *configTicketsPage) Hints() string { return p.picker.hints() }
 // for 1Password.
 func (p *configTicketsPage) Complete() bool { return p.picker.validated() }
 
-func (p *configTicketsPage) initCmd(m *Model) tea.Cmd {
+func (p *configTicketsPage) InitCmd(m *Model) tea.Cmd {
 	if !p.seeded {
 		p.picker.preseed(m.configDeps.Cfg.Passwords.Manager, m.configDeps.Cfg.Passwords.ShortcutTokenRef)
 		// If preseed jumped us into stateValidated (e.g. re-running
@@ -55,7 +55,7 @@ func (p *configTicketsPage) initCmd(m *Model) tea.Cmd {
 }
 
 func (p *configTicketsPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
-	if _, ok := msg.(goNextMsg); ok {
+	if _, ok := msg.(GoNextMsg); ok {
 		p.commit(m)
 		return p, nil
 	}
@@ -79,10 +79,10 @@ func (p *configTicketsPage) commit(m *Model) {
 
 func (p *configTicketsPage) View(m *Model) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Where is your Shortcut API token?"))
+	b.WriteString(TitleStyle.Render("Where is your Shortcut API token?"))
 	b.WriteString("\n\n")
-	b.WriteString("  " + hintStyle.Render(
+	b.WriteString("  " + HintStyle.Render(
 		"$SHORTCUT_API_TOKEN isn't set — thicket needs a password-manager reference so it can fetch the token at runtime.") + "\n\n")
 	b.WriteString(p.picker.view(m))
-	return indent(b.String(), 2)
+	return Indent(b.String(), 2)
 }

@@ -43,10 +43,10 @@ func newConfigGitPage() *configGitPage {
 	return p
 }
 
-// initCmd seeds each input from the working config the first time the
-// page is activated. We do this in initCmd (not the constructor) so
+// InitCmd seeds each input from the working config the first time the
+// page is activated. We do this in InitCmd (not the constructor) so
 // late-bound config edits made by earlier pages still apply.
-func (p *configGitPage) initCmd(m *Model) tea.Cmd {
+func (p *configGitPage) InitCmd(m *Model) tea.Cmd {
 	if p.inputs[gitFieldReposRoot].Value() == "" {
 		p.inputs[gitFieldReposRoot].SetValue(m.configDeps.Cfg.ReposRoot)
 	}
@@ -84,13 +84,13 @@ func (p *configGitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		case "enter":
 			p.commit(m)
 			if p.Complete() {
-				return p, func() tea.Msg { return goNextMsg{} }
+				return p, func() tea.Msg { return GoNextMsg{} }
 			}
 			return p, nil
 		}
 	}
 
-	if _, ok := msg.(goNextMsg); ok {
+	if _, ok := msg.(GoNextMsg); ok {
 		p.commit(m)
 		return p, nil
 	}
@@ -107,7 +107,7 @@ func (p *configGitPage) cycleFocus(d int) {
 }
 
 // commit writes the current input values back to the working config.
-// Called on Enter and on goNextMsg so a back/forward dance preserves
+// Called on Enter and on GoNextMsg so a back/forward dance preserves
 // the user's edits.
 func (p *configGitPage) commit(m *Model) {
 	m.configDeps.Cfg.ReposRoot = strings.TrimSpace(p.inputs[gitFieldReposRoot].Value())
@@ -128,7 +128,7 @@ func splitOrgs(s string) []string {
 
 func (p *configGitPage) View(m *Model) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Where do your repos live?"))
+	b.WriteString(TitleStyle.Render("Where do your repos live?"))
 	b.WriteString("\n\n")
 
 	labels := []string{
@@ -144,18 +144,18 @@ func (p *configGitPage) View(m *Model) string {
 	for i, label := range labels {
 		marker := "  "
 		if i == p.focus {
-			marker = cursorStyle.Render("▶ ")
+			marker = CursorStyle.Render("▶ ")
 		}
-		b.WriteString(marker + sectionStyle.Render(label) + "\n")
+		b.WriteString(marker + SectionStyle.Render(label) + "\n")
 		b.WriteString("    " + p.inputs[i].View() + "\n")
-		b.WriteString("    " + hintStyle.Render(hints[i]) + "\n\n")
+		b.WriteString("    " + HintStyle.Render(hints[i]) + "\n\n")
 	}
 
 	if !p.Complete() {
-		b.WriteString("  " + hintStyle.Render("(fill in all three to continue)") + "\n")
+		b.WriteString("  " + HintStyle.Render("(fill in all three to continue)") + "\n")
 	} else {
-		b.WriteString("  " + hintStyle.Render(fmt.Sprintf("ready — %d org(s) configured", len(splitOrgs(p.inputs[gitFieldOrgs].Value())))) + "\n")
+		b.WriteString("  " + HintStyle.Render(fmt.Sprintf("ready — %d org(s) configured", len(splitOrgs(p.inputs[gitFieldOrgs].Value())))) + "\n")
 	}
 	_ = m
-	return indent(b.String(), 2)
+	return Indent(b.String(), 2)
 }

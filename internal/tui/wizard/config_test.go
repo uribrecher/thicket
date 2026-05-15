@@ -91,7 +91,7 @@ func TestInitSubmitConfirms(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	mm := updated.(*Model)
-	// The submit page emits configDoneMsg as a cmd; deliver it.
+	// The submit page emits ConfigDoneMsg as a cmd; deliver it.
 	page, _ := mm.pages[mm.active].Update(mm, tea.KeyMsg{Type: tea.KeyEnter})
 	mm.pages[mm.active] = page
 	// Run the cmd manually.
@@ -121,14 +121,14 @@ func TestSecretPicker1PFieldPickerSkippedOnSingle(t *testing.T) {
 	d := config.Default()
 	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 	tp := findPage(t, m, "Tickets").(*configTicketsPage)
-	tp.initCmd(m)
+	tp.InitCmd(m)
 	sp := tp.picker
 
 	sp.state = stateOpLoadingItemDetail
 	sp.chosenAccount = "acct-1"
 	it := secretsItem("itm-1", "Shortcut Token")
 	sp.chosenItem = &it
-	sp.onItemDetailLoaded(opItemDetailLoadedMsg{
+	sp.onItemDetailLoaded(OpItemDetailLoadedMsg{
 		pickerID: sp.id,
 		itemID:   "itm-1",
 		detail: &secrets.OnePasswordItemDetail{
@@ -208,11 +208,11 @@ func TestSecretPickerStaleMsgsDropped(t *testing.T) {
 	d := config.Default()
 	m := newConfigModel(ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
 	tp := findPage(t, m, "Tickets").(*configTicketsPage)
-	tp.initCmd(m)
+	tp.InitCmd(m)
 	sp := tp.picker
 	sp.state = stateOpLoadingItems
 	sp.chosenAccount = "acct-1"
-	sp.update(m, opItemsLoadedMsg{
+	sp.update(m, OpItemsLoadedMsg{
 		pickerID: sp.id + 99, // someone else's load
 		account:  "acct-1",
 		items:    []secrets.OnePasswordItem{secretsItem("x", "Other")},
@@ -234,7 +234,7 @@ func findPage(t *testing.T, m *Model, title string) Page {
 }
 
 // TestInitGitPageCommitsOnAdvance writes the input values back to the
-// shared config when the page receives goNextMsg.
+// shared config when the page receives GoNextMsg.
 func TestInitGitPageCommitsOnAdvance(t *testing.T) {
 	t.Setenv("SHORTCUT_API_TOKEN", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
@@ -245,11 +245,11 @@ func TestInitGitPageCommitsOnAdvance(t *testing.T) {
 	if !ok {
 		t.Fatalf("first page is not the Git page: %T", m.pages[0])
 	}
-	gp.initCmd(m)
+	gp.InitCmd(m)
 	gp.inputs[gitFieldReposRoot].SetValue("/tmp/code")
 	gp.inputs[gitFieldWorkspaceRoot].SetValue("/tmp/work")
 	gp.inputs[gitFieldOrgs].SetValue("alpha, beta")
-	gp.Update(m, goNextMsg{})
+	gp.Update(m, GoNextMsg{})
 	if d.ReposRoot != "/tmp/code" {
 		t.Errorf("ReposRoot = %q", d.ReposRoot)
 	}
