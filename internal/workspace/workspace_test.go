@@ -430,10 +430,8 @@ func TestFindContainingWorkspace(t *testing.T) {
 				if got.State.TicketID != st.TicketID {
 					t.Errorf("state.TicketID = %q, want %q", got.State.TicketID, st.TicketID)
 				}
-			} else {
-				if !errors.Is(err, ErrNoState) {
-					t.Errorf("want ErrNoState, got err=%v ws=%+v", err, got)
-				}
+			} else if !errors.Is(err, ErrNoState) {
+				t.Errorf("want ErrNoState, got err=%v ws=%+v", err, got)
 			}
 		})
 	}
