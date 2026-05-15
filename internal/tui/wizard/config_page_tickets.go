@@ -41,13 +41,13 @@ func (p *configTicketsPage) Complete() bool { return p.picker.validated() }
 
 func (p *configTicketsPage) InitCmd(m *Model) tea.Cmd {
 	if !p.seeded {
-		p.picker.preseed(m.configDeps.Cfg.Passwords.Manager, m.configDeps.Cfg.Passwords.ShortcutTokenRef)
+		p.picker.preseed(m.ConfigDeps.Cfg.Passwords.Manager, m.ConfigDeps.Cfg.Passwords.ShortcutTokenRef)
 		// If preseed jumped us into stateValidated (e.g. re-running
 		// init with an existing op:// ref), also re-hydrate the
 		// account UUID from the saved config so future renders can
 		// show the account label.
 		if p.picker.state == stateValidated {
-			p.picker.chosenAccount = m.configDeps.Cfg.Passwords.ShortcutTokenAccount
+			p.picker.chosenAccount = m.ConfigDeps.Cfg.Passwords.ShortcutTokenAccount
 		}
 		p.seeded = true
 	}
@@ -67,7 +67,7 @@ func (p *configTicketsPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 }
 
 func (p *configTicketsPage) commit(m *Model) {
-	cfg := m.configDeps.Cfg
+	cfg := m.ConfigDeps.Cfg
 	if mgr := p.picker.finalManager(); mgr != "" {
 		cfg.Passwords.Manager = mgr
 	}

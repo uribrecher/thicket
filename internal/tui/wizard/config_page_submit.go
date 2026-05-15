@@ -9,7 +9,7 @@ import (
 
 // configSubmitPage shows the full config summary and a [ Confirm ]
 // button. Enter on the button emits ConfigDoneMsg{}; the wizard's
-// handler stashes the populated config into m.configResult and quits.
+// handler stashes the populated config into m.ConfigResult and quits.
 // The actual file write happens in cmd/thicket/init.go afterwards.
 type configSubmitPage struct{}
 
@@ -29,7 +29,7 @@ func (p *configSubmitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 }
 
 func (p *configSubmitPage) View(m *Model) string {
-	cfg := m.configDeps.Cfg
+	cfg := m.ConfigDeps.Cfg
 	var b strings.Builder
 	b.WriteString(TitleStyle.Render("Review and confirm"))
 	b.WriteString("\n\n")
@@ -58,7 +58,7 @@ func (p *configSubmitPage) View(m *Model) string {
 	if cfg.Passwords.Manager == "" {
 		b.WriteString("    " + HintStyle.Render("(none — every secret covered by env vars)") + "\n")
 	} else {
-		b.WriteString(fmt.Sprintf("    manager: %s\n", cfg.Passwords.Manager))
+		b.WriteString(fmt.Sprintf("    Manager: %s\n", cfg.Passwords.Manager))
 		if cfg.Passwords.ShortcutTokenRef != "" {
 			b.WriteString(fmt.Sprintf("    shortcut token: %s\n", cfg.Passwords.ShortcutTokenRef))
 		} else {

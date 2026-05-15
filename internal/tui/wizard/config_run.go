@@ -57,13 +57,13 @@ func RunConfig(deps ConfigDeps) (ConfigResult, error) {
 		return ConfigResult{}, err
 	}
 	fm := finalModel.(*Model)
-	if errors.Is(fm.err, tui.ErrCancelled) {
+	if errors.Is(fm.Err, tui.ErrCancelled) {
 		return ConfigResult{}, tui.ErrCancelled
 	}
-	if fm.err != nil {
-		return ConfigResult{}, fm.err
+	if fm.Err != nil {
+		return ConfigResult{}, fm.Err
 	}
-	return fm.configResult, nil
+	return fm.ConfigResult, nil
 }
 
 // newConfigModel assembles the page list for the config flow. Pages are
@@ -72,9 +72,9 @@ func RunConfig(deps ConfigDeps) (ConfigResult, error) {
 // would just be noise) drop their pages entirely.
 func newConfigModel(deps ConfigDeps) *Model {
 	m := &Model{
-		configMode:        true,
-		configDeps:        deps,
-		configOpItemCache: make(map[string][]secrets.OnePasswordItem),
+		ConfigMode:        true,
+		ConfigDeps:        deps,
+		ConfigOpItemCache: make(map[string][]secrets.OnePasswordItem),
 	}
 	var pages []Page
 	if deps.FirstRun {
@@ -86,6 +86,6 @@ func newConfigModel(deps ConfigDeps) *Model {
 	}
 	pages = append(pages, newConfigAgentPage())
 	pages = append(pages, newConfigSubmitPage())
-	m.pages = pages
+	m.Pages = pages
 	return m
 }

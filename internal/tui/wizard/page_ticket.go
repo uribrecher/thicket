@@ -94,18 +94,18 @@ func (p *ticketPage) InitCmd(m *Model) tea.Cmd {
 
 func listTicketsCmd(m *Model) tea.Cmd {
 	return func() tea.Msg {
-		if m.deps.Lister == nil {
-			return TicketsLoadedMsg{err: errors.New("ticket source does not support listing — pass a ticket id explicitly")}
+		if m.Deps.Lister == nil {
+			return TicketsLoadedMsg{Err: errors.New("ticket source does not support listing — pass a ticket id explicitly")}
 		}
-		tks, err := m.deps.Lister.ListAssigned(m.deps.Ctx)
-		return TicketsLoadedMsg{tickets: tks, err: err}
+		tks, err := m.Deps.Lister.ListAssigned(m.Deps.Ctx)
+		return TicketsLoadedMsg{Tickets: tks, Err: err}
 	}
 }
 
 func fetchTicketCmd(m *Model, id ticket.ID) tea.Cmd {
 	return func() tea.Msg {
-		tk, err := m.deps.Src.Fetch(id)
-		return TicketFetchedMsg{tk: tk, err: err}
+		tk, err := m.Deps.Src.Fetch(id)
+		return TicketFetchedMsg{Tk: tk, Err: err}
 	}
 }
 
@@ -122,22 +122,22 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	switch v := msg.(type) {
 	case TicketsLoadedMsg:
 		p.loading = false
-		if v.err != nil {
-			p.loadErr = v.err
+		if v.Err != nil {
+			p.loadErr = v.Err
 			return p, nil
 		}
-		p.rows = make([]ticketRow, len(v.tickets))
-		p.haystack = make([]string, len(v.tickets))
+		p.rows = make([]ticketRow, len(v.Tickets))
+		p.haystack = make([]string, len(v.Tickets))
 		// Annotate with existing-workspace dir names so the user can
 		// spot in-flight work at a glance. The cell value comes from
 		// the actual workspace directory name (filepath.Base(path)),
 		// not from Slug(tk.SourceID, tk.Title) — a renamed ticket
 		// keeps its original workspace dir on disk and we want the
 		// column to match what `thicket rm` / `ls` would show.
-		for i, tk := range v.tickets {
+		for i, tk := range v.Tickets {
 			ws := ""
-			if m.deps.FindExistingWorkspace != nil {
-				if path := m.deps.FindExistingWorkspace(tk.SourceID); path != "" {
+			if m.Deps.FindExistingWorkspace != nil {
+				if path := m.Deps.FindExistingWorkspace(tk.SourceID); path != "" {
 					ws = filepath.Base(path)
 				}
 			}
@@ -153,16 +153,16 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 
 	case TicketFetchedMsg:
 		p.fetching = false
-		if v.err != nil {
-			p.fetchErr = v.err
+		if v.Err != nil {
+			p.fetchErr = v.Err
 			return p, nil
 		}
-		p.fetchedTk = v.tk
-		p.fetchedID = v.tk.SourceID
+		p.fetchedTk = v.Tk
+		p.fetchedID = v.Tk.SourceID
 		// Probe for an existing workspace now so advancing can short-
 		// circuit without an extra round-trip.
-		if m.deps.FindExistingWorkspace != nil {
-			p.existingDir = m.deps.FindExistingWorkspace(v.tk.SourceID)
+		if m.Deps.FindExistingWorkspace != nil {
+			p.existingDir = m.Deps.FindExistingWorkspace(v.Tk.SourceID)
 		}
 		// Auto-advance: the user already committed by pressing Enter
 		// on a row. Forcing them to press Enter again to step past a
@@ -177,7 +177,7 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		// User is advancing past Ticket. We must update the model's
 		// shared ticket state SYNCHRONOUSLY here — `wizard.advance()`
 		// fires the next page's `InitCmd` immediately after this
-		// returns, and that InitCmd reads `m.ticketID` to decide
+		// returns, and that InitCmd reads `m.TicketID` to decide
 		// whether to fire the LLM detect call. If we deferred the
 		// state update via a cmd (TicketCommittedMsg), the Repos
 		// page's InitCmd would see an empty ticketID and short-circuit
@@ -187,28 +187,28 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 			return p, nil
 		}
 		tk := p.fetchedTk
-		if tk.SourceID != m.ticketID {
-			delete(m.llmCache, m.ticketID)
-			delete(m.summaryCache, m.ticketID)
-			m.chosen = nil
-			m.cloneInclude = make(map[string]bool)
+		if tk.SourceID != m.TicketID {
+			delete(m.LLMCache, m.TicketID)
+			delete(m.SummaryCache, m.TicketID)
+			m.Chosen = nil
+			m.CloneInclude = make(map[string]bool)
 		}
-		m.ticket = tk
-		m.ticketID = tk.SourceID
+		m.Ticket = tk
+		m.TicketID = tk.SourceID
 		if p.existingDir != "" {
-			// Reuse path: set the final result synchronously and ask
-			// the program to quit. advance() inspects m.done before
+			// Reuse Path: set the final result synchronously and ask
+			// the program to quit. advance() inspects m.Done before
 			// bumping `active`, so we won't fire the Repos page's LLM
 			// detect cmd just to throw it away when the quit lands.
-			m.result.ReuseDir = p.existingDir
-			m.result.Ticket = tk
-			m.done = true
+			m.Result.ReuseDir = p.existingDir
+			m.Result.Ticket = tk
+			m.Done = true
 			return p, tea.Quit
 		}
 		// Still emit TicketCommittedMsg for observers (tests, future
 		// listeners). Wizard's handler is a no-op once state is
 		// already current, so this stays safe.
-		return p, func() tea.Msg { return TicketCommittedMsg{tk: tk} }
+		return p, func() tea.Msg { return TicketCommittedMsg{Tk: tk} }
 
 	case tea.KeyMsg:
 		// The wizard's global handler eats "esc", "ctrl+c", "left",
@@ -242,7 +242,7 @@ func (p *ticketPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 			p.fetchErr = nil
 			p.fetchedID = ""
 			p.fetchStartAt = time.Now()
-			id, err := m.deps.Src.Parse(row.tk.SourceID)
+			id, err := m.Deps.Src.Parse(row.tk.SourceID)
 			if err != nil {
 				p.fetching = false
 				p.fetchErr = err
@@ -306,7 +306,7 @@ func (p *ticketPage) View(m *Model) string {
 	if len(p.rows) == 0 {
 		// Preselected-ticket mode: no list to render, just the summary.
 		if p.fetchedID != "" {
-			b.WriteString(RenderTicketSummary(p.fetchedTk, m.summaryCache[m.ticketID]))
+			b.WriteString(RenderTicketSummary(p.fetchedTk, m.SummaryCache[m.TicketID]))
 			b.WriteString("\n  " + HintStyle.Render(
 				"ticket was supplied on the command line — → to continue") + "\n")
 			return Indent(b.String(), 2)

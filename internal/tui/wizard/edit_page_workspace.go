@@ -69,10 +69,10 @@ func (p *editWorkspacePage) InitCmd(m *Model) tea.Cmd {
 	if p.rows != nil || p.loadErr != nil {
 		return nil
 	}
-	root := m.editDeps.Cfg.WorkspaceRoot
+	root := m.EditDeps.Cfg.WorkspaceRoot
 	return func() tea.Msg {
 		ws, _, err := workspace.ListManaged(root)
-		return WorkspacesLoadedMsg{workspaces: ws, err: err}
+		return WorkspacesLoadedMsg{Workspaces: ws, Err: err}
 	}
 }
 
@@ -80,13 +80,13 @@ func (p *editWorkspacePage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	switch v := msg.(type) {
 	case WorkspacesLoadedMsg:
 		p.loading = false
-		if v.err != nil {
-			p.loadErr = v.err
+		if v.Err != nil {
+			p.loadErr = v.Err
 			return p, nil
 		}
-		p.rows = make([]editWorkspaceRow, len(v.workspaces))
-		p.haystack = make([]string, len(v.workspaces))
-		for i, ws := range v.workspaces {
+		p.rows = make([]editWorkspaceRow, len(v.Workspaces))
+		p.haystack = make([]string, len(v.Workspaces))
+		for i, ws := range v.Workspaces {
 			f := ws.Slug + " " + ws.State.TicketID + " " + ws.State.Branch
 			p.rows[i] = editWorkspaceRow{ws: ws, filter: f}
 			p.haystack[i] = f
@@ -100,16 +100,16 @@ func (p *editWorkspacePage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		}
 		// Update shared state SYNCHRONOUSLY here — wizard.advance()
 		// fires the Repos page's InitCmd immediately after this
-		// returns, and that InitCmd reads m.selectedWorkspace to
+		// returns, and that InitCmd reads m.SelectedWorkspace to
 		// build the locked-rows view. Deferring via a cmd would
 		// leave Repos staring at a nil workspace until the user
 		// went ← back and forward again (which was the
 		// reproducible "empty Repos page on first visit" bug).
-		m.selectedWorkspace = p.committed
+		m.SelectedWorkspace = p.committed
 		// Still emit WorkspaceCommittedMsg for observers / future
 		// listeners — the wizard's handler is a no-op once state
 		// is already current.
-		return p, func() tea.Msg { return WorkspaceCommittedMsg{ws: p.committed} }
+		return p, func() tea.Msg { return WorkspaceCommittedMsg{Ws: p.committed} }
 
 	case tea.KeyMsg:
 		switch v.String() {

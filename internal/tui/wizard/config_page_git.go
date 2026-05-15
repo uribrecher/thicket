@@ -48,13 +48,13 @@ func newConfigGitPage() *configGitPage {
 // late-bound config edits made by earlier pages still apply.
 func (p *configGitPage) InitCmd(m *Model) tea.Cmd {
 	if p.inputs[gitFieldReposRoot].Value() == "" {
-		p.inputs[gitFieldReposRoot].SetValue(m.configDeps.Cfg.ReposRoot)
+		p.inputs[gitFieldReposRoot].SetValue(m.ConfigDeps.Cfg.ReposRoot)
 	}
 	if p.inputs[gitFieldWorkspaceRoot].Value() == "" {
-		p.inputs[gitFieldWorkspaceRoot].SetValue(m.configDeps.Cfg.WorkspaceRoot)
+		p.inputs[gitFieldWorkspaceRoot].SetValue(m.ConfigDeps.Cfg.WorkspaceRoot)
 	}
 	if p.inputs[gitFieldOrgs].Value() == "" {
-		p.inputs[gitFieldOrgs].SetValue(strings.Join(m.configDeps.Cfg.GithubOrgs, ", "))
+		p.inputs[gitFieldOrgs].SetValue(strings.Join(m.ConfigDeps.Cfg.GithubOrgs, ", "))
 	}
 	p.inputs[p.focus].Focus()
 	return textinput.Blink
@@ -110,9 +110,9 @@ func (p *configGitPage) cycleFocus(d int) {
 // Called on Enter and on GoNextMsg so a back/forward dance preserves
 // the user's edits.
 func (p *configGitPage) commit(m *Model) {
-	m.configDeps.Cfg.ReposRoot = strings.TrimSpace(p.inputs[gitFieldReposRoot].Value())
-	m.configDeps.Cfg.WorkspaceRoot = strings.TrimSpace(p.inputs[gitFieldWorkspaceRoot].Value())
-	m.configDeps.Cfg.GithubOrgs = splitOrgs(p.inputs[gitFieldOrgs].Value())
+	m.ConfigDeps.Cfg.ReposRoot = strings.TrimSpace(p.inputs[gitFieldReposRoot].Value())
+	m.ConfigDeps.Cfg.WorkspaceRoot = strings.TrimSpace(p.inputs[gitFieldWorkspaceRoot].Value())
+	m.ConfigDeps.Cfg.GithubOrgs = splitOrgs(p.inputs[gitFieldOrgs].Value())
 }
 
 func splitOrgs(s string) []string {

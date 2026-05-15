@@ -61,7 +61,7 @@ func (p *configAgentPage) InitCmd(m *Model) tea.Cmd {
 	if !p.seeded {
 		_, err := exec.LookPath("claude")
 		p.claudeOnPath = err == nil
-		switch m.configDeps.Cfg.ClaudeBackend {
+		switch m.ConfigDeps.Cfg.ClaudeBackend {
 		case agentBackendAPI:
 			p.backendIdx = 1
 		case agentBackendCLI:
@@ -74,9 +74,9 @@ func (p *configAgentPage) InitCmd(m *Model) tea.Cmd {
 			}
 		}
 		p.apiKeyInEnv = os.Getenv("ANTHROPIC_API_KEY") != ""
-		p.picker.preseed(m.configDeps.Cfg.Passwords.Manager, m.configDeps.Cfg.Passwords.AnthropicKeyRef)
+		p.picker.preseed(m.ConfigDeps.Cfg.Passwords.Manager, m.ConfigDeps.Cfg.Passwords.AnthropicKeyRef)
 		if p.picker.state == stateValidated {
-			p.picker.chosenAccount = m.configDeps.Cfg.Passwords.AnthropicKeyAccount
+			p.picker.chosenAccount = m.ConfigDeps.Cfg.Passwords.AnthropicKeyAccount
 		}
 		p.seeded = true
 	}
@@ -147,7 +147,7 @@ func (p *configAgentPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 }
 
 func (p *configAgentPage) commit(m *Model) {
-	cfg := m.configDeps.Cfg
+	cfg := m.ConfigDeps.Cfg
 	cfg.ClaudeBackend = p.backendCurrent()
 	if p.pickerVisible() && p.picker.validated() {
 		cfg.Passwords.Manager = p.picker.finalManager()

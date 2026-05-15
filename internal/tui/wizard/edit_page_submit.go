@@ -17,7 +17,7 @@ import (
 )
 
 // editSubmitPage is the third page of the edit wizard: build an
-// AddPlan from m.additions + m.selectedWorkspace, show the user what
+// AddPlan from m.Additions + m.SelectedWorkspace, show the user what
 // will be cloned and what worktrees will be attached, then run the
 // clones in-page. workspace.Add itself runs AFTER the wizard exits
 // (in cmd/thicket/edit.go), mirroring start's post-wizard
@@ -70,10 +70,10 @@ func (p *editSubmitPage) Locked() bool { return p.creating }
 
 func (p *editSubmitPage) InitCmd(m *Model) tea.Cmd {
 	key := ""
-	if m.selectedWorkspace != nil {
-		key = m.selectedWorkspace.Slug
+	if m.SelectedWorkspace != nil {
+		key = m.SelectedWorkspace.Slug
 	}
-	key += fmt.Sprintf("|%d", len(m.additions))
+	key += fmt.Sprintf("|%d", len(m.Additions))
 	if p.builtForID != key {
 		p.cloneInclude = make(map[string]bool)
 		p.builtForID = key
@@ -85,26 +85,26 @@ func (p *editSubmitPage) InitCmd(m *Model) tea.Cmd {
 
 func buildEditPlanCmd(m *Model) tea.Cmd {
 	return func() tea.Msg {
-		ws := m.selectedWorkspace
+		ws := m.SelectedWorkspace
 		if ws == nil {
-			return EditPlanBuiltMsg{err: errors.New("no workspace selected")}
+			return EditPlanBuiltMsg{Err: errors.New("no workspace selected")}
 		}
 		branch := ws.State.Branch
 		// Probe BranchExists for additions that are already cloned;
 		// repos that still need cloning get assumed-create.
-		exist := make(map[string]bool, len(m.additions))
-		for _, r := range m.additions {
+		exist := make(map[string]bool, len(m.Additions))
+		for _, r := range m.Additions {
 			if r.LocalPath == "" {
 				continue
 			}
-			ok, err := m.editDeps.Git.BranchExists(r.LocalPath, branch)
+			ok, err := m.EditDeps.Git.BranchExists(r.LocalPath, branch)
 			if err != nil {
-				return EditPlanBuiltMsg{err: fmt.Errorf("check branch in %s: %w", r.Name, err)}
+				return EditPlanBuiltMsg{Err: fmt.Errorf("check branch in %s: %w", r.Name, err)}
 			}
 			exist[r.Name] = ok
 		}
 		var toClone []catalog.Repo
-		for _, r := range m.additions {
+		for _, r := range m.Additions {
 			if r.LocalPath == "" {
 				toClone = append(toClone, r)
 			}
@@ -113,11 +113,11 @@ func buildEditPlanCmd(m *Model) tea.Cmd {
 		// state. Sources for uncloned repos point at the expected
 		// post-clone target so the preview reads sensibly; the real
 		// LocalPath lands after clone.
-		newPlanRepos := make([]workspace.PlanRepo, 0, len(m.additions))
-		for _, r := range m.additions {
+		newPlanRepos := make([]workspace.PlanRepo, 0, len(m.Additions))
+		for _, r := range m.Additions {
 			src := r.LocalPath
 			if src == "" {
-				src = filepath.Join(m.editDeps.Cfg.ReposRoot, r.Name)
+				src = filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name)
 			}
 			wt := filepath.Join(ws.Path, r.Name)
 			newPlanRepos = append(newPlanRepos, workspace.PlanRepo{
@@ -129,7 +129,7 @@ func buildEditPlanCmd(m *Model) tea.Cmd {
 		}
 		// memory.Input is the FULL post-add repo set so the regen
 		// produces the right table.
-		memRepos := make([]memory.RepoEntry, 0, len(ws.State.Repos)+len(m.additions))
+		memRepos := make([]memory.RepoEntry, 0, len(ws.State.Repos)+len(m.Additions))
 		for _, r := range ws.State.Repos {
 			memRepos = append(memRepos, memory.RepoEntry{
 				Name:         r.Name,
@@ -141,7 +141,7 @@ func buildEditPlanCmd(m *Model) tea.Cmd {
 				// not load-bearing.
 			})
 		}
-		for _, r := range m.additions {
+		for _, r := range m.Additions {
 			memRepos = append(memRepos, memory.RepoEntry{
 				Name:          r.Name,
 				Branch:        branch,
@@ -163,29 +163,29 @@ func buildEditPlanCmd(m *Model) tea.Cmd {
 				// the ticket post-wizard.
 			},
 		}
-		return EditPlanBuiltMsg{addPlan: addPlan, toClone: toClone, branch: branch}
+		return EditPlanBuiltMsg{AddPlan: addPlan, ToClone: toClone, Branch: branch}
 	}
 }
 
 func (p *editSubmitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	switch v := msg.(type) {
 	case EditPlanBuiltMsg:
-		if v.err != nil {
-			p.buildErr = v.err
+		if v.Err != nil {
+			p.buildErr = v.Err
 			return p, nil
 		}
 		p.built = true
-		p.branch = v.branch
-		p.workspace = v.addPlan.WorkspaceDir
-		p.allRepos = append(p.allRepos[:0], m.additions...)
-		p.toClone = v.toClone
-		p.branchExist = make(map[string]bool, len(v.addPlan.NewRepos))
-		for _, r := range v.addPlan.NewRepos {
+		p.branch = v.Branch
+		p.workspace = v.AddPlan.WorkspaceDir
+		p.allRepos = append(p.allRepos[:0], m.Additions...)
+		p.toClone = v.ToClone
+		p.branchExist = make(map[string]bool, len(v.AddPlan.NewRepos))
+		for _, r := range v.AddPlan.NewRepos {
 			p.branchExist[r.Name] = r.BranchExists
 		}
 		// Stash the addPlan on the model so the post-wizard handler
 		// can read it without rebuilding.
-		m.editResult.AddPlan = v.addPlan
+		m.EditResult.AddPlan = v.AddPlan
 		for _, r := range p.toClone {
 			if _, ok := p.cloneInclude[r.Name]; !ok {
 				p.cloneInclude[r.Name] = true
@@ -200,22 +200,22 @@ func (p *editSubmitPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		return p, nil
 
 	case CloneStartedMsg:
-		if cs, ok := p.clones[v.name]; ok {
+		if cs, ok := p.clones[v.Name]; ok {
 			cs.started = time.Now()
 		}
 		return p, p.tickCmd()
 
 	case CloneDoneMsg:
-		cs, ok := p.clones[v.name]
+		cs, ok := p.clones[v.Name]
 		if !ok {
 			return p, nil
 		}
 		cs.done = true
-		cs.err = v.err
-		if v.err == nil {
+		cs.err = v.Err
+		if v.Err == nil {
 			for i := range p.allRepos {
-				if p.allRepos[i].Name == v.name {
-					p.allRepos[i].LocalPath = v.localPath
+				if p.allRepos[i].Name == v.Name {
+					p.allRepos[i].LocalPath = v.LocalPath
 					break
 				}
 			}
@@ -299,7 +299,7 @@ func (p *editSubmitPage) startCloneCmd(m *Model) tea.Cmd {
 			final = append(final, r)
 			pending = append(pending, r)
 		} else {
-			m.editResult.Skipped = append(m.editResult.Skipped, SkipReport{
+			m.EditResult.Skipped = append(m.EditResult.Skipped, SkipReport{
 				Name:   r.Name,
 				Reason: "deselected before add",
 			})
@@ -319,22 +319,22 @@ func (p *editSubmitPage) startCloneCmd(m *Model) tea.Cmd {
 	}
 	cmds := make([]tea.Cmd, 0, 2*len(pending))
 	for _, r := range pending {
-		target := filepath.Join(m.editDeps.Cfg.ReposRoot, r.Name)
+		target := filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name)
 		cs := &cloneState{name: r.Name, cloneURL: r.CloneURL, targetDir: target}
 		p.clones[r.Name] = cs
 		p.cloneOrd = append(p.cloneOrd, r.Name)
 		started := func(name string) tea.Cmd {
-			return func() tea.Msg { return CloneStartedMsg{name: name} }
+			return func() tea.Msg { return CloneStartedMsg{Name: name} }
 		}(r.Name)
 		clone := func(name, url, dir string) tea.Cmd {
 			return func() tea.Msg {
 				var buf bytes.Buffer
-				err := m.editDeps.Git.Clone(url, dir, &buf, &buf)
+				err := m.EditDeps.Git.Clone(url, dir, &buf, &buf)
 				out := strings.TrimSpace(buf.String())
 				if err != nil {
-					return CloneDoneMsg{name: name, err: fmt.Errorf("%s: %w (git output: %s)", name, err, Truncate(out, 200))}
+					return CloneDoneMsg{Name: name, Err: fmt.Errorf("%s: %w (git output: %s)", name, err, Truncate(out, 200))}
 				}
-				return CloneDoneMsg{name: name, localPath: dir}
+				return CloneDoneMsg{Name: name, LocalPath: dir}
 			}
 		}(r.Name, r.CloneURL, target)
 		cmds = append(cmds, started, clone)
@@ -349,7 +349,7 @@ func (p *editSubmitPage) finalizeCmd(m *Model) tea.Cmd {
 		var kept []catalog.Repo
 		for _, r := range p.allRepos {
 			if cs, ok := p.clones[r.Name]; ok && cs.err != nil {
-				m.editResult.Skipped = append(m.editResult.Skipped, SkipReport{
+				m.EditResult.Skipped = append(m.EditResult.Skipped, SkipReport{
 					Name:   r.Name,
 					Reason: cs.err.Error(),
 				})
@@ -358,20 +358,20 @@ func (p *editSubmitPage) finalizeCmd(m *Model) tea.Cmd {
 			kept = append(kept, r)
 		}
 		if len(kept) == 0 {
-			return EditDoneMsg{err: errors.New("every add failed — nothing to attach")}
+			return EditDoneMsg{Err: errors.New("every add failed — nothing to attach")}
 		}
 		// Re-probe BranchExists for newly-cloned repos.
 		newPlanRepos := make([]workspace.PlanRepo, 0, len(kept))
 		for _, r := range kept {
 			src := r.LocalPath
 			if src == "" {
-				src = filepath.Join(m.editDeps.Cfg.ReposRoot, r.Name)
+				src = filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name)
 			}
 			exists := p.branchExist[r.Name]
 			if cs, ok := p.clones[r.Name]; ok && cs.err == nil {
-				e, err := m.editDeps.Git.BranchExists(src, p.branch)
+				e, err := m.EditDeps.Git.BranchExists(src, p.branch)
 				if err != nil {
-					return EditDoneMsg{err: fmt.Errorf("check branch in %s after clone: %w", r.Name, err)}
+					return EditDoneMsg{Err: fmt.Errorf("check branch in %s after clone: %w", r.Name, err)}
 				}
 				exists = e
 			}
@@ -384,7 +384,7 @@ func (p *editSubmitPage) finalizeCmd(m *Model) tea.Cmd {
 			})
 		}
 		// Update memRepos to match the kept set + the existing workspace repos.
-		ws := m.selectedWorkspace
+		ws := m.SelectedWorkspace
 		memRepos := make([]memory.RepoEntry, 0, len(ws.State.Repos)+len(kept))
 		for _, r := range ws.State.Repos {
 			memRepos = append(memRepos, memory.RepoEntry{
@@ -403,13 +403,13 @@ func (p *editSubmitPage) finalizeCmd(m *Model) tea.Cmd {
 		}
 		// Carry forward the ticket-context fields from the partially-
 		// built plan (filled by the caller after the wizard exits).
-		addPlan := m.editResult.AddPlan
+		addPlan := m.EditResult.AddPlan
 		addPlan.NewRepos = newPlanRepos
 		addPlan.Memory.Repos = memRepos
 		_ = context.Background // imported elsewhere; placeholder keeps import set stable
-		return EditDoneMsg{result: EditResult{
+		return EditDoneMsg{Result: EditResult{
 			AddPlan: addPlan,
-			Skipped: m.editResult.Skipped,
+			Skipped: m.EditResult.Skipped,
 		}}
 	}
 }
@@ -419,8 +419,8 @@ func (p *editSubmitPage) View(m *Model) string {
 	b.WriteString(TitleStyle.Render("Review and add to workspace"))
 	b.WriteString("\n\n")
 
-	if m.selectedWorkspace != nil {
-		b.WriteString(renderEditWorkspaceSummary(*m.selectedWorkspace))
+	if m.SelectedWorkspace != nil {
+		b.WriteString(renderEditWorkspaceSummary(*m.SelectedWorkspace))
 		b.WriteString("\n")
 	}
 
@@ -443,13 +443,13 @@ func (p *editSubmitPage) View(m *Model) string {
 			cursor := " "
 			line := fmt.Sprintf("%s  %s %-32s → %s",
 				cursor, check, r.Name,
-				AbbrevHome(filepath.Join(m.editDeps.Cfg.ReposRoot, r.Name)))
+				AbbrevHome(filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name)))
 			if !p.focusBtn && i == p.cursor {
 				cursor = CursorStyle.Render("▶")
 				line = fmt.Sprintf("%s  %s %s",
 					cursor,
 					CursorStyle.Render(check+" "+PadRight(r.Name, 32)),
-					DimStyle.Render("→ "+AbbrevHome(filepath.Join(m.editDeps.Cfg.ReposRoot, r.Name))))
+					DimStyle.Render("→ "+AbbrevHome(filepath.Join(m.EditDeps.Cfg.ReposRoot, r.Name))))
 			}
 			b.WriteString("  " + line + "\n")
 		}
@@ -461,7 +461,7 @@ func (p *editSubmitPage) View(m *Model) string {
 		if len(toClone) > 0 {
 			b.WriteString("  " + PlanHeaderStyle.Render(
 				fmt.Sprintf("The following repos will be cloned into %s:",
-					AbbrevHome(m.editDeps.Cfg.ReposRoot))) + "\n")
+					AbbrevHome(m.EditDeps.Cfg.ReposRoot))) + "\n")
 			for _, r := range toClone {
 				b.WriteString(fmt.Sprintf("      • %s\n", r.Name))
 			}

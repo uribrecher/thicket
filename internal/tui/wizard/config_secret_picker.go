@@ -246,29 +246,29 @@ func (sp *secretPicker) update(m *Model, msg tea.Msg) tea.Cmd {
 	// generation.
 	switch v := msg.(type) {
 	case OpAccountsLoadedMsg:
-		if v.pickerID != sp.id || sp.state != stateOpLoadingAccounts {
+		if v.PickerID != sp.id || sp.state != stateOpLoadingAccounts {
 			return nil
 		}
 		return sp.onAccountsLoaded(m, v)
 	case OpItemsLoadedMsg:
-		if v.pickerID != sp.id || sp.state != stateOpLoadingItems {
+		if v.PickerID != sp.id || sp.state != stateOpLoadingItems {
 			return nil
 		}
 		return sp.onItemsLoaded(m, v)
 	case OpItemDetailLoadedMsg:
-		if v.pickerID != sp.id || sp.state != stateOpLoadingItemDetail {
+		if v.PickerID != sp.id || sp.state != stateOpLoadingItemDetail {
 			return nil
 		}
 		return sp.onItemDetailLoaded(v)
 	case SecretValidatedMsg:
-		if v.ref != sp.ref() || v.manager != sp.manager() || sp.state != stateTypedRef {
+		if v.Ref != sp.ref() || v.Manager != sp.manager() || sp.state != stateTypedRef {
 			return nil
 		}
 		sp.validating = false
-		sp.lastErr = v.err
-		if v.err == nil {
-			sp.chosenRef = v.ref
-			sp.chosenMgr = v.manager
+		sp.lastErr = v.Err
+		if v.Err == nil {
+			sp.chosenRef = v.Ref
+			sp.chosenMgr = v.Manager
 			sp.state = stateValidated
 		}
 		return nil
@@ -337,11 +337,11 @@ func (sp *secretPicker) routeKey(m *Model, k tea.KeyMsg) tea.Cmd {
 				sp.accountCursor--
 			}
 		case "down", "j":
-			if sp.accountCursor < len(m.configOpAccounts)-1 {
+			if sp.accountCursor < len(m.ConfigOpAccounts)-1 {
 				sp.accountCursor++
 			}
 		case "enter":
-			return sp.commitAccount(m, m.configOpAccounts[sp.accountCursor].AccountUUID)
+			return sp.commitAccount(m, m.ConfigOpAccounts[sp.accountCursor].AccountUUID)
 		}
 		return nil
 
@@ -361,7 +361,7 @@ func (sp *secretPicker) routeKey(m *Model, k tea.KeyMsg) tea.Cmd {
 			if sp.itemCursor >= len(sp.itemMatches) {
 				return nil
 			}
-			items := m.configOpItemCache[sp.chosenAccount]
+			items := m.ConfigOpItemCache[sp.chosenAccount]
 			chosen := items[sp.itemMatches[sp.itemCursor]]
 			return sp.commitItem(chosen)
 		}
@@ -397,7 +397,7 @@ func (sp *secretPicker) routeKey(m *Model, k tea.KeyMsg) tea.Cmd {
 
 	case stateTypedRef:
 		if k.String() == "enter" {
-			return sp.startTypedRefValidation(m.configDeps.Ctx)
+			return sp.startTypedRefValidation(m.ConfigDeps.Ctx)
 		}
 		// Forward to the input.
 		prev := sp.refInput.Value()
@@ -417,9 +417,9 @@ func (sp *secretPicker) routeKey(m *Model, k tea.KeyMsg) tea.Cmd {
 			switch k.String() {
 			case "y", "Y":
 				openSystemSettingsAppManagement()
-				m.configOpHintDismissed = true
+				m.ConfigOpHintDismissed = true
 			case "n", "N":
-				m.configOpHintDismissed = true
+				m.ConfigOpHintDismissed = true
 			}
 		}
 		return nil
@@ -436,7 +436,7 @@ func (sp *secretPicker) commitManager(m *Model) tea.Cmd {
 		sp.walked1P = true
 		// Reuse cached accounts when available (e.g. the user already
 		// walked the picker on the Tickets page and is now on Agent).
-		if len(m.configOpAccounts) > 0 {
+		if len(m.ConfigOpAccounts) > 0 {
 			return sp.enterAccountPick(m)
 		}
 		sp.state = stateOpLoadingAccounts
@@ -458,12 +458,12 @@ func (sp *secretPicker) commitManager(m *Model) tea.Cmd {
 
 func (sp *secretPicker) enterAccountPick(m *Model) tea.Cmd {
 	// Single-account shortcut: skip the picker.
-	if len(m.configOpAccounts) == 1 {
-		return sp.commitAccount(m, m.configOpAccounts[0].AccountUUID)
+	if len(m.ConfigOpAccounts) == 1 {
+		return sp.commitAccount(m, m.ConfigOpAccounts[0].AccountUUID)
 	}
 	sp.state = stateOpPickAccount
 	// Default cursor to a previously-chosen account when one exists.
-	for i, a := range m.configOpAccounts {
+	for i, a := range m.ConfigOpAccounts {
 		if a.AccountUUID == sp.chosenAccount {
 			sp.accountCursor = i
 			return nil
@@ -474,24 +474,24 @@ func (sp *secretPicker) enterAccountPick(m *Model) tea.Cmd {
 }
 
 func (sp *secretPicker) onAccountsLoaded(m *Model, msg OpAccountsLoadedMsg) tea.Cmd {
-	if msg.err != nil {
-		sp.lastErr = msg.err
+	if msg.Err != nil {
+		sp.lastErr = msg.Err
 		sp.state = stateManager
 		return nil
 	}
-	if len(msg.accounts) == 0 {
+	if len(msg.Accounts) == 0 {
 		sp.lastErr = fmt.Errorf("no 1Password accounts signed in — run `op signin` first")
 		sp.state = stateManager
 		return nil
 	}
-	m.configOpAccounts = msg.accounts
+	m.ConfigOpAccounts = msg.Accounts
 	return sp.enterAccountPick(m)
 }
 
 func (sp *secretPicker) commitAccount(m *Model, account string) tea.Cmd {
 	sp.chosenAccount = account
 	// Cache hit: skip the load.
-	if items, ok := m.configOpItemCache[account]; ok && len(items) > 0 {
+	if items, ok := m.ConfigOpItemCache[account]; ok && len(items) > 0 {
 		return sp.enterItemPick(m, items)
 	}
 	sp.state = stateOpLoadingItems
@@ -500,22 +500,22 @@ func (sp *secretPicker) commitAccount(m *Model, account string) tea.Cmd {
 }
 
 func (sp *secretPicker) onItemsLoaded(m *Model, msg OpItemsLoadedMsg) tea.Cmd {
-	if msg.err != nil {
-		sp.lastErr = msg.err
+	if msg.Err != nil {
+		sp.lastErr = msg.Err
 		sp.state = stateOpPickAccount
 		return nil
 	}
-	if msg.account != sp.chosenAccount {
+	if msg.Account != sp.chosenAccount {
 		// Stale load — drop.
 		return nil
 	}
-	if len(msg.items) == 0 {
+	if len(msg.Items) == 0 {
 		sp.lastErr = fmt.Errorf("no 1Password items visible to this account")
 		sp.state = stateOpPickAccount
 		return nil
 	}
-	m.configOpItemCache[msg.account] = msg.items
-	return sp.enterItemPick(m, msg.items)
+	m.ConfigOpItemCache[msg.Account] = msg.Items
+	return sp.enterItemPick(m, msg.Items)
 }
 
 func (sp *secretPicker) enterItemPick(m *Model, items []secrets.OnePasswordItem) tea.Cmd {
@@ -532,11 +532,11 @@ func (sp *secretPicker) enterItemPick(m *Model, items []secrets.OnePasswordItem)
 // before fuzzy matching so the most likely candidates surface first
 // when the user hasn't typed a filter yet.
 func (sp *secretPicker) recomputeItemMatches(m *Model) {
-	items := m.configOpItemCache[sp.chosenAccount]
+	items := m.ConfigOpItemCache[sp.chosenAccount]
 	sorted := sortedItems(items)
 	// Replace the cache with the sorted copy so cursor indices line up
 	// with the same order the View renders.
-	m.configOpItemCache[sp.chosenAccount] = sorted
+	m.ConfigOpItemCache[sp.chosenAccount] = sorted
 	q := strings.TrimSpace(sp.itemInput.Value())
 	sp.itemMatches = sp.itemMatches[:0]
 	if q == "" {
@@ -572,20 +572,20 @@ func (sp *secretPicker) commitItem(it secrets.OnePasswordItem) tea.Cmd {
 }
 
 func (sp *secretPicker) onItemDetailLoaded(msg OpItemDetailLoadedMsg) tea.Cmd {
-	if msg.err != nil {
-		sp.lastErr = msg.err
+	if msg.Err != nil {
+		sp.lastErr = msg.Err
 		sp.state = stateOpPickItem
 		return nil
 	}
-	if msg.detail == nil || len(msg.detail.Fields) == 0 {
+	if msg.Detail == nil || len(msg.Detail.Fields) == 0 {
 		sp.lastErr = fmt.Errorf("item has no fields")
 		sp.state = stateOpPickItem
 		return nil
 	}
-	sp.itemDetail = msg.detail
+	sp.itemDetail = msg.Detail
 	sp.fieldOptions = sp.fieldOptions[:0]
 	defaultIdx := -1
-	for _, f := range msg.detail.Fields {
+	for _, f := range msg.Detail.Fields {
 		if f.Reference == "" {
 			continue
 		}
@@ -600,7 +600,7 @@ func (sp *secretPicker) onItemDetailLoaded(msg OpItemDetailLoadedMsg) tea.Cmd {
 		}
 	}
 	if len(sp.fieldOptions) == 0 {
-		sp.lastErr = fmt.Errorf("item %q exposes no referenceable fields", msg.detail.Title)
+		sp.lastErr = fmt.Errorf("item %q exposes no referenceable fields", msg.Detail.Title)
 		sp.state = stateOpPickItem
 		return nil
 	}
@@ -631,7 +631,7 @@ func (sp *secretPicker) stepBack(m *Model) tea.Cmd {
 		sp.lastErr = nil
 		return nil
 	case stateOpLoadingItems, stateOpPickItem:
-		if len(m.configOpAccounts) > 1 {
+		if len(m.ConfigOpAccounts) > 1 {
 			sp.state = stateOpPickAccount
 		} else {
 			sp.state = stateManager
@@ -640,7 +640,7 @@ func (sp *secretPicker) stepBack(m *Model) tea.Cmd {
 		return nil
 	case stateOpLoadingItemDetail, stateOpPickField:
 		// Re-enter the item picker with the cached items.
-		items := m.configOpItemCache[sp.chosenAccount]
+		items := m.ConfigOpItemCache[sp.chosenAccount]
 		if len(items) == 0 {
 			sp.state = stateManager
 			return nil
@@ -652,7 +652,7 @@ func (sp *secretPicker) stepBack(m *Model) tea.Cmd {
 		case "1password":
 			if len(sp.fieldOptions) > 1 {
 				sp.state = stateOpPickField
-			} else if items := m.configOpItemCache[sp.chosenAccount]; len(items) > 0 {
+			} else if items := m.ConfigOpItemCache[sp.chosenAccount]; len(items) > 0 {
 				return sp.enterItemPick(m, items)
 			} else {
 				sp.state = stateManager
@@ -680,21 +680,21 @@ func (sp *secretPicker) startTypedRefValidation(ctx context.Context) tea.Cmd {
 		if mgrName == "env" {
 			if !looksLikeEnvVarName(ref) {
 				return SecretValidatedMsg{
-					ref:     ref,
-					manager: mgrName,
-					err:     fmt.Errorf("env-var name must match [A-Z_][A-Z0-9_]* (uppercase, underscores)"),
+					Ref:     ref,
+					Manager: mgrName,
+					Err:     fmt.Errorf("env-var name must match [A-Z_][A-Z0-9_]* (uppercase, underscores)"),
 				}
 			}
-			return SecretValidatedMsg{ref: ref, manager: mgrName}
+			return SecretValidatedMsg{Ref: ref, Manager: mgrName}
 		}
 		mgr, err := secrets.New(mgrName)
 		if err != nil {
-			return SecretValidatedMsg{ref: ref, manager: mgrName, err: err}
+			return SecretValidatedMsg{Ref: ref, Manager: mgrName, Err: err}
 		}
 		if _, err := mgr.Get(ctx, ref); err != nil {
-			return SecretValidatedMsg{ref: ref, manager: mgrName, err: err}
+			return SecretValidatedMsg{Ref: ref, Manager: mgrName, Err: err}
 		}
-		return SecretValidatedMsg{ref: ref, manager: mgrName}
+		return SecretValidatedMsg{Ref: ref, Manager: mgrName}
 	}
 }
 
@@ -746,7 +746,7 @@ func (sp *secretPicker) view(m *Model) string {
 		b.WriteString("  " + HintStyle.Render(fmt.Sprintf("loading 1Password accounts… %ds", secs)) + "\n")
 	case stateOpPickAccount:
 		b.WriteString("  " + SectionStyle.Render("Pick a 1Password account") + "\n")
-		for i, a := range m.configOpAccounts {
+		for i, a := range m.ConfigOpAccounts {
 			marker := "  "
 			style := DimStyle
 			if i == sp.accountCursor {
@@ -761,7 +761,7 @@ func (sp *secretPicker) view(m *Model) string {
 			"loading 1Password items for %s… %ds  (may prompt for biometric auth)",
 			abbrevAccount(m, sp.chosenAccount), secs)) + "\n")
 	case stateOpPickItem:
-		items := m.configOpItemCache[sp.chosenAccount]
+		items := m.ConfigOpItemCache[sp.chosenAccount]
 		b.WriteString("  " + SectionStyle.Render(fmt.Sprintf("Pick the item for %s", sp.secretLabel)) + "\n")
 		b.WriteString("  " + sp.itemInput.View() + "\n")
 		q := strings.TrimSpace(sp.itemInput.Value())
@@ -866,7 +866,7 @@ func (sp *secretPicker) view(m *Model) string {
 // abbrevAccount returns "<email> (<url>)" for the given UUID, or the
 // UUID itself if we don't have it cached.
 func abbrevAccount(m *Model, uuid string) string {
-	for _, a := range m.configOpAccounts {
+	for _, a := range m.ConfigOpAccounts {
 		if a.AccountUUID == uuid {
 			return fmt.Sprintf("%s (%s)", a.Email, a.URL)
 		}
@@ -879,7 +879,7 @@ func abbrevAccount(m *Model, uuid string) string {
 func loadOpAccountsCmd(pickerID int) tea.Cmd {
 	return func() tea.Msg {
 		accs, err := secrets.ListOnePasswordAccounts(context.Background())
-		return OpAccountsLoadedMsg{pickerID: pickerID, accounts: accs, err: err}
+		return OpAccountsLoadedMsg{PickerID: pickerID, Accounts: accs, Err: err}
 	}
 }
 
@@ -887,7 +887,7 @@ func loadOpItemsCmd(pickerID int, account string) tea.Cmd {
 	return func() tea.Msg {
 		op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
 		items, err := op.ListItems(context.Background())
-		return OpItemsLoadedMsg{pickerID: pickerID, account: account, items: items, err: err}
+		return OpItemsLoadedMsg{PickerID: pickerID, Account: account, Items: items, Err: err}
 	}
 }
 
@@ -895,7 +895,7 @@ func loadOpItemDetailCmd(pickerID int, account, itemID string) tea.Cmd {
 	return func() tea.Msg {
 		op := &secrets.OnePassword{Runner: secrets.DefaultRunner{}, Account: account}
 		detail, err := op.GetItem(context.Background(), itemID)
-		return OpItemDetailLoadedMsg{pickerID: pickerID, itemID: itemID, detail: detail, err: err}
+		return OpItemDetailLoadedMsg{PickerID: pickerID, ItemID: itemID, Detail: detail, Err: err}
 	}
 }
 
@@ -1018,7 +1018,7 @@ func (sp *secretPicker) shouldShowDarwinHint(m *Model) bool {
 	if sp.chosenMgr != "1password" {
 		return false
 	}
-	return !m.configOpHintDismissed
+	return !m.ConfigOpHintDismissed
 }
 
 // openSystemSettingsAppManagement launches the macOS System Settings

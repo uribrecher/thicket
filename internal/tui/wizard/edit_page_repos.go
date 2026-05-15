@@ -62,10 +62,10 @@ func (p *editReposPage) Hints() string {
 func (p *editReposPage) Complete() bool { return len(p.selectedOrder) > 0 }
 
 func (p *editReposPage) InitCmd(m *Model) tea.Cmd {
-	if m.selectedWorkspace == nil {
+	if m.SelectedWorkspace == nil {
 		return nil
 	}
-	slug := m.selectedWorkspace.Slug
+	slug := m.SelectedWorkspace.Slug
 	if p.loadedForID == slug {
 		return nil
 	}
@@ -76,7 +76,7 @@ func (p *editReposPage) InitCmd(m *Model) tea.Cmd {
 }
 
 func (p *editReposPage) resetFor(m *Model) {
-	p.repos = m.editDeps.Repos
+	p.repos = m.EditDeps.Repos
 	p.names = make([]string, 0, len(p.repos))
 	p.nameSet = make(map[string]bool, len(p.repos))
 	p.descByName = make(map[string]string, len(p.repos))
@@ -86,14 +86,14 @@ func (p *editReposPage) resetFor(m *Model) {
 		p.descByName[r.Name] = r.Description
 	}
 	p.locked = make(map[string]bool)
-	for _, r := range m.selectedWorkspace.State.Repos {
+	for _, r := range m.SelectedWorkspace.State.Repos {
 		p.locked[r.Name] = true
 	}
 	// Carry forward additions if the user navigated back & forward
-	// (m.additions is the wizard-shared store).
-	p.selected = make(map[string]bool, len(m.additions))
+	// (m.Additions is the wizard-shared store).
+	p.selected = make(map[string]bool, len(m.Additions))
 	p.selectedOrder = p.selectedOrder[:0]
-	for _, r := range m.additions {
+	for _, r := range m.Additions {
 		if !p.locked[r.Name] && p.nameSet[r.Name] {
 			p.selected[r.Name] = true
 			p.selectedOrder = append(p.selectedOrder, r.Name)
@@ -117,12 +117,12 @@ func (p *editReposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 				chosen = append(chosen, r)
 			}
 		}
-		// Update m.additions synchronously — same reason as the start
+		// Update m.Additions synchronously — same reason as the start
 		// flow's Repos page: the wizard's advance() fires the Submit
 		// page's InitCmd immediately after this returns, and that
-		// InitCmd reads m.additions.
-		m.additions = append(m.additions[:0], chosen...)
-		return p, func() tea.Msg { return AdditionsCommittedMsg{additions: chosen} }
+		// InitCmd reads m.Additions.
+		m.Additions = append(m.Additions[:0], chosen...)
+		return p, func() tea.Msg { return AdditionsCommittedMsg{Additions: chosen} }
 
 	case tea.KeyMsg:
 		switch v.String() {
@@ -216,8 +216,8 @@ func (p *editReposPage) View(m *Model) string {
 	b.WriteString(TitleStyle.Render("Add repos to this workspace"))
 	b.WriteString("\n\n")
 
-	if m.selectedWorkspace != nil {
-		b.WriteString(renderEditWorkspaceSummary(*m.selectedWorkspace))
+	if m.SelectedWorkspace != nil {
+		b.WriteString(renderEditWorkspaceSummary(*m.SelectedWorkspace))
 		b.WriteString("\n")
 	}
 

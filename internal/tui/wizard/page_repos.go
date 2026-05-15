@@ -102,15 +102,15 @@ func (p *reposPage) Complete() bool { return len(p.selectedOrder) > 0 }
 // usable) and fires the LLM detect cmd if we don't already have picks
 // cached for this ticket.
 func (p *reposPage) InitCmd(m *Model) tea.Cmd {
-	if m.ticketID == "" {
+	if m.TicketID == "" {
 		return nil
 	}
-	if p.loadedForID == m.ticketID {
+	if p.loadedForID == m.TicketID {
 		return nil
 	}
 	p.resetForNewTicket()
 	p.seedCatalog(m)
-	p.loadedForID = m.ticketID
+	p.loadedForID = m.TicketID
 	p.recompute()
 
 	// Fire the summarize cmd unconditionally (when wired + uncached) —
@@ -118,13 +118,13 @@ func (p *reposPage) InitCmd(m *Model) tea.Cmd {
 	// summary cache or arrived via a different path. Cheap to skip
 	// when already present.
 	cmds := []tea.Cmd{}
-	if m.deps.Summarize != nil {
-		if _, ok := m.summaryCache[m.ticketID]; !ok {
+	if m.Deps.Summarize != nil {
+		if _, ok := m.SummaryCache[m.TicketID]; !ok {
 			cmds = append(cmds, summarizeCmd(m))
 		}
 	}
 
-	if cached, ok := m.llmCache[m.ticketID]; ok {
+	if cached, ok := m.LLMCache[m.TicketID]; ok {
 		p.setLLMPicks(cached)
 		if len(cmds) == 0 {
 			return nil
@@ -157,11 +157,11 @@ func (p *reposPage) resetForNewTicket() {
 	p.input.SetValue("")
 }
 
-// seedCatalog populates name lookup tables from m.deps.Repos and
+// seedCatalog populates name lookup tables from m.Deps.Repos and
 // restores any selection the user already had (from a prior Plan-page
 // trip + ← back). LLM picks are populated separately via setLLMPicks.
 func (p *reposPage) seedCatalog(m *Model) {
-	p.repos = m.deps.Repos
+	p.repos = m.Deps.Repos
 	p.names = make([]string, 0, len(p.repos))
 	p.nameSet = make(map[string]bool, len(p.repos))
 	p.descByName = make(map[string]string, len(p.repos))
@@ -172,7 +172,7 @@ func (p *reposPage) seedCatalog(m *Model) {
 	}
 	// If the wizard already has a selection for this ticket (user
 	// went forward to Plan and came back), restore it.
-	for _, r := range m.chosen {
+	for _, r := range m.Chosen {
 		if p.nameSet[r.Name] && !p.selected[r.Name] {
 			p.selected[r.Name] = true
 			p.selectedOrder = append(p.selectedOrder, r.Name)
@@ -212,15 +212,15 @@ func (p *reposPage) setLLMPicks(picks []detector.RepoMatch) {
 }
 
 func detectCmd(m *Model) tea.Cmd {
-	tk := m.ticket
-	id := m.ticketID
+	tk := m.Ticket
+	id := m.TicketID
 	return func() tea.Msg {
-		ctx := m.deps.Ctx
+		ctx := m.Deps.Ctx
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		picks, err := m.deps.Detect(ctx, tk, m.deps.Repos)
-		return PicksLoadedMsg{ticketID: id, picks: picks, err: err}
+		picks, err := m.Deps.Detect(ctx, tk, m.Deps.Repos)
+		return PicksLoadedMsg{TicketID: id, Picks: picks, Err: err}
 	}
 }
 
@@ -228,30 +228,30 @@ func detectCmd(m *Model) tea.Cmd {
 // ticket. Failures aren't fatal — the renderer silently falls back to
 // the first-N-lines view.
 func summarizeCmd(m *Model) tea.Cmd {
-	tk := m.ticket
-	id := m.ticketID
+	tk := m.Ticket
+	id := m.TicketID
 	return func() tea.Msg {
-		ctx := m.deps.Ctx
+		ctx := m.Deps.Ctx
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		lines, err := m.deps.Summarize(ctx, tk)
-		return SummarizedMsg{ticketID: id, lines: lines, err: err}
+		lines, err := m.Deps.Summarize(ctx, tk)
+		return SummarizedMsg{TicketID: id, Lines: lines, Err: err}
 	}
 }
 
 func (p *reposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	switch v := msg.(type) {
 	case PicksLoadedMsg:
-		if v.ticketID != m.ticketID {
+		if v.TicketID != m.TicketID {
 			return p, nil // stale msg from a previous ticket
 		}
 		p.loading = false
-		if v.err != nil {
-			p.loadErr = v.err
+		if v.Err != nil {
+			p.loadErr = v.Err
 			return p, nil
 		}
-		p.setLLMPicks(v.picks)
+		p.setLLMPicks(v.Picks)
 		return p, nil
 
 	case spinner.TickMsg:
@@ -275,16 +275,16 @@ func (p *reposPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 				chosen = append(chosen, r)
 			}
 		}
-		// Update m.chosen synchronously here — same reason as the
+		// Update m.Chosen synchronously here — same reason as the
 		// Ticket page's commit: the wizard's advance() fires the
 		// Plan page's InitCmd IMMEDIATELY after this returns, and
-		// InitCmd reads m.chosen to decide whether to rebuild the
+		// InitCmd reads m.Chosen to decide whether to rebuild the
 		// plan. If we only emitted ReposCommittedMsg as a deferred
-		// cmd, InitCmd would see the OLD m.chosen and either keep
+		// cmd, InitCmd would see the OLD m.Chosen and either keep
 		// the stale plan (if the count happened to match) or rebuild
 		// against outdated repos.
-		m.chosen = append(m.chosen[:0], chosen...)
-		return p, func() tea.Msg { return ReposCommittedMsg{chosen: chosen} }
+		m.Chosen = append(m.Chosen[:0], chosen...)
+		return p, func() tea.Msg { return ReposCommittedMsg{Chosen: chosen} }
 
 	case tea.KeyMsg:
 		switch v.String() {
@@ -413,7 +413,7 @@ func (p *reposPage) View(m *Model) string {
 	b.WriteString("\n\n")
 
 	// Ticket summary directly under the title.
-	if s := RenderTicketSummary(m.ticket, m.summaryCache[m.ticketID]); s != "" {
+	if s := RenderTicketSummary(m.Ticket, m.SummaryCache[m.TicketID]); s != "" {
 		b.WriteString(s)
 		b.WriteString("\n")
 	}

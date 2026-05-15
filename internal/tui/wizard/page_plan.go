@@ -94,9 +94,9 @@ func (p *planPage) InitCmd(m *Model) tea.Cmd {
 	// Drop checkbox state when the ticket changed — a repo unchecked
 	// for ticket A would otherwise start unchecked for ticket B if
 	// both happen to need it cloned, which is surprising.
-	if p.builtForID != m.ticketID {
+	if p.builtForID != m.TicketID {
 		p.cloneInclude = make(map[string]bool)
-		p.builtForID = m.ticketID
+		p.builtForID = m.TicketID
 	}
 	p.built = false
 	p.buildErr = nil
@@ -105,29 +105,29 @@ func (p *planPage) InitCmd(m *Model) tea.Cmd {
 
 func buildPlanCmd(m *Model) tea.Cmd {
 	return func() tea.Msg {
-		branch := strings.TrimSpace(m.deps.Flags.Branch)
+		branch := strings.TrimSpace(m.Deps.Flags.Branch)
 		if branch == "" {
-			branch = m.deps.Src.BranchName(m.ticket)
+			branch = m.Deps.Src.BranchName(m.Ticket)
 		}
 		if branch == "" {
-			branch = workspace.Slug(m.ticket.SourceID, m.ticket.Title)
+			branch = workspace.Slug(m.Ticket.SourceID, m.Ticket.Title)
 		}
 		// BranchExists for already-cloned repos so the plan preview
 		// shows "checkout existing" vs "create branch" accurately.
 		// For un-cloned repos we can't probe yet — assume create.
-		exist := make(map[string]bool, len(m.chosen))
-		for _, r := range m.chosen {
+		exist := make(map[string]bool, len(m.Chosen))
+		for _, r := range m.Chosen {
 			if r.LocalPath == "" {
 				continue
 			}
-			ok, err := m.deps.Git.BranchExists(r.LocalPath, branch)
+			ok, err := m.Deps.Git.BranchExists(r.LocalPath, branch)
 			if err != nil {
-				return PlanBuiltMsg{err: fmt.Errorf("check branch in %s: %w", r.Name, err)}
+				return PlanBuiltMsg{Err: fmt.Errorf("check branch in %s: %w", r.Name, err)}
 			}
 			exist[r.Name] = ok
 		}
 		var toClone []catalog.Repo
-		for _, r := range m.chosen {
+		for _, r := range m.Chosen {
 			if r.LocalPath == "" {
 				toClone = append(toClone, r)
 			}
@@ -136,14 +136,14 @@ func buildPlanCmd(m *Model) tea.Cmd {
 		// final state. Repos without LocalPath get a would-be
 		// target so the preview's source path renders sensibly; the
 		// real LocalPath lands after clone.
-		slug := workspace.Slug(m.ticket.SourceID, m.ticket.Title)
-		wsDir := filepath.Join(m.deps.Cfg.WorkspaceRoot, slug)
-		planRepos := make([]workspace.PlanRepo, 0, len(m.chosen))
-		memRepos := make([]memory.RepoEntry, 0, len(m.chosen))
-		for _, r := range m.chosen {
+		slug := workspace.Slug(m.Ticket.SourceID, m.Ticket.Title)
+		wsDir := filepath.Join(m.Deps.Cfg.WorkspaceRoot, slug)
+		planRepos := make([]workspace.PlanRepo, 0, len(m.Chosen))
+		memRepos := make([]memory.RepoEntry, 0, len(m.Chosen))
+		for _, r := range m.Chosen {
 			src := r.LocalPath
 			if src == "" {
-				src = filepath.Join(m.deps.Cfg.ReposRoot, r.Name)
+				src = filepath.Join(m.Deps.Cfg.ReposRoot, r.Name)
 			}
 			wt := filepath.Join(wsDir, r.Name)
 			planRepos = append(planRepos, workspace.PlanRepo{
@@ -164,42 +164,42 @@ func buildPlanCmd(m *Model) tea.Cmd {
 			Branch:       branch,
 			Repos:        planRepos,
 			Memory: memory.Input{
-				TicketID:     m.ticket.SourceID,
-				Title:        m.ticket.Title,
-				URL:          m.ticket.URL,
-				State:        m.ticket.State,
-				Owner:        m.ticket.Owner,
-				Body:         m.ticket.Body,
+				TicketID:     m.Ticket.SourceID,
+				Title:        m.Ticket.Title,
+				URL:          m.Ticket.URL,
+				State:        m.Ticket.State,
+				Owner:        m.Ticket.Owner,
+				Body:         m.Ticket.Body,
 				Branch:       branch,
 				WorkspaceDir: wsDir,
 				Repos:        memRepos,
 				CreatedAt:    time.Now(),
 			},
 		}
-		return PlanBuiltMsg{plan: plan, toClone: toClone}
+		return PlanBuiltMsg{Plan: plan, ToClone: toClone}
 	}
 }
 
 func (p *planPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 	switch v := msg.(type) {
 	case PlanBuiltMsg:
-		if v.err != nil {
+		if v.Err != nil {
 			p.built = false
-			p.buildErr = v.err
+			p.buildErr = v.Err
 			return p, nil
 		}
 		p.built = true
 		p.buildErr = nil
-		p.branch = v.plan.Branch
-		p.workspace = v.plan.WorkspaceDir
-		p.allRepos = append(p.allRepos[:0], m.chosen...)
-		p.toClone = v.toClone
+		p.branch = v.Plan.Branch
+		p.workspace = v.Plan.WorkspaceDir
+		p.allRepos = append(p.allRepos[:0], m.Chosen...)
+		p.toClone = v.ToClone
 		// Persist the partial result on the model so the wizard's
 		// post-clone exit has the plan handy.
-		m.result.Plan = v.plan
+		m.Result.Plan = v.Plan
 		// Branch-exists map for in-place re-rendering.
-		p.branchExist = make(map[string]bool, len(v.plan.Repos))
-		for _, r := range v.plan.Repos {
+		p.branchExist = make(map[string]bool, len(v.Plan.Repos))
+		for _, r := range v.Plan.Repos {
 			p.branchExist[r.Name] = r.BranchExists
 		}
 		// Default every to-clone repo to checked; preserve any
@@ -220,24 +220,24 @@ func (p *planPage) Update(m *Model, msg tea.Msg) (Page, tea.Cmd) {
 		return p, nil
 
 	case CloneStartedMsg:
-		if cs, ok := p.clones[v.name]; ok {
+		if cs, ok := p.clones[v.Name]; ok {
 			cs.started = time.Now()
 		}
 		return p, p.tickCmd()
 
 	case CloneDoneMsg:
-		cs, ok := p.clones[v.name]
+		cs, ok := p.clones[v.Name]
 		if !ok {
 			return p, nil
 		}
 		cs.done = true
-		cs.err = v.err
-		if v.err == nil {
+		cs.err = v.Err
+		if v.Err == nil {
 			// Patch the corresponding allRepos entry with the new
 			// local path so the result reflects it.
 			for i := range p.allRepos {
-				if p.allRepos[i].Name == v.name {
-					p.allRepos[i].LocalPath = v.localPath
+				if p.allRepos[i].Name == v.Name {
+					p.allRepos[i].LocalPath = v.LocalPath
 					break
 				}
 			}
@@ -329,7 +329,7 @@ func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
 			pending = append(pending, r)
 		} else {
 			// Track this as an explicit user-skip for the summary.
-			m.result.Skipped = append(m.result.Skipped, SkipReport{
+			m.Result.Skipped = append(m.Result.Skipped, SkipReport{
 				Name:   r.Name,
 				Reason: "deselected before create",
 			})
@@ -350,24 +350,24 @@ func (p *planPage) startCloneCmd(m *Model) tea.Cmd {
 	}
 	cmds := make([]tea.Cmd, 0, 2*len(pending))
 	for _, r := range pending {
-		target := filepath.Join(m.deps.Cfg.ReposRoot, r.Name)
+		target := filepath.Join(m.Deps.Cfg.ReposRoot, r.Name)
 		cs := &cloneState{name: r.Name, cloneURL: r.CloneURL, targetDir: target}
 		p.clones[r.Name] = cs
 		p.cloneOrd = append(p.cloneOrd, r.Name)
 		// Send the started msg immediately so the UI flips to "cloning…"
 		// while the actual git call runs.
 		started := func(name string) tea.Cmd {
-			return func() tea.Msg { return CloneStartedMsg{name: name} }
+			return func() tea.Msg { return CloneStartedMsg{Name: name} }
 		}(r.Name)
 		clone := func(name, url, dir string) tea.Cmd {
 			return func() tea.Msg {
 				var buf bytes.Buffer
-				err := m.deps.Git.Clone(url, dir, &buf, &buf)
+				err := m.Deps.Git.Clone(url, dir, &buf, &buf)
 				out := strings.TrimSpace(buf.String())
 				if err != nil {
-					return CloneDoneMsg{name: name, err: fmt.Errorf("%s: %w (git output: %s)", name, err, Truncate(out, 200))}
+					return CloneDoneMsg{Name: name, Err: fmt.Errorf("%s: %w (git output: %s)", name, err, Truncate(out, 200))}
 				}
-				return CloneDoneMsg{name: name, localPath: dir}
+				return CloneDoneMsg{Name: name, LocalPath: dir}
 			}
 		}(r.Name, r.CloneURL, target)
 		cmds = append(cmds, started, clone)
@@ -385,7 +385,7 @@ func (p *planPage) finalizeCmd(m *Model) tea.Cmd {
 		var kept []catalog.Repo
 		for _, r := range p.allRepos {
 			if cs, ok := p.clones[r.Name]; ok && cs.err != nil {
-				m.result.Skipped = append(m.result.Skipped, SkipReport{
+				m.Result.Skipped = append(m.Result.Skipped, SkipReport{
 					Name:   r.Name,
 					Reason: cs.err.Error(),
 				})
@@ -394,7 +394,7 @@ func (p *planPage) finalizeCmd(m *Model) tea.Cmd {
 			kept = append(kept, r)
 		}
 		if len(kept) == 0 {
-			return CreateDoneMsg{err: errors.New("every clone failed — nothing to materialize")}
+			return CreateDoneMsg{Err: errors.New("every clone failed — nothing to materialize")}
 		}
 		// Re-build the plan against the kept repos so PlanRepo.SourcePath
 		// uses the freshly-cloned target dirs.
@@ -403,16 +403,16 @@ func (p *planPage) finalizeCmd(m *Model) tea.Cmd {
 		for _, r := range kept {
 			src := r.LocalPath
 			if src == "" {
-				src = filepath.Join(m.deps.Cfg.ReposRoot, r.Name)
+				src = filepath.Join(m.Deps.Cfg.ReposRoot, r.Name)
 			}
 			exists := p.branchExist[r.Name]
 			// For freshly-cloned repos we never checked
 			// BranchExists; re-probe so the worktree is added with
 			// the right `-b` flag.
 			if cs, ok := p.clones[r.Name]; ok && cs.err == nil {
-				ok, err := m.deps.Git.BranchExists(src, p.branch)
+				ok, err := m.Deps.Git.BranchExists(src, p.branch)
 				if err != nil {
-					return CreateDoneMsg{err: fmt.Errorf("check branch in %s after clone: %w", r.Name, err)}
+					return CreateDoneMsg{Err: fmt.Errorf("check branch in %s after clone: %w", r.Name, err)}
 				}
 				exists = ok
 			}
@@ -434,10 +434,10 @@ func (p *planPage) finalizeCmd(m *Model) tea.Cmd {
 			WorkspaceDir: p.workspace,
 			Branch:       p.branch,
 			Repos:        planRepos,
-			Memory:       m.result.Plan.Memory,
+			Memory:       m.Result.Plan.Memory,
 		}
 		plan.Memory.Repos = memRepos
-		return CreateDoneMsg{result: Result{Plan: plan, Skipped: m.result.Skipped}}
+		return CreateDoneMsg{Result: Result{Plan: plan, Skipped: m.Result.Skipped}}
 	}
 }
 
@@ -465,13 +465,13 @@ func (p *planPage) View(m *Model) string {
 			cursor := " "
 			line := fmt.Sprintf("%s  %s %-32s → %s",
 				cursor, check, r.Name,
-				AbbrevHome(filepath.Join(m.deps.Cfg.ReposRoot, r.Name)))
+				AbbrevHome(filepath.Join(m.Deps.Cfg.ReposRoot, r.Name)))
 			if !p.focusBtn && i == p.cursor {
 				cursor = CursorStyle.Render("▶")
 				line = fmt.Sprintf("%s  %s %s",
 					cursor,
 					CursorStyle.Render(check+" "+PadRight(r.Name, 32)),
-					DimStyle.Render("→ "+AbbrevHome(filepath.Join(m.deps.Cfg.ReposRoot, r.Name))))
+					DimStyle.Render("→ "+AbbrevHome(filepath.Join(m.Deps.Cfg.ReposRoot, r.Name))))
 			}
 			b.WriteString("  " + line + "\n")
 		}
@@ -488,7 +488,7 @@ func (p *planPage) View(m *Model) string {
 		if len(toClone) > 0 {
 			b.WriteString("  " + PlanHeaderStyle.Render(
 				fmt.Sprintf("The following repos will be cloned into %s:",
-					AbbrevHome(m.deps.Cfg.ReposRoot))) + "\n")
+					AbbrevHome(m.Deps.Cfg.ReposRoot))) + "\n")
 			for _, r := range toClone {
 				b.WriteString(fmt.Sprintf("      • %s\n", r.Name))
 			}

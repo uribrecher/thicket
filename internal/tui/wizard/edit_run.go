@@ -63,13 +63,13 @@ func RunEdit(deps EditDeps) (EditResult, error) {
 		return EditResult{}, err
 	}
 	fm := finalModel.(*Model)
-	if errors.Is(fm.err, tui.ErrCancelled) {
+	if errors.Is(fm.Err, tui.ErrCancelled) {
 		return EditResult{}, tui.ErrCancelled
 	}
-	if fm.err != nil {
-		return EditResult{}, fm.err
+	if fm.Err != nil {
+		return EditResult{}, fm.Err
 	}
-	return fm.editResult, nil
+	return fm.EditResult, nil
 }
 
 // newEditModel constructs the Model for the edit flow. Shares Model
@@ -79,23 +79,23 @@ func RunEdit(deps EditDeps) (EditResult, error) {
 // stay zero-valued and are never read in this flow.
 func newEditModel(deps EditDeps) *Model {
 	m := &Model{
-		editMode:     true,
-		editDeps:     deps,
-		cloneInclude: make(map[string]bool),
+		EditMode:     true,
+		EditDeps:     deps,
+		CloneInclude: make(map[string]bool),
 	}
-	m.pages = []Page{
+	m.Pages = []Page{
 		newEditWorkspacePage(),
 		newEditReposPage(),
 		newEditSubmitPage(),
 	}
 	if deps.PreselectedWorkspace != nil {
-		// Same shape as the start flow's preselected path: seed the
+		// Same shape as the start flow's preselected Path: seed the
 		// first page so it renders a read-only summary and start the
 		// wizard on Repos.
-		wp := m.pages[0].(*editWorkspacePage)
+		wp := m.Pages[0].(*editWorkspacePage)
 		wp.preseed(*deps.PreselectedWorkspace)
-		m.selectedWorkspace = deps.PreselectedWorkspace
-		m.active = 1
+		m.SelectedWorkspace = deps.PreselectedWorkspace
+		m.Active = 1
 	}
 	return m
 }

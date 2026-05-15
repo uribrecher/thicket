@@ -54,7 +54,7 @@ func newTestModel() *Model {
 	}
 	m := newModel(deps)
 	// Stash the call counter for the test that needs it.
-	m.deps.Cfg = deps.Cfg
+	m.Deps.Cfg = deps.Cfg
 	return m
 }
 
@@ -68,8 +68,8 @@ func TestNavGatedByComplete(t *testing.T) {
 	// Synthesize a "→" press: nothing should change.
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	mm := updated.(*Model)
-	if mm.active != 0 {
-		t.Fatalf("→ advanced past incomplete Ticket page (active=%d)", mm.active)
+	if mm.Active != 0 {
+		t.Fatalf("→ advanced past incomplete Ticket page (active=%d)", mm.Active)
 	}
 }
 
@@ -82,11 +82,11 @@ func TestCancelFromAnyPage(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			m := newTestModel()
-			m.active = c.active
+			m.Active = c.active
 			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 			mm := updated.(*Model)
-			if !errors.Is(mm.err, tui.ErrCancelled) {
-				t.Fatalf("esc did not set err=ErrCancelled (got %v)", mm.err)
+			if !errors.Is(mm.Err, tui.ErrCancelled) {
+				t.Fatalf("esc did not set err=ErrCancelled (got %v)", mm.Err)
 			}
 			// The cmd should be tea.Quit; we can't directly compare
 			// function values, but executing it should produce tea.QuitMsg.
@@ -106,21 +106,21 @@ func TestCancelFromAnyPage(t *testing.T) {
 func TestTicketCommitInvalidatesDownstream(t *testing.T) {
 	m := newTestModel()
 	// Seed an old ticket + cache + chosen so we can observe invalidation.
-	m.ticketID = "sc-1"
-	m.llmCache["sc-1"] = []detector.RepoMatch{{Name: "alpha"}}
-	m.chosen = []catalog.Repo{{Name: "alpha"}}
+	m.TicketID = "sc-1"
+	m.LLMCache["sc-1"] = []detector.RepoMatch{{Name: "alpha"}}
+	m.Chosen = []catalog.Repo{{Name: "alpha"}}
 
 	// User commits a NEW ticket id.
-	m.Update(TicketCommittedMsg{tk: ticket.Ticket{SourceID: "sc-2", Title: "two"}})
+	m.Update(TicketCommittedMsg{Tk: ticket.Ticket{SourceID: "sc-2", Title: "two"}})
 
-	if m.ticketID != "sc-2" {
-		t.Fatalf("ticketID = %q, want sc-2", m.ticketID)
+	if m.TicketID != "sc-2" {
+		t.Fatalf("ticketID = %q, want sc-2", m.TicketID)
 	}
-	if _, ok := m.llmCache["sc-1"]; ok {
+	if _, ok := m.LLMCache["sc-1"]; ok {
 		t.Errorf("llmCache[sc-1] not invalidated")
 	}
-	if len(m.chosen) != 0 {
-		t.Errorf("chosen not invalidated: %v", m.chosen)
+	if len(m.Chosen) != 0 {
+		t.Errorf("chosen not invalidated: %v", m.Chosen)
 	}
 }
 
@@ -129,34 +129,34 @@ func TestTicketCommitInvalidatesDownstream(t *testing.T) {
 // forward unchanged" path the user explicitly asked for.
 func TestTicketCommitSameIDNoOp(t *testing.T) {
 	m := newTestModel()
-	m.ticketID = "sc-1"
-	m.llmCache["sc-1"] = []detector.RepoMatch{{Name: "alpha"}}
-	m.chosen = []catalog.Repo{{Name: "alpha"}, {Name: "beta"}}
+	m.TicketID = "sc-1"
+	m.LLMCache["sc-1"] = []detector.RepoMatch{{Name: "alpha"}}
+	m.Chosen = []catalog.Repo{{Name: "alpha"}, {Name: "beta"}}
 
-	m.Update(TicketCommittedMsg{tk: ticket.Ticket{SourceID: "sc-1", Title: "one"}})
+	m.Update(TicketCommittedMsg{Tk: ticket.Ticket{SourceID: "sc-1", Title: "one"}})
 
-	if _, ok := m.llmCache["sc-1"]; !ok {
+	if _, ok := m.LLMCache["sc-1"]; !ok {
 		t.Errorf("llmCache[sc-1] wiped on same-id commit")
 	}
-	if len(m.chosen) != 2 {
-		t.Errorf("chosen wiped on same-id commit (got len %d)", len(m.chosen))
+	if len(m.Chosen) != 2 {
+		t.Errorf("chosen wiped on same-id commit (got len %d)", len(m.Chosen))
 	}
 }
 
 // TestExistingWorkspaceShortCircuit covers the reuse-existing-workspace
-// path: an ExistingWorkspaceMsg sets ReuseDir on the result and
+// Path: an ExistingWorkspaceMsg sets ReuseDir on the result and
 // signals tea.Quit so runStart launches Claude on the existing dir.
 func TestExistingWorkspaceShortCircuit(t *testing.T) {
 	m := newTestModel()
-	m.ticket = ticket.Ticket{SourceID: "sc-9", Title: "existing"}
-	_, cmd := m.Update(ExistingWorkspaceMsg{path: "/tmp/ws/sc-9-existing"})
-	if !m.done {
+	m.Ticket = ticket.Ticket{SourceID: "sc-9", Title: "existing"}
+	_, cmd := m.Update(ExistingWorkspaceMsg{Path: "/tmp/ws/sc-9-existing"})
+	if !m.Done {
 		t.Fatalf("done not set after existing-workspace msg")
 	}
-	if m.result.ReuseDir != "/tmp/ws/sc-9-existing" {
-		t.Errorf("ReuseDir = %q", m.result.ReuseDir)
+	if m.Result.ReuseDir != "/tmp/ws/sc-9-existing" {
+		t.Errorf("ReuseDir = %q", m.Result.ReuseDir)
 	}
-	if m.result.Ticket.SourceID != "sc-9" {
+	if m.Result.Ticket.SourceID != "sc-9" {
 		t.Errorf("Result.Ticket not preserved")
 	}
 	if cmd == nil {
@@ -171,11 +171,11 @@ func TestExistingWorkspaceShortCircuit(t *testing.T) {
 // action now.
 func TestLLMCacheReseed(t *testing.T) {
 	m := newTestModel()
-	m.ticketID = "sc-1"
-	m.ticket = ticket.Ticket{SourceID: "sc-1", Title: "one"}
-	m.llmCache["sc-1"] = []detector.RepoMatch{{Name: "alpha", Confidence: 0.9}}
+	m.TicketID = "sc-1"
+	m.Ticket = ticket.Ticket{SourceID: "sc-1", Title: "one"}
+	m.LLMCache["sc-1"] = []detector.RepoMatch{{Name: "alpha", Confidence: 0.9}}
 
-	rp := m.pages[1].(*reposPage)
+	rp := m.Pages[1].(*reposPage)
 	if cmd := rp.InitCmd(m); cmd != nil {
 		t.Fatalf("InitCmd with cached LLM picks returned non-nil cmd (%v) — should reseed without firing", cmd)
 	}
@@ -203,9 +203,9 @@ func TestLLMCacheReseed(t *testing.T) {
 func TestReposCommitStoresChosen(t *testing.T) {
 	m := newTestModel()
 	chosen := []catalog.Repo{{Name: "alpha"}, {Name: "gamma"}}
-	m.Update(ReposCommittedMsg{chosen: chosen})
-	if len(m.chosen) != 2 || m.chosen[0].Name != "alpha" || m.chosen[1].Name != "gamma" {
-		t.Errorf("chosen = %+v", m.chosen)
+	m.Update(ReposCommittedMsg{Chosen: chosen})
+	if len(m.Chosen) != 2 || m.Chosen[0].Name != "alpha" || m.Chosen[1].Name != "gamma" {
+		t.Errorf("chosen = %+v", m.Chosen)
 	}
 }
 
@@ -235,18 +235,18 @@ func TestRankFuzzyPrefersSubstringOverScattered(t *testing.T) {
 // others. Mirrors the user's "proceed without failed repo" choice.
 func TestPlanCloneFailureProceeds(t *testing.T) {
 	m := newTestModel()
-	m.ticket = ticket.Ticket{SourceID: "sc-1", Title: "one"}
-	m.ticketID = "sc-1"
-	m.chosen = []catalog.Repo{
+	m.Ticket = ticket.Ticket{SourceID: "sc-1", Title: "one"}
+	m.TicketID = "sc-1"
+	m.Chosen = []catalog.Repo{
 		{Name: "alpha", LocalPath: "/tmp/alpha", CloneURL: "git@x:alpha"},
 		{Name: "beta", CloneURL: "git@x:beta"}, // must clone
 		{Name: "gamma", LocalPath: "/tmp/gamma", CloneURL: "git@x:gamma"},
 	}
-	pp := m.pages[2].(*planPage)
+	pp := m.Pages[2].(*planPage)
 	pp.built = true
 	pp.branch = "feature/sc-1-one"
 	pp.workspace = "/tmp/ws/sc-1-one"
-	pp.allRepos = m.chosen
+	pp.allRepos = m.Chosen
 	pp.toClone = []catalog.Repo{{Name: "beta", CloneURL: "git@x:beta"}}
 	pp.branchExist = map[string]bool{"alpha": false, "beta": false, "gamma": false}
 	pp.cloneInclude = map[string]bool{"beta": true}
@@ -262,24 +262,24 @@ func TestPlanCloneFailureProceeds(t *testing.T) {
 	msg := pp.finalizeCmd(m)()
 	updated, _ := m.Update(msg)
 	mm := updated.(*Model)
-	if mm.err != nil {
-		t.Fatalf("wizard surfaced error after partial-failure proceed: %v", mm.err)
+	if mm.Err != nil {
+		t.Fatalf("wizard surfaced error after partial-failure proceed: %v", mm.Err)
 	}
-	if !mm.done {
+	if !mm.Done {
 		t.Fatalf("done not set")
 	}
-	if mm.result.Plan.WorkspaceDir != "/tmp/ws/sc-1-one" {
-		t.Errorf("workspace dir lost: %q", mm.result.Plan.WorkspaceDir)
+	if mm.Result.Plan.WorkspaceDir != "/tmp/ws/sc-1-one" {
+		t.Errorf("workspace dir lost: %q", mm.Result.Plan.WorkspaceDir)
 	}
 	var names []string
-	for _, r := range mm.result.Plan.Repos {
+	for _, r := range mm.Result.Plan.Repos {
 		names = append(names, r.Name)
 	}
 	if got := strings.Join(names, ","); got != "alpha,gamma" {
 		t.Errorf("plan repos = %s, want alpha,gamma (beta should be dropped)", got)
 	}
 	var skipped []string
-	for _, s := range mm.result.Skipped {
+	for _, s := range mm.Result.Skipped {
 		skipped = append(skipped, s.Name)
 	}
 	if got := strings.Join(skipped, ","); got != "beta" {
