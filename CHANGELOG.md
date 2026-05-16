@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.6.2] - 2026-05-17
+
+Patch release — domain-aware shell completion plus two UX fixes
+shaken out of daily use of the v0.6.x build.
+
+### Added
+
+- **Shell completion is now domain-aware.** `thicket completion <shell>`
+  used to emit cobra boilerplate that only completed subcommand and
+  flag names. Tab completion now suggests real values:
+  - `thicket rm <Tab>` / `thicket edit <Tab>` list managed workspace
+    slugs from `workspace_root`, with each slug's nickname surfaced as
+    the zsh/fish description.
+  - `thicket start --only <Tab>` lists repo names from the local
+    catalog cache, with the repo's description as the completion
+    description. Comma-aware: already-typed repos are filtered out,
+    and `NoSpace` keeps the cursor flush so `,nextrepo` continuations
+    work without backspacing.
+
+  Intentional non-completions: `thicket start <ticket-id>` (would
+  block the shell on a Shortcut API round-trip) and `--branch` (no
+  obvious local candidate source) stay free-form. Completion errors
+  are silent — a missing config or unreadable cache yields zero
+  suggestions rather than a shell-side error. Descriptions are
+  defensively flattened (tabs/newlines/CRs stripped) before joining
+  with the value so a stray tab in a legacy manifest can't re-split
+  the completion line.
+
 ### Fixed
 
 - **`thicket list` no longer blows past 200 columns or misaligns rows
