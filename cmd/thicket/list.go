@@ -26,67 +26,75 @@ func runList(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", w)
 	}
 	if len(workspaces) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "no workspaces")
-		return nil
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "no workspaces")
+		return err
 	}
-	writeWorkspaceTable(cmd.OutOrStdout(), workspaces)
-	return nil
+	return writeWorkspaceTable(cmd.OutOrStdout(), workspaces)
 }
 
-// Visible-cell widths for the `thicket list` table. The old layout used
-// tabwriter and showed both SLUG and BRANCH at their natural width, which
-// blew past 200 columns on real workspaces and misaligned rows whose
-// nickname carried an emoji (tabwriter counts bytes, emoji are two cells).
-// We now render with runewidth-backed pad/truncate (the same helpers the
-// edit-workspace picker uses) and drop SLUG: NAME falls back to the slug
-// when no nickname is set, and the slug fragment otherwise reappears in
-// BRANCH.
+// Visible-cell column widths for the `thicket list` table. The previous
+// tabwriter layout showed SLUG and BRANCH at their natural width — past
+// 200 columns on real workspaces — and counted bytes, so a nickname with
+// an emoji shifted every following column by one cell. We render with
+// tui.PadRight / tui.Truncate, which are backed by go-runewidth and so
+// pad/clip by visible terminal cells. SLUG stays in the table because
+// `thicket edit` and `thicket rm` accept a slug argument and the
+// branch (truncated here, overridable via `--branch`) is not a reliable
+// substitute. Total is ~110 visible cells with 2-space gaps, which fits
+// comfortably in modern terminal defaults while staying scannable.
 const (
-	listNameW   = 25 // matches workspace.NicknameMaxChars
-	listIDW     = 10
-	listBranchW = 30
+	listNickW   = 25 // matches workspace.NicknameMaxChars
+	listSlugW   = 30
+	listIDW     = 8
+	listBranchW = 24
 	listReposW  = 5
 	listWhenW   = 16
 )
 
-func writeWorkspaceTable(out io.Writer, workspaces []workspace.ManagedWorkspace) {
+func writeWorkspaceTable(out io.Writer, workspaces []workspace.ManagedWorkspace) error {
 	cols := []struct {
 		title string
 		width int
 	}{
-		{"NAME", listNameW},
+		{"NICKNAME", listNickW},
+		{"SLUG", listSlugW},
 		{"TICKET", listIDW},
 		{"BRANCH", listBranchW},
 		{"REPOS", listReposW},
 		{"CREATED", listWhenW},
 	}
+	var b strings.Builder
 	for i, c := range cols {
 		if i > 0 {
-			fmt.Fprint(out, "  ")
+			b.WriteString("  ")
 		}
-		fmt.Fprint(out, tui.PadRight(c.title, c.width))
+		b.WriteString(tui.PadRight(c.title, c.width))
 	}
-	fmt.Fprintln(out)
+	b.WriteByte('\n')
 	for i, c := range cols {
 		if i > 0 {
-			fmt.Fprint(out, "  ")
+			b.WriteString("  ")
 		}
-		fmt.Fprint(out, strings.Repeat("─", c.width))
+		b.WriteString(strings.Repeat("─", c.width))
 	}
-	fmt.Fprintln(out)
+	b.WriteByte('\n')
 
 	for _, ws := range workspaces {
-		fmt.Fprint(out, tui.PadRight(tui.Truncate(ws.DisplayName(), listNameW), listNameW))
-		fmt.Fprint(out, "  ")
-		fmt.Fprint(out, tui.PadRight(tui.Truncate(ws.State.TicketID, listIDW), listIDW))
-		fmt.Fprint(out, "  ")
-		fmt.Fprint(out, tui.PadRight(tui.Truncate(ws.State.Branch, listBranchW), listBranchW))
-		fmt.Fprint(out, "  ")
-		fmt.Fprint(out, tui.PadRight(fmt.Sprintf("%d", len(ws.State.Repos)), listReposW))
-		fmt.Fprint(out, "  ")
-		fmt.Fprint(out, tui.PadRight(ws.State.CreatedAt.Local().Format("2006-01-02 15:04"), listWhenW))
-		fmt.Fprintln(out)
+		b.WriteString(tui.PadRight(tui.Truncate(ws.State.Nickname, listNickW), listNickW))
+		b.WriteString("  ")
+		b.WriteString(tui.PadRight(tui.Truncate(ws.Slug, listSlugW), listSlugW))
+		b.WriteString("  ")
+		b.WriteString(tui.PadRight(tui.Truncate(ws.State.TicketID, listIDW), listIDW))
+		b.WriteString("  ")
+		b.WriteString(tui.PadRight(tui.Truncate(ws.State.Branch, listBranchW), listBranchW))
+		b.WriteString("  ")
+		b.WriteString(tui.PadRight(fmt.Sprintf("%d", len(ws.State.Repos)), listReposW))
+		b.WriteString("  ")
+		b.WriteString(tui.PadRight(ws.State.CreatedAt.Local().Format("2006-01-02 15:04"), listWhenW))
+		b.WriteByte('\n')
 	}
+	_, err := io.WriteString(out, b.String())
+	return err
 }
 
 func loadConfigOrPointAtInit() (*config.Config, error) {
