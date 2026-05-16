@@ -17,9 +17,9 @@ import (
 
 func TestSplitOnLastComma(t *testing.T) {
 	cases := []struct {
-		in              string
-		wantPrefix      string
-		wantPartial     string
+		in          string
+		wantPrefix  string
+		wantPartial string
 	}{
 		{"", "", ""},
 		{"foo", "", "foo"},
