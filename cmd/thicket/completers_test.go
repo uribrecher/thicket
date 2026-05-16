@@ -15,6 +15,24 @@ import (
 	"github.com/uribrecher/thicket/internal/config"
 )
 
+func TestFormatCompletion(t *testing.T) {
+	cases := []struct {
+		value, desc, want string
+	}{
+		{"slug", "", "slug"},
+		{"slug", "nickname", "slug\tnickname"},
+		{"slug", "has\ttab", "slug\thas tab"},
+		{"slug", "has\nnewline", "slug\thas newline"},
+		{"slug", "carriage\rreturn", "slug\tcarriage return"},
+	}
+	for _, c := range cases {
+		got := formatCompletion(c.value, c.desc)
+		if got != c.want {
+			t.Errorf("formatCompletion(%q,%q) = %q, want %q", c.value, c.desc, got, c.want)
+		}
+	}
+}
+
 func TestSplitOnLastComma(t *testing.T) {
 	cases := []struct {
 		in          string
@@ -169,7 +187,7 @@ func TestCompleteCatalogRepos_filtersPartialAndExcludesTyped(t *testing.T) {
 		t.Fatalf("catalog.Path: %v", err)
 	}
 	repos := []catalog.Repo{
-		{Name: "service-alpha"},
+		{Name: "service-alpha", Description: "alpha service"},
 		{Name: "service-beta"},
 		{Name: "unrelated"},
 	}

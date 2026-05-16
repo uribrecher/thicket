@@ -34,12 +34,12 @@ func completeWorkspaceSlugs(_ *cobra.Command, args []string, _ string) ([]string
 		// Decorate with the nickname (when set) as the cobra
 		// description — shells that show descriptions (zsh, fish)
 		// surface it; bash ignores it. Slug stays the actual
-		// completed value.
-		if w.State.Nickname != "" {
-			out = append(out, w.Slug+"\t"+w.State.Nickname)
-		} else {
-			out = append(out, w.Slug)
-		}
+		// completed value. Tabs in the description would split the
+		// line a second time and confuse cobra's parser, so we strip
+		// them defensively — SanitizeNickname collapses tabs on new
+		// writes, but legacy / hand-edited manifests are not
+		// guaranteed clean.
+		out = append(out, formatCompletion(w.Slug, w.State.Nickname))
 	}
 	return out, cobra.ShellCompDirectiveNoFileComp
 }
@@ -78,12 +78,30 @@ func completeCatalogRepos(_ *cobra.Command, _ []string, toComplete string) ([]st
 		if partial != "" && !strings.HasPrefix(r.Name, partial) {
 			continue
 		}
-		out = append(out, prefix+r.Name)
+		// Mirror the slug+nickname pattern from completeWorkspaceSlugs:
+		// emit the repo description as the cobra completion description
+		// when it's non-empty. zsh/fish render it inline; bash ignores
+		// it. The completion value (what actually lands on the command
+		// line) is the prefix+name half — never the description.
+		out = append(out, prefix+formatCompletion(r.Name, r.Description))
 	}
 	// NoSpace so the shell leaves the cursor flush against the
 	// completed value — the user usually wants to type another `,foo`
 	// right after, not a space.
 	return out, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
+}
+
+// formatCompletion joins a completion value and its human-facing
+// description with a single tab — cobra's wire format for ValidArgs.
+// Tabs and newlines inside the description would re-split the line and
+// confuse the completion parser, so they're flattened to spaces before
+// concatenation. An empty description yields the value alone.
+func formatCompletion(value, desc string) string {
+	if desc == "" {
+		return value
+	}
+	clean := strings.NewReplacer("\t", " ", "\n", " ", "\r", " ").Replace(desc)
+	return value + "\t" + clean
 }
 
 // splitOnLastComma divides a cobra `toComplete` value into the
