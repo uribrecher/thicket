@@ -13,6 +13,7 @@ import (
 	"github.com/sahilm/fuzzy"
 
 	"github.com/uribrecher/thicket/internal/ticket"
+	"github.com/uribrecher/thicket/internal/ticket/rank"
 )
 
 const ticketVisibleRows = 12
@@ -99,6 +100,12 @@ func listTicketsCmd(m *wizard.Model) tea.Cmd {
 			return wizard.TicketsLoadedMsg{Err: errors.New("ticket source does not support listing — pass a ticket id explicitly")}
 		}
 		tks, err := m.Deps.Lister.ListAssigned(m.Deps.Ctx)
+		if err == nil {
+			rank.Sort(tks, func(sourceID string) bool {
+				return m.Deps.FindExistingWorkspace != nil &&
+					m.Deps.FindExistingWorkspace(sourceID) != nil
+			})
+		}
 		return wizard.TicketsLoadedMsg{Tickets: tks, Err: err}
 	}
 }
