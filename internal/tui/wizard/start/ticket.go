@@ -13,6 +13,7 @@ import (
 	"github.com/sahilm/fuzzy"
 
 	"github.com/uribrecher/thicket/internal/ticket"
+	"github.com/uribrecher/thicket/internal/ticket/rank"
 )
 
 const ticketVisibleRows = 12
@@ -99,6 +100,12 @@ func listTicketsCmd(m *wizard.Model) tea.Cmd {
 			return wizard.TicketsLoadedMsg{Err: errors.New("ticket source does not support listing — pass a ticket id explicitly")}
 		}
 		tks, err := m.Deps.Lister.ListAssigned(m.Deps.Ctx)
+		if err == nil {
+			rank.Sort(tks, func(sourceID string) bool {
+				return m.Deps.FindExistingWorkspace != nil &&
+					m.Deps.FindExistingWorkspace(sourceID) != nil
+			})
+		}
 		return wizard.TicketsLoadedMsg{Tickets: tks, Err: err}
 	}
 }
@@ -342,17 +349,18 @@ func (p *ticketPage) View(m *wizard.Model) string {
 		stateW = 18
 		titleW = 50
 		wsW    = 36
+		iterW  = 5
 	)
 	b.WriteString("   ")
 	for _, col := range []struct {
 		t string
 		w int
-	}{{"Ticket", idW}, {"State", stateW}, {"Title", titleW}, {"Workspace", wsW}} {
+	}{{"Ticket", idW}, {"State", stateW}, {"Title", titleW}, {"Workspace", wsW}, {"Iter", iterW}} {
 		b.WriteString(wizard.SectionStyle.Render(wizard.PadRight(col.t, col.w)))
 		b.WriteString("  ")
 	}
 	b.WriteString("\n   ")
-	for _, w := range []int{idW, stateW, titleW, wsW} {
+	for _, w := range []int{idW, stateW, titleW, wsW, iterW} {
 		b.WriteString(wizard.HintStyle.Render(strings.Repeat("─", w)))
 		b.WriteString("  ")
 	}
@@ -374,6 +382,8 @@ func (p *ticketPage) View(m *wizard.Model) string {
 		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.tk.Title, titleW), titleW)))
 		b.WriteString("  ")
 		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.workspace, wsW), wsW)))
+		b.WriteString("  ")
+		b.WriteString(style.Render(wizard.PadRight(rank.FormatIterationDistance(row.tk.IterationDistance), iterW)))
 		b.WriteString("\n")
 	}
 

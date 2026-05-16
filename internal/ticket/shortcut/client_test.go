@@ -204,12 +204,13 @@ func TestBranchName_emptyExtra(t *testing.T) {
 
 // ----- ListAssigned -----
 
-// listAssignedServer wires up an httptest.Server that handles the three
-// endpoints ListAssigned hits. Each handler returns canned JSON; the
-// search handler asserts the request body matches what the caller is
-// expected to send.
-func listAssignedServer(t *testing.T, member memberResponse,
-	workflows []workflowResponse, stories []storyResponse) *httptest.Server {
+// listAssignedServerWithIterations wires up an httptest.Server that
+// handles the four endpoints ListAssigned hits. Each handler returns
+// canned JSON; the search handler asserts the request body matches
+// what the caller is expected to send.
+func listAssignedServerWithIterations(t *testing.T, member memberResponse,
+	workflows []workflowResponse, stories []storyResponse,
+	iterations []iterationResponse) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Shortcut-Token"); got != "tok" {
@@ -221,6 +222,8 @@ func listAssignedServer(t *testing.T, member memberResponse,
 			_ = json.NewEncoder(w).Encode(member)
 		case r.URL.Path == "/api/v3/workflows" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(workflows)
+		case r.URL.Path == "/api/v3/iterations" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(iterations)
 		case r.URL.Path == "/api/v3/stories/search" && r.Method == http.MethodPost:
 			body, _ := io.ReadAll(r.Body)
 			var sb searchBody
@@ -241,20 +244,27 @@ func listAssignedServer(t *testing.T, member memberResponse,
 	}))
 }
 
+// listAssignedServer is the no-iterations shorthand for tests that
+// don't care about the iteration timeline.
+func listAssignedServer(t *testing.T, member memberResponse,
+	workflows []workflowResponse, stories []storyResponse) *httptest.Server {
+	return listAssignedServerWithIterations(t, member, workflows, stories, nil)
+}
+
 func TestListAssigned_filtersDoneArchivedAndExcludedStates(t *testing.T) {
 	member := memberResponse{ID: "user-abc"}
 	workflows := []workflowResponse{{
 		States: []workflowStateResponse{
 			{ID: 100, Name: "Ready for Dev", Type: "unstarted"},
 			{ID: 101, Name: "In Development", Type: "started"},
-			{ID: 102, Name: "In Review", Type: "started"},
-			{ID: 103, Name: "Verifying", Type: "started"},
+			{ID: 102, Name: "In Review", Type: "started"}, // NO LONGER excluded
+			{ID: 103, Name: "Verifying", Type: "started"}, // still excluded by name
 			{ID: 104, Name: "Completed", Type: "done"},
 		},
 	}}
 	stories := []storyResponse{
 		{ID: 1, Name: "active dev", WorkflowStateID: 101},
-		{ID: 2, Name: "in review", WorkflowStateID: 102}, // excluded by name
+		{ID: 2, Name: "in review", WorkflowStateID: 102}, // surfaced as neutral
 		{ID: 3, Name: "verifying", WorkflowStateID: 103}, // excluded by name
 		{ID: 4, Name: "done", WorkflowStateID: 104},      // excluded by type
 		{ID: 5, Name: "archived", WorkflowStateID: 101, Archived: true},
@@ -268,14 +278,25 @@ func TestListAssigned_filtersDoneArchivedAndExcludedStates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("got %d tickets, want 2 (active dev + ready)", len(got))
+
+	// Order is not asserted — the source no longer sorts; callers
+	// (cmd/thicket/start.go and the wizard) apply rank.Sort.
+	gotByID := make(map[string]string, len(got))
+	for _, tk := range got {
+		gotByID[tk.SourceID] = tk.State
 	}
-	if got[0].SourceID != "sc-1" || got[0].State != "In Development" {
-		t.Errorf("first ticket = %+v", got[0])
+	want := map[string]string{
+		"sc-1": "In Development",
+		"sc-2": "In Review",
+		"sc-6": "Ready for Dev",
 	}
-	if got[1].SourceID != "sc-6" || got[1].State != "Ready for Dev" {
-		t.Errorf("second ticket = %+v", got[1])
+	if len(gotByID) != len(want) {
+		t.Fatalf("got %d tickets %+v, want %d %+v", len(gotByID), gotByID, len(want), want)
+	}
+	for id, wantState := range want {
+		if got := gotByID[id]; got != wantState {
+			t.Errorf("%s: state=%q, want %q", id, got, wantState)
+		}
 	}
 }
 
@@ -287,103 +308,6 @@ func TestListAssigned_unauthorizedSurfacesClearError(t *testing.T) {
 	_, err := New("bad", srv.URL).ListAssigned(context.Background())
 	if err == nil || !contains(err.Error(), "401") {
 		t.Fatalf("want 401 error, got %v", err)
-	}
-}
-
-func TestListAssigned_sortsByUpdatedAtDescending(t *testing.T) {
-	member := memberResponse{ID: "u"}
-	workflows := []workflowResponse{{
-		States: []workflowStateResponse{{ID: 1, Name: "Dev", Type: "started"}},
-	}}
-	t0 := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
-	stories := []storyResponse{
-		{ID: 1, Name: "oldest", WorkflowStateID: 1, UpdatedAt: t0},
-		{ID: 2, Name: "newest", WorkflowStateID: 1, UpdatedAt: t0.Add(48 * time.Hour)},
-		{ID: 3, Name: "middle", WorkflowStateID: 1, UpdatedAt: t0.Add(24 * time.Hour)},
-	}
-	srv := listAssignedServer(t, member, workflows, stories)
-	defer srv.Close()
-
-	got, err := New("tok", srv.URL).ListAssigned(context.Background())
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	want := []string{"sc-2", "sc-3", "sc-1"}
-	if len(got) != len(want) {
-		t.Fatalf("got %d tickets, want %d", len(got), len(want))
-	}
-	for i, w := range want {
-		if got[i].SourceID != w {
-			t.Errorf("position %d: got %s, want %s", i, got[i].SourceID, w)
-		}
-	}
-}
-
-func TestListAssigned_tieredSortByStateThenUpdatedAt(t *testing.T) {
-	// Three stories per tier — mixed UpdatedAt so we can confirm
-	// the secondary key still works within a tier, and that tier
-	// boundaries override UpdatedAt across tiers.
-	member := memberResponse{ID: "u"}
-	workflows := []workflowResponse{{
-		States: []workflowStateResponse{
-			{ID: 10, Name: "In Development", Type: "started"},         // tier 2
-			{ID: 20, Name: "Doing Something Custom", Type: "started"}, // tier 1 (unknown name)
-			{ID: 30, Name: "Paused", Type: "started"},                 // tier 0
-		},
-	}}
-	t0 := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
-	stories := []storyResponse{
-		// Paused (tier 0) — most recently touched of all, but
-		// should still sort to the bottom.
-		{ID: 1, Name: "paused-newest", WorkflowStateID: 30, UpdatedAt: t0.Add(100 * time.Hour)},
-		// In Development (tier 2) — should land at the top even
-		// though older than the paused one.
-		{ID: 2, Name: "dev-older", WorkflowStateID: 10, UpdatedAt: t0.Add(10 * time.Hour)},
-		// Custom state (tier 1) — middle.
-		{ID: 3, Name: "custom-mid", WorkflowStateID: 20, UpdatedAt: t0.Add(50 * time.Hour)},
-		// Another In Development — newer than dev-older, so
-		// should sort first overall.
-		{ID: 4, Name: "dev-newest", WorkflowStateID: 10, UpdatedAt: t0.Add(20 * time.Hour)},
-	}
-	srv := listAssignedServer(t, member, workflows, stories)
-	defer srv.Close()
-
-	got, err := New("tok", srv.URL).ListAssigned(context.Background())
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	// Expected order:
-	//   tier 2: dev-newest (newer UpdatedAt within tier), dev-older
-	//   tier 1: custom-mid
-	//   tier 0: paused-newest
-	want := []string{"sc-4", "sc-2", "sc-3", "sc-1"}
-	if len(got) != len(want) {
-		t.Fatalf("got %d tickets, want %d: %+v", len(got), len(want), got)
-	}
-	for i, w := range want {
-		if got[i].SourceID != w {
-			t.Errorf("position %d: got %s (%s), want %s", i, got[i].SourceID, got[i].State, w)
-		}
-	}
-}
-
-func TestStateRank(t *testing.T) {
-	cases := map[string]int{
-		"In Development":        2,
-		"in development":        2, // case-insensitive
-		"  Backlog  ":           2, // trimmed
-		"Ready for Development": 2,
-		"Waiting for R&D":       2,
-		"In Code Review":        0,
-		"Waiting for CS":        0,
-		"Paused":                0,
-		"Custom Workflow State": 1, // unknown → neutral
-		"":                      1,
-	}
-	for in, want := range cases {
-		if got := stateRank(in); got != want {
-			t.Errorf("stateRank(%q) = %d, want %d", in, got, want)
-		}
 	}
 }
 
@@ -400,6 +324,156 @@ func TestListAssigned_emptyStoriesNotAnError(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("got %d, want 0", len(got))
+	}
+}
+
+func TestListAssigned_setsUpdatedAtAndIterationDistanceDefault(t *testing.T) {
+	member := memberResponse{ID: "u"}
+	workflows := []workflowResponse{{
+		States: []workflowStateResponse{{ID: 1, Name: "In Development", Type: "started"}},
+	}}
+	updated := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
+	stories := []storyResponse{
+		{ID: 1, Name: "t", WorkflowStateID: 1, UpdatedAt: updated},
+	}
+	srv := listAssignedServer(t, member, workflows, stories)
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d tickets, want 1", len(got))
+	}
+	if !got[0].UpdatedAt.Equal(updated) {
+		t.Errorf("UpdatedAt = %v, want %v", got[0].UpdatedAt, updated)
+	}
+	if got[0].IterationDistance != -1 {
+		t.Errorf("IterationDistance = %d, want -1 (sentinel for no iteration)",
+			got[0].IterationDistance)
+	}
+}
+
+// iterFixture builds an iterationResponse with the given id, start
+// date (in YYYY-MM-DD), and status. End date is 13 days after start.
+func iterFixture(id int, start string, status string) iterationResponse {
+	s, _ := time.Parse("2006-01-02", start)
+	return iterationResponse{
+		ID:        id,
+		Status:    status,
+		StartDate: s,
+		EndDate:   s.AddDate(0, 0, 13),
+	}
+}
+
+func TestListAssigned_setsIterationDistance(t *testing.T) {
+	member := memberResponse{ID: "u"}
+	workflows := []workflowResponse{{
+		States: []workflowStateResponse{{ID: 1, Name: "In Development", Type: "started"}},
+	}}
+	// Timeline (sorted by StartDate asc):
+	//   id 10 (older)    — 2026-04-01 .. 04-14, done
+	//   id 11 (previous) — 2026-04-15 .. 04-28, done
+	//   id 12 (current)  — 2026-04-29 .. 05-12, started
+	// distances: current=0, previous=1, older=2.
+	iterations := []iterationResponse{
+		iterFixture(10, "2026-04-01", "done"),
+		iterFixture(11, "2026-04-15", "done"),
+		iterFixture(12, "2026-04-29", "started"),
+	}
+	iter12 := 12
+	iter11 := 11
+	iter10 := 10
+	stories := []storyResponse{
+		{ID: 1, Name: "current", WorkflowStateID: 1, IterationID: &iter12},
+		{ID: 2, Name: "previous", WorkflowStateID: 1, IterationID: &iter11},
+		{ID: 3, Name: "older", WorkflowStateID: 1, IterationID: &iter10},
+		{ID: 4, Name: "no-iter", WorkflowStateID: 1, IterationID: nil},
+	}
+	srv := listAssignedServerWithIterations(t, member, workflows, stories, iterations)
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	want := map[string]int{
+		"sc-1": 0,
+		"sc-2": 1,
+		"sc-3": 2,
+		"sc-4": -1,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d tickets, want %d", len(got), len(want))
+	}
+	for _, tk := range got {
+		w, ok := want[tk.SourceID]
+		if !ok {
+			t.Errorf("unexpected ticket %s", tk.SourceID)
+			continue
+		}
+		if tk.IterationDistance != w {
+			t.Errorf("%s: IterationDistance=%d, want %d", tk.SourceID, tk.IterationDistance, w)
+		}
+	}
+}
+
+func TestListAssigned_filtersFutureIterationStories(t *testing.T) {
+	member := memberResponse{ID: "u"}
+	workflows := []workflowResponse{{
+		States: []workflowStateResponse{{ID: 1, Name: "In Development", Type: "started"}},
+	}}
+	iterations := []iterationResponse{
+		iterFixture(11, "2026-04-15", "done"),
+		iterFixture(12, "2026-04-29", "started"),   // current
+		iterFixture(13, "2026-05-13", "unstarted"), // future
+	}
+	iter13 := 13
+	iter12 := 12
+	stories := []storyResponse{
+		{ID: 1, Name: "future", WorkflowStateID: 1, IterationID: &iter13},
+		{ID: 2, Name: "current", WorkflowStateID: 1, IterationID: &iter12},
+	}
+	srv := listAssignedServerWithIterations(t, member, workflows, stories, iterations)
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || got[0].SourceID != "sc-2" {
+		t.Errorf("expected only sc-2 to survive future-iteration filter, got %+v", got)
+	}
+}
+
+func TestListAssigned_noStartedIterationLeavesDistanceSentinel(t *testing.T) {
+	member := memberResponse{ID: "u"}
+	workflows := []workflowResponse{{
+		States: []workflowStateResponse{{ID: 1, Name: "In Development", Type: "started"}},
+	}}
+	iterations := []iterationResponse{
+		iterFixture(11, "2026-04-15", "done"),
+		iterFixture(12, "2026-04-29", "done"),
+	}
+	iter12 := 12
+	stories := []storyResponse{
+		{ID: 1, Name: "any", WorkflowStateID: 1, IterationID: &iter12},
+	}
+	srv := listAssignedServerWithIterations(t, member, workflows, stories, iterations)
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d tickets, want 1", len(got))
+	}
+	// No started iteration → everyone gets sentinel -1.
+	if got[0].IterationDistance != -1 {
+		t.Errorf("IterationDistance=%d, want -1 when no started iteration exists",
+			got[0].IterationDistance)
 	}
 }
 

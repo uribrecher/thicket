@@ -6,6 +6,7 @@ package ticket
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // Lister is the optional capability a Source exposes when it can
@@ -54,6 +55,23 @@ type Ticket struct {
 	Requester string            // display name of whoever filed the ticket; "" if not resolved
 	Labels    []string          // ticket labels in source order; nil if none
 	Extra     map[string]string // source-specific extras
+
+	// UpdatedAt is the last-modified timestamp at the source. Used by
+	// the ranker as a tiebreaker (most-recently-touched first).
+	// Sources that don't surface this leave it zero.
+	UpdatedAt time.Time
+
+	// IterationDistance is the integer step from the source's
+	// "current" iteration to this ticket's iteration, in timeline
+	// order:
+	//
+	//   0  → current iteration
+	//   1  → previous iteration
+	//   N  → N iterations back
+	//  -1  → no iteration, or iteration could not be resolved
+	//        (sentinel; ranker treats as factor 0). Sources that
+	//        don't know about iterations always emit -1.
+	IterationDistance int
 }
 
 // ErrUnparseable indicates the raw input could not be parsed as a ticket

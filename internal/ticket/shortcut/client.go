@@ -128,6 +128,16 @@ type storyResponse struct {
 	Labels                 []labelResponse `json:"labels"`
 	Archived               bool            `json:"archived"`
 	UpdatedAt              time.Time       `json:"updated_at"`
+	IterationID            *int            `json:"iteration_id"` // nil when not assigned
+}
+
+// iterationResponse is the slice of the Shortcut iteration payload
+// the ranker needs to compute distance from "current".
+type iterationResponse struct {
+	ID        int       `json:"id"`
+	Status    string    `json:"status"` // unstarted | started | done
+	StartDate time.Time `json:"start_date"`
+	EndDate   time.Time `json:"end_date"`
 }
 
 // labelResponse is the slice of the Shortcut label payload we surface.
@@ -235,12 +245,14 @@ func (s *Source) toTicket(sr storyResponse, stateName string) ticket.Ticket {
 		}
 	}
 	return ticket.Ticket{
-		SourceID: ID(sr.ID).String(),
-		Title:    sr.Name,
-		Body:     sr.Description,
-		URL:      sr.AppURL,
-		State:    stateName,
-		Labels:   labels,
+		SourceID:          ID(sr.ID).String(),
+		Title:             sr.Name,
+		Body:              sr.Description,
+		URL:               sr.AppURL,
+		State:             stateName,
+		Labels:            labels,
+		UpdatedAt:         sr.UpdatedAt,
+		IterationDistance: -1, // overwritten in ListAssigned when iteration data is available
 		Extra: map[string]string{
 			"formatted_vcs_branch_name": sr.FormattedVCSBranchName,
 			"workflow_state_id":         strconv.Itoa(sr.WorkflowStateID),
@@ -274,7 +286,6 @@ type searchBody struct {
 // hands" stages. Custom workflow naming can override this in a future
 // config field; for now it's hardcoded to the common Shortcut defaults.
 var excludedStateNames = map[string]bool{
-	"in review":              true,
 	"ready for verification": true,
 	"verifying":              true,
 	"in verification":        true,
@@ -283,42 +294,75 @@ var excludedStateNames = map[string]bool{
 	"ready for deploy":       true,
 }
 
-// stateRank assigns each surfaced workflow-state name a sort tier so
-// the picker shows the tickets a developer is most likely to start
-// a fresh workspace on FIRST, and stalled-or-done-from-dev work last.
-// Within a tier, the caller breaks ties by UpdatedAt descending.
+// buildIterationTimeline returns:
 //
-// Tier 2 (top) — live dev work: explicitly in-flight or ready-to-pick
-// up. Backlog is included because "I haven't started yet" is exactly
-// the case where the picker is useful.
+//   - distance: iteration ID → step from the current iteration.
+//     0 = current, 1 = previous, etc.
+//   - future:   set of iteration IDs later in the timeline than the
+//     current one. Stories in these iterations are filtered out of
+//     the picker.
 //
-// Tier 0 (bottom) — handed off or paused. Code review work is
-// effectively finished from the dev's POV; "Waiting for CS" means
-// the ball is in the customer's court; Paused is explicitly stalled.
+// "Current" is the lexicographically-greatest `status="started"`
+// iteration over the triple (StartDate, EndDate, ID). That is, the
+// latest StartDate wins; same-StartDate ties go to the later
+// EndDate; same-StartDate-and-EndDate ties go to the larger ID.
 //
-// Tier 1 — everything else, including custom workflow names we don't
-// recognize. Sensible neutral default so a renamed state doesn't
-// accidentally land in tier 0.
-//
-// Names are matched case-insensitively after trimming so minor
-// formatting variation in Shortcut workspaces (extra spaces, etc.)
-// doesn't break the bucket.
-func stateRank(name string) int {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "in development", "ready for development",
-		"backlog", "waiting for r&d":
-		return 2
-	case "in code review", "waiting for cs", "paused":
-		return 0
-	default:
-		return 1
+// If no started iteration exists, returns empty maps — the caller
+// then treats every IterationID as the sentinel (factor 0) and
+// nothing is filtered.
+func buildIterationTimeline(iters []iterationResponse) (distance map[int]int, future map[int]bool) {
+	distance = make(map[int]int, len(iters))
+	future = make(map[int]bool)
+	if len(iters) == 0 {
+		return distance, future
 	}
+
+	// Deterministic order: StartDate asc, EndDate asc, ID asc. The
+	// comparator is total — every pair of iterations gets a strict
+	// ordering — so plain sort.Slice produces a fully-determined
+	// result. sort.SliceStable isn't needed because no two elements
+	// compare equal.
+	ordered := make([]iterationResponse, len(iters))
+	copy(ordered, iters)
+	sort.Slice(ordered, func(i, j int) bool {
+		a, b := ordered[i], ordered[j]
+		if !a.StartDate.Equal(b.StartDate) {
+			return a.StartDate.Before(b.StartDate)
+		}
+		if !a.EndDate.Equal(b.EndDate) {
+			return a.EndDate.Before(b.EndDate)
+		}
+		return a.ID < b.ID
+	})
+
+	// Find the latest-indexed "started" iteration — that's "current".
+	currentIdx := -1
+	for i, it := range ordered {
+		if it.Status == "started" {
+			currentIdx = i
+		}
+	}
+	if currentIdx == -1 {
+		return distance, future
+	}
+
+	for i, it := range ordered {
+		switch {
+		case i > currentIdx:
+			future[it.ID] = true
+		case i == currentIdx:
+			distance[it.ID] = 0
+		default:
+			distance[it.ID] = currentIdx - i
+		}
+	}
+	return distance, future
 }
 
 // ListAssigned returns the authenticated user's currently-active
 // assigned tickets — excluding archived stories, anything in a
-// workflow state of type "done", and a handful of "out of dev hands"
-// state names (In Review, Verifying, etc.).
+// workflow state of type "done", a handful of "out of dev hands"
+// state names (Verifying, etc.), and any story in a future iteration.
 func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 	var me memberResponse
 	if err := s.doRequest(ctx, http.MethodGet, "/api/v3/member", nil, &me); err != nil {
@@ -337,16 +381,27 @@ func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 		}
 	}
 
+	// Best-effort iteration fetch: if it fails, we proceed with an
+	// empty timeline. Every story then gets IterationDistance=-1
+	// (factor 0 at the ranker) and nothing is filtered as "future".
+	// This keeps the picker functional even if Shortcut briefly 5xx's
+	// or the auth token loses iteration scope. Error is silently
+	// swallowed because this file doesn't take a logger today.
+	var iterations []iterationResponse
+	if err := s.doRequest(ctx, http.MethodGet, "/api/v3/iterations", nil, &iterations); err != nil {
+		iterations = nil
+	}
+	distanceByIter, futureIter := buildIterationTimeline(iterations)
+
 	var stories []storyResponse
 	if err := s.doRequest(ctx, http.MethodPost, "/api/v3/stories/search",
 		searchBody{OwnerIDs: []string{me.ID}, Archived: false}, &stories); err != nil {
 		return nil, fmt.Errorf("search stories: %w", err)
 	}
 
-	// Filter first so the sort key (state-rank tier + UpdatedAt) only
-	// has to look at stories the user is actually going to see. We
-	// keep the resolved state name alongside the story so the sort
-	// doesn't have to re-map workflow IDs.
+	// Filter: archived, done-by-type, excluded-by-name, future-iter.
+	// We keep the resolved state name alongside the story so the
+	// output loop doesn't re-map workflow IDs.
 	type filtered struct {
 		sr    storyResponse
 		state string
@@ -363,24 +418,29 @@ func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 		if excludedStateNames[strings.ToLower(st.Name)] {
 			continue
 		}
+		if sr.IterationID != nil && futureIter[*sr.IterationID] {
+			continue // future iteration — out of scope for the picker
+		}
 		kept = append(kept, filtered{sr, st.Name})
 	}
 
-	// Primary key: state-rank tier (live dev work on top, stalled at
-	// the bottom). Secondary: UpdatedAt descending — most-recently-
-	// touched first within a tier. Stable so stories with identical
-	// keys keep the order Shortcut returned them in.
-	sort.SliceStable(kept, func(i, j int) bool {
-		ri, rj := stateRank(kept[i].state), stateRank(kept[j].state)
-		if ri != rj {
-			return ri > rj
-		}
-		return kept[i].sr.UpdatedAt.After(kept[j].sr.UpdatedAt)
-	})
-
+	// No ordering here — the cross-source ranker
+	// (internal/ticket/rank) imposes the picker order in the caller.
+	// We hand stories back in whatever order Shortcut returned them;
+	// rank.Sort is stable, so identical-score tickets preserve that
+	// order.
 	out := make([]ticket.Ticket, 0, len(kept))
 	for _, k := range kept {
-		out = append(out, s.toTicket(k.sr, k.state))
+		tk := s.toTicket(k.sr, k.state)
+		if k.sr.IterationID != nil {
+			if d, ok := distanceByIter[*k.sr.IterationID]; ok {
+				tk.IterationDistance = d
+			}
+			// If the iteration isn't in our timeline (e.g. archived
+			// after the workflow fetch), tk.IterationDistance stays
+			// at the toTicket default of -1.
+		}
+		out = append(out, tk)
 	}
 	return out, nil
 }
