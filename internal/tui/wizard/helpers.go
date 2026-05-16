@@ -7,6 +7,7 @@ import (
 
 	"github.com/uribrecher/thicket/internal/detector"
 	"github.com/uribrecher/thicket/internal/ticket"
+	"github.com/uribrecher/thicket/internal/tui"
 )
 
 // Helpers shared by every wizard's pages. Lives in the root `wizard`
@@ -37,29 +38,26 @@ func FmtErr(err error) string {
 	return fmt.Sprintf("error: %s", err.Error())
 }
 
-// PadRight pads `s` with spaces on the right so the displayed width
-// equals `n` runes. Strings already at or above `n` are returned
-// unchanged.
+// PadRight right-pads `s` with spaces so the result occupies at least
+// `n` visible terminal cells. Strings whose visible width already
+// equals or exceeds `n` are returned unchanged — pair with Truncate
+// when callers need a hard upper bound. Delegates to tui.PadRight so
+// wizard pickers stay aligned when rows carry emoji or other wide
+// runes — a rune-count pad under-fills the column by one cell per
+// wide rune and shifts neighbouring columns right (the bug that
+// misaligned `thicket edit`'s workspace picker once nicknames
+// carried emoji).
 func PadRight(s string, n int) string {
-	r := []rune(s)
-	if len(r) >= n {
-		return s
-	}
-	return s + strings.Repeat(" ", n-len(r))
+	return tui.PadRight(s, n)
 }
 
-// Truncate clips `s` to at most `n` runes, replacing the last
-// character with `…` so the result reads as deliberately truncated.
-// Returns the empty string when n < 1.
+// Truncate caps `s` at `n` visible terminal cells, appending `…` when
+// truncation actually happens. Returns the empty string when `n < 1`.
+// Delegates to tui.Truncate so the width budget matches PadRight —
+// using a rune-count truncate would leave wide-rune strings
+// overflowing the column PadRight just sized.
 func Truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	if n < 1 {
-		return ""
-	}
-	return string(r[:n-1]) + "…"
+	return tui.Truncate(s, n)
 }
 
 // AbbrevHome collapses an absolute path under $HOME to a leading `~`.
