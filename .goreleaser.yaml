@@ -20,11 +20,19 @@ builds:
       - arm64
     flags:
       - -trimpath
+    # Stamp the binary's modification time with the commit timestamp
+    # so the file metadata is deterministic across rebuilds — paired
+    # with -trimpath and -X main.date={{.CommitDate}} below, this
+    # makes the released binary byte-identical for a given tag.
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
+      # Commit date, not the build-time wall clock — keeps the
+      # released binary byte-identical across rebuilds of the same
+      # tag (the whole point of -trimpath above).
+      - -X main.date={{.CommitDate}}
 
 archives:
   - id: thicket

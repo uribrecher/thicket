@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 _Nothing yet._
 
+## [0.6.1] - 2026-05-16
+
+Build-hygiene patch — no user-visible behavior change.
+
+### Changed
+
+- **Reproducible builds: same commit + same Go version → byte-identical
+  binary.** Three changes get there:
+  - `-trimpath` on `go build`/`go install` and in goreleaser, replacing
+    absolute filesystem paths with module-relative ones. Released
+    tarballs no longer leak the builder's `$HOME`/workspace path.
+  - `BUILD_DATE` in the Taskfile now uses `git log -1 --format=%cI`
+    (commit author date) instead of `date -u` (wall clock), so the
+    `-X main.date=…` ldflag is pinned to the commit.
+  - goreleaser's `ldflag` for `main.date` switches from `{{.Date}}` to
+    `{{.CommitDate}}`, and `builds.mod_timestamp` is set to
+    `{{.CommitTimestamp}}` so the binary's file metadata is also
+    deterministic.
+
+  Verified locally: two consecutive `task build` invocations produce
+  the same SHA-256, and two consecutive `task release:snapshot` runs
+  produce the same binary per target. Size delta from `-trimpath`
+  alone is ~80 KB; the other changes are zero-byte.
+
+  The `thicket version` line now shows the **commit date** ("built
+  …") rather than the wall-clock build time. Semantically a better
+  signal anyway: it tells you which version of the code you're
+  running, not when someone happened to compile it.
+
 ## [0.6.0] - 2026-05-16
 
 Feature release — the `thicket start` ticket picker now ranks tickets
