@@ -235,12 +235,14 @@ func (s *Source) toTicket(sr storyResponse, stateName string) ticket.Ticket {
 		}
 	}
 	return ticket.Ticket{
-		SourceID: ID(sr.ID).String(),
-		Title:    sr.Name,
-		Body:     sr.Description,
-		URL:      sr.AppURL,
-		State:    stateName,
-		Labels:   labels,
+		SourceID:          ID(sr.ID).String(),
+		Title:             sr.Name,
+		Body:              sr.Description,
+		URL:               sr.AppURL,
+		State:             stateName,
+		Labels:            labels,
+		UpdatedAt:         sr.UpdatedAt,
+		IterationDistance: -1, // overwritten in ListAssigned when iteration data is available
 		Extra: map[string]string{
 			"formatted_vcs_branch_name": sr.FormattedVCSBranchName,
 			"workflow_state_id":         strconv.Itoa(sr.WorkflowStateID),

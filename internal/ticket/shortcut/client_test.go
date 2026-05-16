@@ -403,6 +403,34 @@ func TestListAssigned_emptyStoriesNotAnError(t *testing.T) {
 	}
 }
 
+func TestListAssigned_setsUpdatedAtAndIterationDistanceDefault(t *testing.T) {
+	member := memberResponse{ID: "u"}
+	workflows := []workflowResponse{{
+		States: []workflowStateResponse{{ID: 1, Name: "In Development", Type: "started"}},
+	}}
+	updated := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
+	stories := []storyResponse{
+		{ID: 1, Name: "t", WorkflowStateID: 1, UpdatedAt: updated},
+	}
+	srv := listAssignedServer(t, member, workflows, stories)
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d tickets, want 1", len(got))
+	}
+	if !got[0].UpdatedAt.Equal(updated) {
+		t.Errorf("UpdatedAt = %v, want %v", got[0].UpdatedAt, updated)
+	}
+	if got[0].IterationDistance != -1 {
+		t.Errorf("IterationDistance = %d, want -1 (sentinel for no iteration)",
+			got[0].IterationDistance)
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
