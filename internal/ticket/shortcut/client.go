@@ -133,11 +133,45 @@ type storyResponse struct {
 
 // iterationResponse is the slice of the Shortcut iteration payload
 // the ranker needs to compute distance from "current".
+//
+// StartDate / EndDate use a custom UnmarshalJSON because Shortcut
+// returns them as date-only strings ("2026-05-06"), not RFC 3339 —
+// time.Time's default unmarshal would fail and silently empty the
+// timeline, regressing every ticket's iteration column to "—".
 type iterationResponse struct {
 	ID        int       `json:"id"`
 	Status    string    `json:"status"` // unstarted | started | done
-	StartDate time.Time `json:"start_date"`
-	EndDate   time.Time `json:"end_date"`
+	StartDate time.Time `json:"-"`
+	EndDate   time.Time `json:"-"`
+}
+
+func (r *iterationResponse) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ID        int    `json:"id"`
+		Status    string `json:"status"`
+		StartDate string `json:"start_date"`
+		EndDate   string `json:"end_date"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	r.ID = raw.ID
+	r.Status = raw.Status
+	if raw.StartDate != "" {
+		t, err := time.Parse("2006-01-02", raw.StartDate)
+		if err != nil {
+			return fmt.Errorf("parse iteration start_date %q: %w", raw.StartDate, err)
+		}
+		r.StartDate = t
+	}
+	if raw.EndDate != "" {
+		t, err := time.Parse("2006-01-02", raw.EndDate)
+		if err != nil {
+			return fmt.Errorf("parse iteration end_date %q: %w", raw.EndDate, err)
+		}
+		r.EndDate = t
+	}
+	return nil
 }
 
 // labelResponse is the slice of the Shortcut label payload we surface.
