@@ -204,12 +204,13 @@ func TestBranchName_emptyExtra(t *testing.T) {
 
 // ----- ListAssigned -----
 
-// listAssignedServer wires up an httptest.Server that handles the three
-// endpoints ListAssigned hits. Each handler returns canned JSON; the
-// search handler asserts the request body matches what the caller is
-// expected to send.
-func listAssignedServer(t *testing.T, member memberResponse,
-	workflows []workflowResponse, stories []storyResponse) *httptest.Server {
+// listAssignedServerWithIterations wires up an httptest.Server that
+// handles the four endpoints ListAssigned hits. Each handler returns
+// canned JSON; the search handler asserts the request body matches
+// what the caller is expected to send.
+func listAssignedServerWithIterations(t *testing.T, member memberResponse,
+	workflows []workflowResponse, stories []storyResponse,
+	iterations []iterationResponse) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Shortcut-Token"); got != "tok" {
@@ -221,6 +222,8 @@ func listAssignedServer(t *testing.T, member memberResponse,
 			_ = json.NewEncoder(w).Encode(member)
 		case r.URL.Path == "/api/v3/workflows" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(workflows)
+		case r.URL.Path == "/api/v3/iterations" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(iterations)
 		case r.URL.Path == "/api/v3/stories/search" && r.Method == http.MethodPost:
 			body, _ := io.ReadAll(r.Body)
 			var sb searchBody
@@ -239,6 +242,13 @@ func listAssignedServer(t *testing.T, member memberResponse,
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
+}
+
+// listAssignedServer is the no-iterations shorthand for tests that
+// don't care about the iteration timeline.
+func listAssignedServer(t *testing.T, member memberResponse,
+	workflows []workflowResponse, stories []storyResponse) *httptest.Server {
+	return listAssignedServerWithIterations(t, member, workflows, stories, nil)
 }
 
 func TestListAssigned_filtersDoneArchivedAndExcludedStates(t *testing.T) {
@@ -341,6 +351,128 @@ func TestListAssigned_setsUpdatedAtAndIterationDistanceDefault(t *testing.T) {
 	}
 	if got[0].IterationDistance != -1 {
 		t.Errorf("IterationDistance = %d, want -1 (sentinel for no iteration)",
+			got[0].IterationDistance)
+	}
+}
+
+// iterFixture builds an iterationResponse with the given id, start
+// date (in YYYY-MM-DD), and status. End date is 13 days after start.
+func iterFixture(id int, start string, status string) iterationResponse {
+	s, _ := time.Parse("2006-01-02", start)
+	return iterationResponse{
+		ID:        id,
+		Status:    status,
+		StartDate: s,
+		EndDate:   s.AddDate(0, 0, 13),
+	}
+}
+
+func TestListAssigned_setsIterationDistance(t *testing.T) {
+	member := memberResponse{ID: "u"}
+	workflows := []workflowResponse{{
+		States: []workflowStateResponse{{ID: 1, Name: "In Development", Type: "started"}},
+	}}
+	// Timeline (sorted by StartDate asc):
+	//   id 10 (older)    — 2026-04-01 .. 04-14, done
+	//   id 11 (previous) — 2026-04-15 .. 04-28, done
+	//   id 12 (current)  — 2026-04-29 .. 05-12, started
+	// distances: current=0, previous=1, older=2.
+	iterations := []iterationResponse{
+		iterFixture(10, "2026-04-01", "done"),
+		iterFixture(11, "2026-04-15", "done"),
+		iterFixture(12, "2026-04-29", "started"),
+	}
+	iter12 := 12
+	iter11 := 11
+	iter10 := 10
+	stories := []storyResponse{
+		{ID: 1, Name: "current", WorkflowStateID: 1, IterationID: &iter12},
+		{ID: 2, Name: "previous", WorkflowStateID: 1, IterationID: &iter11},
+		{ID: 3, Name: "older", WorkflowStateID: 1, IterationID: &iter10},
+		{ID: 4, Name: "no-iter", WorkflowStateID: 1, IterationID: nil},
+	}
+	srv := listAssignedServerWithIterations(t, member, workflows, stories, iterations)
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	want := map[string]int{
+		"sc-1": 0,
+		"sc-2": 1,
+		"sc-3": 2,
+		"sc-4": -1,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d tickets, want %d", len(got), len(want))
+	}
+	for _, tk := range got {
+		w, ok := want[tk.SourceID]
+		if !ok {
+			t.Errorf("unexpected ticket %s", tk.SourceID)
+			continue
+		}
+		if tk.IterationDistance != w {
+			t.Errorf("%s: IterationDistance=%d, want %d", tk.SourceID, tk.IterationDistance, w)
+		}
+	}
+}
+
+func TestListAssigned_filtersFutureIterationStories(t *testing.T) {
+	member := memberResponse{ID: "u"}
+	workflows := []workflowResponse{{
+		States: []workflowStateResponse{{ID: 1, Name: "In Development", Type: "started"}},
+	}}
+	iterations := []iterationResponse{
+		iterFixture(11, "2026-04-15", "done"),
+		iterFixture(12, "2026-04-29", "started"),   // current
+		iterFixture(13, "2026-05-13", "unstarted"), // future
+	}
+	iter13 := 13
+	iter12 := 12
+	stories := []storyResponse{
+		{ID: 1, Name: "future", WorkflowStateID: 1, IterationID: &iter13},
+		{ID: 2, Name: "current", WorkflowStateID: 1, IterationID: &iter12},
+	}
+	srv := listAssignedServerWithIterations(t, member, workflows, stories, iterations)
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || got[0].SourceID != "sc-2" {
+		t.Errorf("expected only sc-2 to survive future-iteration filter, got %+v", got)
+	}
+}
+
+func TestListAssigned_noStartedIterationLeavesDistanceSentinel(t *testing.T) {
+	member := memberResponse{ID: "u"}
+	workflows := []workflowResponse{{
+		States: []workflowStateResponse{{ID: 1, Name: "In Development", Type: "started"}},
+	}}
+	iterations := []iterationResponse{
+		iterFixture(11, "2026-04-15", "done"),
+		iterFixture(12, "2026-04-29", "done"),
+	}
+	iter12 := 12
+	stories := []storyResponse{
+		{ID: 1, Name: "any", WorkflowStateID: 1, IterationID: &iter12},
+	}
+	srv := listAssignedServerWithIterations(t, member, workflows, stories, iterations)
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d tickets, want 1", len(got))
+	}
+	// No started iteration → everyone gets sentinel -1.
+	if got[0].IterationDistance != -1 {
+		t.Errorf("IterationDistance=%d, want -1 when no started iteration exists",
 			got[0].IterationDistance)
 	}
 }

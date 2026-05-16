@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -127,6 +128,16 @@ type storyResponse struct {
 	Labels                 []labelResponse `json:"labels"`
 	Archived               bool            `json:"archived"`
 	UpdatedAt              time.Time       `json:"updated_at"`
+	IterationID            *int            `json:"iteration_id"` // nil when not assigned
+}
+
+// iterationResponse is the slice of the Shortcut iteration payload
+// the ranker needs to compute distance from "current".
+type iterationResponse struct {
+	ID        int       `json:"id"`
+	Status    string    `json:"status"` // unstarted | started | done
+	StartDate time.Time `json:"start_date"`
+	EndDate   time.Time `json:"end_date"`
 }
 
 // labelResponse is the slice of the Shortcut label payload we surface.
@@ -283,10 +294,69 @@ var excludedStateNames = map[string]bool{
 	"ready for deploy":       true,
 }
 
+// buildIterationTimeline returns:
+//
+//   - distance: iteration ID → step from the current iteration.
+//     0 = current, 1 = previous, etc.
+//   - future:   set of iteration IDs later in the timeline than the
+//     current one. Stories in these iterations are filtered out of
+//     the picker.
+//
+// "Current" is the latest-StartDate iteration with status="started".
+// Ties broken by EndDate asc, then ID asc.
+//
+// If no started iteration exists, returns empty maps — the caller
+// then treats every IterationID as the sentinel (factor 0) and
+// nothing is filtered.
+func buildIterationTimeline(iters []iterationResponse) (distance map[int]int, future map[int]bool) {
+	distance = make(map[int]int, len(iters))
+	future = make(map[int]bool)
+	if len(iters) == 0 {
+		return distance, future
+	}
+
+	// Stable order: StartDate asc, EndDate asc, ID asc.
+	ordered := make([]iterationResponse, len(iters))
+	copy(ordered, iters)
+	sort.Slice(ordered, func(i, j int) bool {
+		a, b := ordered[i], ordered[j]
+		if !a.StartDate.Equal(b.StartDate) {
+			return a.StartDate.Before(b.StartDate)
+		}
+		if !a.EndDate.Equal(b.EndDate) {
+			return a.EndDate.Before(b.EndDate)
+		}
+		return a.ID < b.ID
+	})
+
+	// Find the latest-indexed "started" iteration — that's "current".
+	currentIdx := -1
+	for i, it := range ordered {
+		if it.Status == "started" {
+			currentIdx = i
+		}
+	}
+	if currentIdx == -1 {
+		return distance, future
+	}
+
+	for i, it := range ordered {
+		switch {
+		case i > currentIdx:
+			future[it.ID] = true
+		case i == currentIdx:
+			distance[it.ID] = 0
+		default:
+			distance[it.ID] = currentIdx - i
+		}
+	}
+	return distance, future
+}
+
 // ListAssigned returns the authenticated user's currently-active
 // assigned tickets — excluding archived stories, anything in a
-// workflow state of type "done", and a handful of "out of dev hands"
-// state names (In Review, Verifying, etc.).
+// workflow state of type "done", a handful of "out of dev hands"
+// state names (Verifying, etc.), and any story in a future iteration.
 func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 	var me memberResponse
 	if err := s.doRequest(ctx, http.MethodGet, "/api/v3/member", nil, &me); err != nil {
@@ -305,16 +375,27 @@ func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 		}
 	}
 
+	// Best-effort iteration fetch: if it fails, we proceed with an
+	// empty timeline. Every story then gets IterationDistance=-1
+	// (factor 0 at the ranker) and nothing is filtered as "future".
+	// This keeps the picker functional even if Shortcut briefly 5xx's
+	// or the auth token loses iteration scope. Error is silently
+	// swallowed because this file doesn't take a logger today.
+	var iterations []iterationResponse
+	if err := s.doRequest(ctx, http.MethodGet, "/api/v3/iterations", nil, &iterations); err != nil {
+		iterations = nil
+	}
+	distanceByIter, futureIter := buildIterationTimeline(iterations)
+
 	var stories []storyResponse
 	if err := s.doRequest(ctx, http.MethodPost, "/api/v3/stories/search",
 		searchBody{OwnerIDs: []string{me.ID}, Archived: false}, &stories); err != nil {
 		return nil, fmt.Errorf("search stories: %w", err)
 	}
 
-	// Filter first so the sort key (state-rank tier + UpdatedAt) only
-	// has to look at stories the user is actually going to see. We
-	// keep the resolved state name alongside the story so the sort
-	// doesn't have to re-map workflow IDs.
+	// Filter: archived, done-by-type, excluded-by-name, future-iter.
+	// We keep the resolved state name alongside the story so the
+	// output loop doesn't re-map workflow IDs.
 	type filtered struct {
 		sr    storyResponse
 		state string
@@ -331,6 +412,9 @@ func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 		if excludedStateNames[strings.ToLower(st.Name)] {
 			continue
 		}
+		if sr.IterationID != nil && futureIter[*sr.IterationID] {
+			continue // future iteration — out of scope for the picker
+		}
 		kept = append(kept, filtered{sr, st.Name})
 	}
 
@@ -341,7 +425,16 @@ func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 	// order.
 	out := make([]ticket.Ticket, 0, len(kept))
 	for _, k := range kept {
-		out = append(out, s.toTicket(k.sr, k.state))
+		tk := s.toTicket(k.sr, k.state)
+		if k.sr.IterationID != nil {
+			if d, ok := distanceByIter[*k.sr.IterationID]; ok {
+				tk.IterationDistance = d
+			}
+			// If the iteration isn't in our timeline (e.g. archived
+			// after the workflow fetch), tk.IterationDistance stays
+			// at the toTicket default of -1.
+		}
+		out = append(out, tk)
 	}
 	return out, nil
 }
