@@ -48,8 +48,8 @@ func TestScore_iterationDecay(t *testing.T) {
 		distance int
 		want     int // expected score given state=live, ws=false
 	}{
-		{0, 2000 + 300},  // current → factor 1.0
-		{1, 2000 + 270},  // previous → factor 0.9
+		{0, 2000 + 300}, // current → factor 1.0
+		{1, 2000 + 270}, // previous → factor 0.9
 		{2, 2000 + 240},
 		{5, 2000 + 150},
 		{9, 2000 + 30},
