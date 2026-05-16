@@ -86,8 +86,9 @@ func newEditCmd() *cobra.Command {
 			"Pre-existing repos are shown as locked rows on the Repos page —\n" +
 			"removing repos isn't supported yet; use `thicket rm` + `thicket start`\n" +
 			"for that.",
-		Args: cobra.MaximumNArgs(1),
-		RunE: runEdit,
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completeWorkspaceSlugs,
+		RunE:              runEdit,
 	}
 	return c
 }
@@ -100,6 +101,7 @@ func newStartCmd() *cobra.Command {
 		RunE:  runStart,
 	}
 	c.Flags().StringSlice("only", nil, "use exactly these repos (skips LLM)")
+	_ = c.RegisterFlagCompletionFunc("only", completeCatalogRepos)
 	c.Flags().String("branch", "", "override branch name")
 	c.Flags().String("nickname", "", "short workspace label (max 20 chars; overrides LLM suggestion)")
 	c.Flags().Bool("no-interactive", false, "accept LLM suggestion without prompting")
@@ -128,10 +130,11 @@ func newListCmd() *cobra.Command {
 
 func newRmCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "rm [slug]",
-		Short: "Remove a workspace and its worktrees (interactive picker if no slug)",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  runRm,
+		Use:               "rm [slug]",
+		Short:             "Remove a workspace and its worktrees (interactive picker if no slug)",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completeWorkspaceSlugs,
+		RunE:              runRm,
 	}
 	c.Flags().Bool("force", false, "remove even if worktrees have local changes")
 	c.Flags().Bool("yes", false, "skip the confirmation prompt (for scripts)")
