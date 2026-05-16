@@ -223,7 +223,21 @@ func listAssignedServerWithIterations(t *testing.T, member memberResponse,
 		case r.URL.Path == "/api/v3/workflows" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(workflows)
 		case r.URL.Path == "/api/v3/iterations" && r.Method == http.MethodGet:
-			_ = json.NewEncoder(w).Encode(iterations)
+			// Emit the date-only wire format Shortcut actually
+			// returns ("2026-05-06"), not RFC 3339. Exercises the
+			// client's custom UnmarshalJSON and guards against the
+			// regression where time.Time defaults silently emptied
+			// the timeline.
+			out := make([]map[string]any, len(iterations))
+			for i, it := range iterations {
+				out[i] = map[string]any{
+					"id":         it.ID,
+					"status":     it.Status,
+					"start_date": it.StartDate.Format("2006-01-02"),
+					"end_date":   it.EndDate.Format("2006-01-02"),
+				}
+			}
+			_ = json.NewEncoder(w).Encode(out)
 		case r.URL.Path == "/api/v3/stories/search" && r.Method == http.MethodPost:
 			body, _ := io.ReadAll(r.Body)
 			var sb searchBody
