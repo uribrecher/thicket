@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **`thicket version` no longer mislabels the date.** Output now reads
+  `thicket X.Y.Z (sha, committed YYYY-MM-DDTHH:MM:SSZ)` instead of
+  `built …`. Since v0.6.1 the field is the commit timestamp (for
+  reproducibility), not the wall-clock build time, so `built` was
+  misleading.
 
 ## [0.6.1] - 2026-05-16
 
