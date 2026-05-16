@@ -25,41 +25,51 @@ package so it can sit at the layer that knows about workspaces.
 ## Scoring
 
 ```
-score = 1000 * stateTier + 300 * activeIteration + 100 * hasWorkspace
+score = 1000 * stateTier + 300 * iterationFactor + 100 * hasWorkspace
+
+where iterationFactor = max(0, 1.0 - distance * 0.1)
+   distance = 0  → current iteration            → factor 1.0
+   distance = 1  → previous iteration           → factor 0.9
+   distance = 2  → two iterations back          → factor 0.8
+   ...
+   distance ≥ 10 → factor 0.0
+   no iteration  → factor 0.0   (not filtered, just no boost)
 ```
 
-Where `stateTier ∈ {0, 1, 2}`, `activeIteration ∈ {0, 1}`, and
-`hasWorkspace ∈ {0, 1}`. Primary sort: `score desc`. Tiebreaker:
-`UpdatedAt desc`. Stable sort, so identical-score tickets preserve the
-order Shortcut returned them in.
+`stateTier ∈ {0, 1, 2}` and `hasWorkspace ∈ {0, 1}`. Primary sort:
+`score desc`. Tiebreaker: `UpdatedAt desc`. Stable sort, so
+identical-score tickets preserve the order Shortcut returned them in.
 
 State dominates intentionally: a "still in dev" ticket the user forgot
-to migrate into the active iteration should outrank a "paused" ticket
-inside the active iteration. Within a state band, active-iteration is a
-3× larger boost than has-workspace, matching the "active iteration
-much higher than other iterations" requirement while still letting the
-workspace signal break ties.
+to migrate into the current iteration should outrank a "paused" ticket
+inside it. State dominance holds across all values of the other
+signals — max non-live score is `1000 + 300 + 100 = 1400`, min live is
+`2000`.
 
-Resulting order (top → bottom):
+The graduated iteration signal means the workspace bonus (100) starts
+to outweigh the iteration bonus once distance ≥ 7 (where `300 × 0.3 =
+90 < 100`). This matches the intent that a ticket from an older
+sprint with a live workspace should rank above one with no workspace
+from a similarly-old sprint.
+
+Example computed scores (state=live for compactness — same shape
+inside neutral/stalled bands):
 
 ```
-2400  live    + active-iter + workspace
-2300  live    + active-iter
-2100  live    + workspace
-2000  live
-1400  neutral + active-iter + workspace
-1300  neutral + active-iter
-1100  neutral + workspace
-1000  neutral
- 400  stalled + active-iter + workspace
- 300  stalled + active-iter
- 100  stalled + workspace
-   0  stalled
+2400  live + current iter        + workspace
+2300  live + current iter
+2270  live + previous iter       + workspace
+2170  live + previous iter
+2250  live + 5-back iter         + workspace
+2150  live + 5-back iter
+2100  live                       + workspace
+2000  live + 10-back-or-older iter           (≡ live alone, factor 0)
+2000  live (no iteration)                    (factor 0)
 ```
 
-Every "live" beats every "neutral" beats every "stalled". This is a
-deliberate invariant — it gives the user a predictable mental model
-when they're looking for "where did my ticket go?".
+Every "live" still beats every "neutral" beats every "stalled". This
+invariant is deliberate — it gives the user a predictable mental
+model when they're looking for "where did my ticket go?".
 
 ## State-bucket refinements
 
@@ -93,30 +103,51 @@ Excluded states (unchanged except `in review` removed): `done`,
 verification`, `qa`, `ready for deploy`. These are filtered before
 ranking so they never appear in the picker.
 
-## Active-iteration detection
+## Iteration timeline, distance, and future filtering
 
-A Shortcut iteration has `status ∈ {unstarted, started, done}`. Active
-iterations are those with `status == "started"`. A user in multiple
-groups can be in several started iterations at once — all count.
+A Shortcut iteration carries `status ∈ {unstarted, started, done}` and
+a `start_date` / `end_date`. The "current" iteration is the latest
+`status == "started"` entry by `start_date`. (Users in multiple groups
+may have several started iterations simultaneously; picking the
+latest-start one as the anchor avoids treating overlapping current
+sprints as "future".)
 
 Implementation:
 
-- Add `IterationID *int` to `storyResponse` (the JSON shape) so we can
-  read `iteration_id` off each story.
-- One extra round-trip in `ListAssigned`:
-  `GET /api/v3/iterations`, then client-side filter to entries with
-  `status == "started"`. Build a `set[int]` of started iteration IDs.
-  (Client-side filter is the safe choice — the Shortcut API has at
-  times accepted a `status` query param but documentation has not
-  always reflected it; the result set is small enough that filtering
-  locally costs nothing.)
-- For each kept story, set a new field `IterationActive bool` on the
-  returned `ticket.Ticket` to `iterationID != nil && startedSet[*iterationID]`.
+- Add `IterationID *int` to `storyResponse` so we can read
+  `iteration_id` off each story.
+- One extra round-trip in `ListAssigned`: `GET /api/v3/iterations`,
+  decoded into a small `iterationResponse{ID int, StartDate, EndDate
+  time.Time, Status string}`.
+- Build a timeline: all iterations sorted by `(StartDate asc,
+  EndDate asc, ID asc)`. The current iteration is the latest-indexed
+  entry with `Status == "started"`. Call its index `currentIdx`.
+- For each iteration `iter` in the timeline at index `i`:
+  - `i > currentIdx`  → mark "future".
+  - `i == currentIdx` → distance = 0.
+  - `i <  currentIdx` → distance = `currentIdx - i`.
+  Persist as `map[iterationID]distance` plus a `set[iterationID]` of
+  future ones.
+- During the existing filter loop in `ListAssigned`, drop stories
+  whose `iteration_id` is in the future set — same shape as the
+  existing "exclude `done`/archived" check.
+- For surviving stories, set `IterationDistance int` on the resulting
+  `ticket.Ticket`:
+  - `IterationDistance = distance` when `iteration_id` resolves to a
+    known iteration in the timeline.
+  - `IterationDistance = -1` when `iteration_id == nil` OR resolves to
+    an iteration we don't have a record for (deleted/archived). The
+    ranker treats anything < 0 as factor 0 — same as distance ≥ 10.
+    Log the "unresolved iteration" case at debug level.
 
-If the iterations endpoint fails, log a warning and treat
-`IterationActive` as `false` for everything — the ranking degrades
-gracefully to "state + workspace" instead of failing the whole
-`ListAssigned` call.
+If no started iteration exists at all: `currentIdx` is undefined; the
+future set is empty (no filtering); every ticket's distance is
+sentinel `-1` (factor 0). The ranking degrades to "state + workspace"
+gracefully.
+
+If the iterations endpoint fails: log a warning and proceed with an
+empty timeline. Same gracefully-degraded behavior — nothing filtered,
+all iteration factors 0.
 
 ## Workspace-presence detection
 
@@ -193,23 +224,35 @@ existing ranking tests in `client_test.go`
 Add one field to `internal/ticket/source.go:Ticket`:
 
 ```go
-IterationActive bool  // true iff the ticket is in a Shortcut iteration with status=started
+// IterationDistance is the integer step from the source's "current"
+// iteration to this ticket's iteration, in timeline order:
+//   0  → ticket sits in the current iteration
+//   1  → previous iteration
+//   N  → N iterations back
+//  -1  → ticket has no iteration, or its iteration could not be
+//        resolved against the timeline (sentinel; ranker treats as
+//        factor 0, same as distance ≥ 10). Sources that don't know
+//        about iterations always emit -1.
+IterationDistance int
 ```
 
 It's a typed cross-source field (rather than living in `Extra`)
 because the ranker reads it on every ticket — pushing it into a
 map-of-strings would force a string parse on a hot path.
 
-Sources that don't know about iterations leave it `false` (the zero
-value). When more sources gain iteration support, they populate it the
-same way.
+The zero value `0` would mean "current iteration" — which is the
+*wrong* default for sources that haven't computed it. To make the
+sentinel unambiguous, all source-side construction sites must set
+`IterationDistance = -1` explicitly when no information is available.
+A small constructor / default in `toTicket` keeps this from being
+forgotten.
 
 ## Files touched (implementation summary)
 
 | File | Change |
 |---|---|
-| `internal/ticket/source.go` | Add `IterationActive bool` to `Ticket` |
-| `internal/ticket/shortcut/client.go` | Add `iteration_id` to `storyResponse`; fetch `/api/v3/iterations`; remove `in review` from `excludedStateNames`; remove `in code review` from `stateRank`; delete the in-source sort and the `stateRank` function (moved); annotate `IterationActive` in `toTicket` |
+| `internal/ticket/source.go` | Add `IterationDistance int` to `Ticket`; convention: `-1` = "unknown / no iteration" |
+| `internal/ticket/shortcut/client.go` | Add `iteration_id` to `storyResponse`; fetch `/api/v3/iterations`; build the timeline; filter future-iteration stories; remove `in review` from `excludedStateNames`; remove `in code review` from `stateRank`; delete the in-source sort and the `stateRank` function (moved); annotate `IterationDistance` in `toTicket` |
 | `internal/ticket/shortcut/client_test.go` | Drop ranking-shape assertions from filter tests; keep filter coverage |
 | `internal/ticket/rank/rank.go` *(new)* | `Sort(tickets, hasWorkspace)` + the moved `stateRank` |
 | `internal/ticket/rank/rank_test.go` *(new)* | Cover the score formula and bucket invariants |
@@ -221,20 +264,26 @@ same way.
 End-to-end:
 
 1. `go test ./...` — all green, new `rank` package coverage in place.
-2. Manual smoke against a real Shortcut workspace:
-   - At least one ticket in an active iteration, one with a local
-     thicket workspace but in a closed sprint, and one in a closed
-     sprint with no workspace.
-   - Run `thicket start` and verify the bucket order matches the
-     table in the **Scoring** section.
+2. Manual smoke against a real Shortcut workspace, with at least:
+   - A ticket in the current (started) iteration.
+   - A ticket in the immediately-previous iteration.
+   - A ticket several iterations back that has a local thicket
+     workspace.
+   - A ticket in a future iteration (should NOT appear in the picker).
+   - A ticket with no iteration assigned at all (should appear, no
+     iteration boost).
+   - Run `thicket start` and verify the order matches the formula —
+     specifically that the older-iteration-with-workspace ticket lands
+     above same-band tickets in same-old iterations without workspace.
 3. Confirm `in review` tickets now appear in the picker (they were
    filtered before) and land in the neutral band.
 4. Confirm `in code review` tickets no longer sink to the bottom —
    they appear among the neutral entries.
-5. Verify graceful degradation: temporarily break the
+5. Confirm future-iteration tickets are filtered out entirely.
+6. Verify graceful degradation: temporarily break the
    `/api/v3/iterations` call (e.g. point at a 404) and confirm the
-   picker still loads with iteration-boost disabled rather than
-   failing.
+   picker still loads with iteration distance = -1 for everyone
+   (factor 0) rather than failing.
 
 ## Non-goals
 
