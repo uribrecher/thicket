@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`thicket list` no longer blows past 200 columns or misaligns rows
+  with emoji nicknames.** The old `text/tabwriter` layout showed both
+  SLUG and BRANCH at their natural width and counted bytes (not visible
+  cells), so a 🔍 in the nickname shifted every column to its right.
+  The new layout renders with `tui.PadRight` / `tui.Truncate` — the
+  go-runewidth-backed helpers that pad and clip by visible terminal
+  cells — and pins each column to a fixed width so the table comes in
+  at 118 visible cells total (108 of content + five 2-space gaps),
+  comfortably narrower than the 200+ cells the old layout produced on
+  real workspaces. SLUG stays in the table because `thicket
+  edit [slug]` and `thicket rm [slug]` still take a slug, and the
+  branch column is truncated (and can be overridden with `--branch`),
+  so BRANCH is not a reliable substitute.
+
 - **`thicket version` no longer mislabels the date.** Output now reads
   `thicket X.Y.Z (sha, committed YYYY-MM-DDTHH:MM:SSZ)` instead of
   `built …`. Since v0.6.1 the field is the commit timestamp (for
