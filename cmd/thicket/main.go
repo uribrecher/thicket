@@ -165,7 +165,7 @@ func newVersionCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			v, c, d := buildInfo()
-			fmt.Fprintf(cmd.OutOrStdout(), "thicket %s (%s, built %s)\n", v, c, d)
+			fmt.Fprintf(cmd.OutOrStdout(), "thicket %s (%s, committed %s)\n", v, c, d)
 		},
 	}
 }
