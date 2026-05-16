@@ -15,13 +15,28 @@ Build-hygiene patch — no user-visible behavior change.
 
 ### Changed
 
-- **Reproducible builds via `-trimpath`.** Local builds (`task build`,
-  `task install`) and goreleaser-produced release binaries now strip
-  absolute filesystem paths from the binary, replacing them with
-  module-relative paths. Same Go version + same sources now produces
-  a byte-identical binary regardless of the build machine's directory
-  layout. Released tarballs no longer leak the builder's
-  `$HOME`/workspace path. Size delta is negligible (~80 KB).
+- **Reproducible builds: same commit + same Go version → byte-identical
+  binary.** Three changes get there:
+  - `-trimpath` on `go build`/`go install` and in goreleaser, replacing
+    absolute filesystem paths with module-relative ones. Released
+    tarballs no longer leak the builder's `$HOME`/workspace path.
+  - `BUILD_DATE` in the Taskfile now uses `git log -1 --format=%cI`
+    (commit author date) instead of `date -u` (wall clock), so the
+    `-X main.date=…` ldflag is pinned to the commit.
+  - goreleaser's `ldflag` for `main.date` switches from `{{.Date}}` to
+    `{{.CommitDate}}`, and `builds.mod_timestamp` is set to
+    `{{.CommitTimestamp}}` so the binary's file metadata is also
+    deterministic.
+
+  Verified locally: two consecutive `task build` invocations produce
+  the same SHA-256, and two consecutive `task release:snapshot` runs
+  produce the same binary per target. Size delta from `-trimpath`
+  alone is ~80 KB; the other changes are zero-byte.
+
+  The `thicket version` line now shows the **commit date** ("built
+  …") rather than the wall-clock build time. Semantically a better
+  signal anyway: it tells you which version of the code you're
+  running, not when someone happened to compile it.
 
 ## [0.6.0] - 2026-05-16
 
