@@ -25,6 +25,7 @@ import (
 	"github.com/uribrecher/thicket/internal/secrets"
 	thicketterm "github.com/uribrecher/thicket/internal/term"
 	"github.com/uribrecher/thicket/internal/ticket"
+	"github.com/uribrecher/thicket/internal/ticket/rank"
 	"github.com/uribrecher/thicket/internal/ticket/shortcut"
 	"github.com/uribrecher/thicket/internal/tui"
 	"github.com/uribrecher/thicket/internal/tui/wizard"
@@ -573,6 +574,14 @@ func pickAssignedTicketLegacy(ctx context.Context, src ticket.Source, cfg *confi
 	for _, w := range workspaces {
 		slugByTicket[w.State.TicketID] = w.Slug
 	}
+
+	// Re-rank tickets using the cross-source ranker. The shortcut
+	// source still returns them in its own order; rank.Sort imposes
+	// the state-dominant scoring described in
+	// docs/superpowers/specs/2026-05-16-ticket-ranking-design.md.
+	rank.Sort(tickets, func(sourceID string) bool {
+		return slugByTicket[sourceID] != ""
+	})
 
 	columns := []tui.Column{
 		{Title: "Ticket", Width: 10},
