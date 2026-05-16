@@ -40,8 +40,9 @@ func runList(cmd *cobra.Command, _ []string) error {
 // pad/clip by visible terminal cells. SLUG stays in the table because
 // `thicket edit` and `thicket rm` accept a slug argument and the
 // branch (truncated here, overridable via `--branch`) is not a reliable
-// substitute. Total is ~110 visible cells with 2-space gaps, which fits
-// comfortably in modern terminal defaults while staying scannable.
+// substitute. Total is 118 visible cells (108 of content + five 2-space
+// gaps), which fits comfortably in modern terminal defaults while
+// staying scannable; we no longer claim 80-column compatibility.
 const (
 	listNickW   = 25 // matches workspace.NicknameMaxChars
 	listSlugW   = 30

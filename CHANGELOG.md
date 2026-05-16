@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   The new layout renders with `tui.PadRight` / `tui.Truncate` — the
   go-runewidth-backed helpers that pad and clip by visible terminal
   cells — and pins each column to a fixed width so the table comes in
-  around ~110 cells total. SLUG stays in the table because `thicket
+  at 118 visible cells total (108 of content + five 2-space gaps),
+  comfortably narrower than the 200+ cells the old layout produced on
+  real workspaces. SLUG stays in the table because `thicket
   edit [slug]` and `thicket rm [slug]` still take a slug, and the
   branch column is truncated (and can be overridden with `--branch`),
   so BRANCH is not a reliable substitute.
