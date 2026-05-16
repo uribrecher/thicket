@@ -349,17 +349,18 @@ func (p *ticketPage) View(m *wizard.Model) string {
 		stateW = 18
 		titleW = 50
 		wsW    = 36
+		iterW  = 5
 	)
 	b.WriteString("   ")
 	for _, col := range []struct {
 		t string
 		w int
-	}{{"Ticket", idW}, {"State", stateW}, {"Title", titleW}, {"Workspace", wsW}} {
+	}{{"Ticket", idW}, {"State", stateW}, {"Title", titleW}, {"Workspace", wsW}, {"Iter", iterW}} {
 		b.WriteString(wizard.SectionStyle.Render(wizard.PadRight(col.t, col.w)))
 		b.WriteString("  ")
 	}
 	b.WriteString("\n   ")
-	for _, w := range []int{idW, stateW, titleW, wsW} {
+	for _, w := range []int{idW, stateW, titleW, wsW, iterW} {
 		b.WriteString(wizard.HintStyle.Render(strings.Repeat("─", w)))
 		b.WriteString("  ")
 	}
@@ -381,6 +382,8 @@ func (p *ticketPage) View(m *wizard.Model) string {
 		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.tk.Title, titleW), titleW)))
 		b.WriteString("  ")
 		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.workspace, wsW), wsW)))
+		b.WriteString("  ")
+		b.WriteString(style.Render(wizard.PadRight(rank.FormatIterationDistance(row.tk.IterationDistance), iterW)))
 		b.WriteString("\n")
 	}
 

@@ -588,14 +588,16 @@ func pickAssignedTicketLegacy(ctx context.Context, src ticket.Source, cfg *confi
 		{Title: "State", Width: 18},
 		{Title: "Title", Width: 50},
 		{Title: "Workspace", Width: 36},
+		{Title: "Iter", Width: 5},
 	}
 	rows := make([]tui.Row, len(tickets))
 	byID := make(map[string]ticket.Ticket, len(tickets))
 	for i, tk := range tickets {
 		ws := slugByTicket[tk.SourceID]
+		iter := rank.FormatIterationDistance(tk.IterationDistance)
 		rows[i] = tui.Row{
 			Key:    tk.SourceID,
-			Cells:  []string{tk.SourceID, tk.State, tk.Title, ws},
+			Cells:  []string{tk.SourceID, tk.State, tk.Title, ws, iter},
 			Filter: tk.SourceID + " " + tk.State + " " + tk.Title + " " + ws,
 		}
 		byID[tk.SourceID] = tk

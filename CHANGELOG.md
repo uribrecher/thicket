@@ -7,7 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **`thicket start` ticket picker now scores tickets with a
+  state-dominant composite — iteration distance and local workspace
+  presence join state as ranking signals.** Score formula:
+
+  ```
+  score = 1000 * stateTier  +  30 * iterationFactor10  +  100 * hasWorkspace
+  ```
+
+  ordered by `score desc, UpdatedAt desc`.
+
+  - **State is still the strongest signal.** A "live dev" ticket the
+    user forgot to migrate into the current sprint still outranks a
+    "paused" ticket inside it. State dominance is enforced by
+    construction (max non-live score = 1400, min live = 2000).
+  - **Iteration is graduated.** Current iteration adds the full
+    boost; previous adds 90% of it; ten-back-and-older add nothing.
+    Distance is computed in a `start_date`-sorted timeline anchored
+    on the latest-`started` iteration.
+  - **Future-iteration tickets are filtered out.** Stories sitting
+    in a sprint that hasn't started yet no longer surface in the
+    picker.
+  - **Local-workspace boost.** A ticket with a thicket workspace
+    materialized adds 100 — enough to push an older-sprint ticket
+    above a same-band fresher-sprint ticket without a workspace.
+
+- **State buckets refined.**
+  - `In Review` is no longer hidden — it surfaces in the **neutral**
+    band rather than being filtered out.
+  - `In Code Review` moves from **stalled** to **neutral** — a
+    ticket waiting on a reviewer is in-flight, not done.
+  - `Backlog` moves from **live** to **neutral** — unstarted tickets
+    no longer dominate work the user is actually doing.
+
+- **`Iter` column added to the ticket picker.** Shows iteration
+  distance per ticket (`0` = current sprint, `1` = previous, …,
+  `—` = no iteration). Useful for eyeballing why a ticket landed
+  where it did.
+
+### Internal
+
+- New `internal/ticket/rank` package owns the cross-source scoring.
+  The Shortcut source is reduced to fetch + filter + annotate
+  `Ticket.IterationDistance`; both `ListAssigned` consumers
+  (`cmd/thicket/start.go:pickAssignedTicketLegacy` and
+  `internal/tui/wizard/start/ticket.go:listTicketsCmd`) call
+  `rank.Sort` after the source returns.
+- `Ticket` carries two new fields: `UpdatedAt time.Time` (tiebreaker
+  for the ranker) and `IterationDistance int` (`-1` sentinel =
+  unknown / no iteration). Sources that don't know about iterations
+  emit `-1`.
 
 ## [0.5.5] - 2026-05-15
 

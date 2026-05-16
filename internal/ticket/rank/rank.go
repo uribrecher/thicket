@@ -5,10 +5,21 @@ package rank
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/uribrecher/thicket/internal/ticket"
 )
+
+// FormatIterationDistance renders a Ticket.IterationDistance for
+// human display in the picker tables. The sentinel -1 ("no iteration
+// / unresolved") renders as an em dash; 0+ render as their integer.
+func FormatIterationDistance(distance int) string {
+	if distance < 0 {
+		return "—"
+	}
+	return strconv.Itoa(distance)
+}
 
 // Score returns the composite ranking score for one ticket.
 //
