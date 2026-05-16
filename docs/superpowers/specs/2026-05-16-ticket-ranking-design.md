@@ -138,16 +138,21 @@ Implementation:
   - `IterationDistance = -1` when `iteration_id == nil` OR resolves to
     an iteration we don't have a record for (deleted/archived). The
     ranker treats anything < 0 as factor 0 — same as distance ≥ 10.
-    Log the "unresolved iteration" case at debug level.
 
 If no started iteration exists at all: `currentIdx` is undefined; the
 future set is empty (no filtering); every ticket's distance is
 sentinel `-1` (factor 0). The ranking degrades to "state + workspace"
 gracefully.
 
-If the iterations endpoint fails: log a warning and proceed with an
-empty timeline. Same gracefully-degraded behavior — nothing filtered,
-all iteration factors 0.
+If the iterations endpoint fails: proceed with an empty timeline.
+Same gracefully-degraded behavior — nothing filtered, all iteration
+factors 0.
+
+**Observability:** the shortcut source doesn't carry a logger today,
+so unresolved-iteration cases and iteration-fetch failures are
+silently swallowed. Adding a logger is left as a follow-up; the
+trade-off taken here is "ship the ranking; iterate on observability
+later".
 
 ## Workspace-presence detection
 

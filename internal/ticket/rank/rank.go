@@ -48,19 +48,42 @@ func Score(t ticket.Ticket, hasWorkspace bool) int {
 // Sort orders `tickets` in-place by Score desc, UpdatedAt desc. The
 // sort is stable, so identical-score tickets preserve input order.
 // hasWorkspace may be nil — treated as "no ticket has a workspace".
+//
+// Scores and workspace-presence are computed once per ticket up
+// front, not per comparator call. This matters because callers may
+// pass predicates that allocate (e.g. the wizard's
+// FindExistingWorkspace returns a freshly-copied workspace value);
+// the comparator runs O(n log n) times, so repeated invocation would
+// be a hot loop of unnecessary allocs.
 func Sort(tickets []ticket.Ticket, hasWorkspace func(sourceID string) bool) {
 	hasWS := func(string) bool { return false }
 	if hasWorkspace != nil {
 		hasWS = hasWorkspace
 	}
-	sort.SliceStable(tickets, func(i, j int) bool {
-		si := Score(tickets[i], hasWS(tickets[i].SourceID))
-		sj := Score(tickets[j], hasWS(tickets[j].SourceID))
-		if si != sj {
-			return si > sj
-		}
-		return tickets[i].UpdatedAt.After(tickets[j].UpdatedAt)
-	})
+	scores := make([]int, len(tickets))
+	for i, t := range tickets {
+		scores[i] = Score(t, hasWS(t.SourceID))
+	}
+	sort.Stable(&rankedTickets{tickets: tickets, scores: scores})
+}
+
+// rankedTickets implements sort.Interface over two parallel slices so
+// the comparator never has to recompute Score.
+type rankedTickets struct {
+	tickets []ticket.Ticket
+	scores  []int
+}
+
+func (r *rankedTickets) Len() int { return len(r.tickets) }
+func (r *rankedTickets) Less(i, j int) bool {
+	if r.scores[i] != r.scores[j] {
+		return r.scores[i] > r.scores[j]
+	}
+	return r.tickets[i].UpdatedAt.After(r.tickets[j].UpdatedAt)
+}
+func (r *rankedTickets) Swap(i, j int) {
+	r.tickets[i], r.tickets[j] = r.tickets[j], r.tickets[i]
+	r.scores[i], r.scores[j] = r.scores[j], r.scores[i]
 }
 
 // iterationFactor10 returns the iteration boost as an integer in

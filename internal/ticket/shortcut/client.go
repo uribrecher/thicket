@@ -302,8 +302,10 @@ var excludedStateNames = map[string]bool{
 //     current one. Stories in these iterations are filtered out of
 //     the picker.
 //
-// "Current" is the latest-StartDate iteration with status="started".
-// Ties broken by EndDate asc, then ID asc.
+// "Current" is the lexicographically-greatest `status="started"`
+// iteration over the triple (StartDate, EndDate, ID). That is, the
+// latest StartDate wins; same-StartDate ties go to the later
+// EndDate; same-StartDate-and-EndDate ties go to the larger ID.
 //
 // If no started iteration exists, returns empty maps — the caller
 // then treats every IterationID as the sentinel (factor 0) and
@@ -315,7 +317,9 @@ func buildIterationTimeline(iters []iterationResponse) (distance map[int]int, fu
 		return distance, future
 	}
 
-	// Stable order: StartDate asc, EndDate asc, ID asc.
+	// Deterministic order: StartDate asc, EndDate asc, ID asc. The
+	// comparator is total so plain sort.Slice produces a stable
+	// result without needing sort.SliceStable.
 	ordered := make([]iterationResponse, len(iters))
 	copy(ordered, iters)
 	sort.Slice(ordered, func(i, j int) bool {
