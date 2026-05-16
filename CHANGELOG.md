@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.6.3] - 2026-05-17
+
+Patch release — two follow-on bug fixes shaken out of daily use of
+the v0.6.x build.
+
 ### Fixed
 
 - **`thicket edit` workspace picker no longer misaligns on emoji.** The
@@ -17,6 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `wizard.*` helpers now delegate to the runewidth-backed `tui.*`
   helpers, which also fixes the `thicket start` ticket picker, the
   config picker, and the repo pickers in both wizards.
+
+- **`thicket start` ticket picker shows real iteration numbers again,
+  not `—` for every row.** Shortcut's `/api/v3/iterations` returns
+  `start_date` / `end_date` as date-only strings (`"2026-05-06"`), but
+  the response struct typed them as `time.Time`, which expects RFC 3339.
+  Decoding failed silently — the error was swallowed, the iteration
+  timeline came back empty, and every story fell back to
+  `IterationDistance = -1`, rendering `—` in the `Iter` column for
+  every ticket regardless of whether the story actually belonged to
+  the started iteration. A custom `UnmarshalJSON` on `iterationResponse`
+  now parses the date-only wire format, and the iteration test server
+  emits the real format so the regression is now covered.
 
 ## [0.6.2] - 2026-05-17
 
