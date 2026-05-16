@@ -207,9 +207,10 @@ Ranking moves out of `shortcut.Source` into a new package:
   by `score desc, UpdatedAt desc`. A `nil` predicate is treated as
   "no ticket has a workspace" — no boost applied.
 - `internal/ticket/shortcut/client.go:ListAssigned` is reduced to
-  fetch + filter + annotate `IterationActive`. The `stateRank` helper
-  moves to `internal/ticket/rank/` (it's a pure `string → int` mapping
-  with no Shortcut-specific behavior).
+  fetch + filter + annotate `IterationDistance` (and `UpdatedAt`,
+  surfaced from the existing `storyResponse.UpdatedAt`). The
+  `stateRank` helper moves to `internal/ticket/rank/` (it's a pure
+  `string → int` mapping with no Shortcut-specific behavior).
 - Both callers of `ListAssigned` — `cmd/thicket/start.go:pickAssignedTicketLegacy`
   and `internal/tui/wizard/start/ticket.go:listTicketsCmd` — invoke
   `rank.Sort` after the source returns, passing the closure shown in
@@ -224,11 +225,16 @@ existing ranking tests in `client_test.go`
 `TestListAssigned_unauthorizedSurfacesClearError`,
 `TestListAssigned_emptyStoriesNotAnError`) stay in `client_test.go`.
 
-## `Ticket` struct change
+## `Ticket` struct changes
 
-Add one field to `internal/ticket/source.go:Ticket`:
+Add two fields to `internal/ticket/source.go:Ticket`:
 
 ```go
+// UpdatedAt is the last-modified timestamp at the source. Used by
+// the ranker as a tiebreaker (most-recently-touched first).
+// Sources that don't surface this leave it zero.
+UpdatedAt time.Time
+
 // IterationDistance is the integer step from the source's "current"
 // iteration to this ticket's iteration, in timeline order:
 //   0  → ticket sits in the current iteration
@@ -241,22 +247,25 @@ Add one field to `internal/ticket/source.go:Ticket`:
 IterationDistance int
 ```
 
-It's a typed cross-source field (rather than living in `Extra`)
-because the ranker reads it on every ticket — pushing it into a
-map-of-strings would force a string parse on a hot path.
+Both are typed cross-source fields (rather than living in `Extra`)
+because the ranker reads them on every ticket — pushing them into a
+map-of-strings would force a string parse on a hot path. `UpdatedAt`
+also lifts an existing per-source detail (it lived only on
+`shortcut.storyResponse` before) onto the cross-source type so the
+ranker doesn't need a per-source escape hatch for tiebreaking.
 
-The zero value `0` would mean "current iteration" — which is the
-*wrong* default for sources that haven't computed it. To make the
-sentinel unambiguous, all source-side construction sites must set
-`IterationDistance = -1` explicitly when no information is available.
-A small constructor / default in `toTicket` keeps this from being
-forgotten.
+The zero value `0` of `IterationDistance` would mean "current
+iteration" — which is the *wrong* default for sources that haven't
+computed it. To make the sentinel unambiguous, all source-side
+construction sites must set `IterationDistance = -1` explicitly when
+no information is available. A small constructor / default in
+`toTicket` keeps this from being forgotten.
 
 ## Files touched (implementation summary)
 
 | File | Change |
 |---|---|
-| `internal/ticket/source.go` | Add `IterationDistance int` to `Ticket`; convention: `-1` = "unknown / no iteration" |
+| `internal/ticket/source.go` | Add `UpdatedAt time.Time` (tiebreaker) and `IterationDistance int` to `Ticket`; convention: `-1` = "unknown / no iteration" |
 | `internal/ticket/shortcut/client.go` | Add `iteration_id` to `storyResponse`; fetch `/api/v3/iterations`; build the timeline; filter future-iteration stories; remove `in review` from `excludedStateNames`; remove `in code review` from `stateRank`; delete the in-source sort and the `stateRank` function (moved); annotate `IterationDistance` in `toTicket` |
 | `internal/ticket/shortcut/client_test.go` | Drop ranking-shape assertions from filter tests; keep filter coverage |
 | `internal/ticket/rank/rank.go` *(new)* | `Sort(tickets, hasWorkspace)` + the moved `stateRank` |
@@ -290,10 +299,26 @@ End-to-end:
    picker still loads with iteration distance = -1 for everyone
    (factor 0) rather than failing.
 
+## UI surface
+
+Both picker tables (the legacy `cmd/thicket/start.go` picker and the
+TUI wizard's ticket page) gain a single new column, **`Iter`**,
+rendered after **`Workspace`**:
+
+- `0` for the current iteration, `1` for the previous, etc.
+- `—` (em dash) when `IterationDistance < 0` — no iteration / could
+  not resolve.
+
+`rank.FormatIterationDistance(d int) string` centralises the
+rendering so both call sites agree on the format. The column is
+debug-grade context — useful for eyeballing why a ticket landed
+where it did. Other row content (`Ticket`, `State`, `Title`,
+`Workspace`) is unchanged.
+
 ## Non-goals
 
-- **No UI badges.** Iteration membership and workspace presence are
-  used for sort only. The picker's row format stays unchanged.
+- **No iteration / workspace badges beyond the Iter column.** No
+  highlighting, no row colour change, no group-by-iteration view.
 - **No source-pluggable scoring.** Other ticket sources (Linear,
   Jira…) reuse the same `rank` package; per-source overrides aren't
   needed yet.

@@ -318,8 +318,10 @@ func buildIterationTimeline(iters []iterationResponse) (distance map[int]int, fu
 	}
 
 	// Deterministic order: StartDate asc, EndDate asc, ID asc. The
-	// comparator is total so plain sort.Slice produces a stable
-	// result without needing sort.SliceStable.
+	// comparator is total — every pair of iterations gets a strict
+	// ordering — so plain sort.Slice produces a fully-determined
+	// result. sort.SliceStable isn't needed because no two elements
+	// compare equal.
 	ordered := make([]iterationResponse, len(iters))
 	copy(ordered, iters)
 	sort.Slice(ordered, func(i, j int) bool {
