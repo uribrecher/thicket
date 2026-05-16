@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.6.0] - 2026-05-16
+
+Feature release — the `thicket start` ticket picker now ranks tickets
+on more than just state and `updated_at`. Active-iteration proximity
+and the presence of a live local workspace both push tickets up,
+state buckets are refined, and future-iteration tickets are hidden
+from the picker entirely.
+
 ### Changed
 
 - **`thicket start` ticket picker now scores tickets with a
