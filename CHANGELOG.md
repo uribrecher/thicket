@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **`thicket edit` workspace picker no longer misaligns on emoji.** The
+  picker rendered with `wizard.PadRight` / `wizard.Truncate`, which
+  measured rune count rather than visible terminal cells — a 🔍 in the
+  Nickname column under-filled the column by one cell and pushed every
+  subsequent column right. Same fix as v0.6.2's `thicket list`: the
+  `wizard.*` helpers now delegate to the runewidth-backed `tui.*`
+  helpers, which also fixes the `thicket start` ticket picker, the
+  config picker, and the repo pickers in both wizards.
 
 ## [0.6.2] - 2026-05-17
 
