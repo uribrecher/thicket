@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 _Nothing yet._
 
+## [0.6.1] - 2026-05-16
+
+Build-hygiene patch — no user-visible behavior change.
+
+### Changed
+
+- **Reproducible builds via `-trimpath`.** Local builds (`task build`,
+  `task install`) and goreleaser-produced release binaries now strip
+  absolute filesystem paths from the binary, replacing them with
+  module-relative paths. Same Go version + same sources now produces
+  a byte-identical binary regardless of the build machine's directory
+  layout. Released tarballs no longer leak the builder's
+  `$HOME`/workspace path. Size delta is negligible (~80 KB).
+
 ## [0.6.0] - 2026-05-16
 
 Feature release — the `thicket start` ticket picker now ranks tickets
