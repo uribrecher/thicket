@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/uribrecher/thicket/internal/ticket"
+	"github.com/uribrecher/thicket/internal/tui"
 )
 
 // FormatIterationDistance renders a Ticket.IterationDistance for
@@ -22,11 +23,13 @@ func FormatIterationDistance(distance int) string {
 }
 
 // FormatPriority renders a Ticket.Priority label as a compact arrow
-// glyph for the picker's Prio column. Full labels ("Highest",
-// "High", "Medium", "Low") chewed up too much width in the table;
-// the four-glyph ladder keeps the column to two display columns
-// while still conveying magnitude and direction. Unknown / empty
-// values render as a single space so column alignment is preserved.
+// glyph used by the picker's combined State column (see
+// FormatPriorityState). Full labels ("Highest", "High", "Medium",
+// "Low") chewed up too much width in the table; the four-glyph
+// ladder still conveys magnitude and direction. Some glyphs are
+// East-Asian-wide (2 cells) and some are narrow (e.g. "▪" or the
+// blank fallback for unknown labels) — callers must pad to a fixed
+// 2-cell slot for row alignment.
 func FormatPriority(name string) string {
 	switch priorityRank(name) {
 	case 4:
@@ -40,6 +43,16 @@ func FormatPriority(name string) string {
 	default:
 		return " "
 	}
+}
+
+// FormatPriorityState renders the picker's combined State cell: a
+// fixed 2-cell slot for the priority glyph, a single-space
+// separator, then up to 11 cells of state prefix. Total visible
+// width is 14 cells. Used by both the wizard picker and the
+// cmd-side tui.PickOne fallback so the two layouts can't drift
+// apart and silently misalign rows again.
+func FormatPriorityState(priority, state string) string {
+	return tui.PadRight(FormatPriority(priority), 2) + " " + tui.Truncate(state, 11)
 }
 
 // Score returns the composite ranking score for one ticket.
