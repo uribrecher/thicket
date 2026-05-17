@@ -115,10 +115,17 @@ func (p *planPage) Locked() bool { return p.creating }
 func (p *planPage) InitCmd(m *wizard.Model) tea.Cmd {
 	// Drop checkbox state when the ticket changed — a repo unchecked
 	// for ticket A would otherwise start unchecked for ticket B if
-	// both happen to need it cloned, which is surprising.
+	// both happen to need it cloned, which is surprising. Same logic
+	// applies to the nickname input: a value the user typed (or a
+	// suggestion they accepted) for ticket A must not carry over to
+	// ticket B — reset both the input and the dirty flag so the
+	// suggester's pre-fill path runs cleanly for the new ticket.
 	if p.builtForID != m.TicketID {
 		p.cloneInclude = make(map[string]bool)
 		p.builtForID = m.TicketID
+		p.nicknameInput.SetValue("")
+		p.nicknameDirty = false
+		p.color = ""
 	}
 	p.built = false
 	p.buildErr = nil

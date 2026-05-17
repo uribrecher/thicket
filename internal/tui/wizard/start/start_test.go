@@ -210,6 +210,75 @@ func TestReposCommitStoresChosen(t *testing.T) {
 	}
 }
 
+// TestPlanInitCmdResetsNicknameOnTicketChange guards the bug where a
+// user-typed (or accepted) nickname for ticket A stayed in the Plan
+// page's input after the user went ← back to the Ticket page, picked
+// a different ticket B, and forward again. The fix: when InitCmd
+// observes a new ticket id, it must clear the nickname input, drop
+// the dirty flag so the suggester can pre-fill again, and clear the
+// stale color swatch.
+func TestPlanInitCmdResetsNicknameOnTicketChange(t *testing.T) {
+	m := newTestModel()
+	m.Ticket = ticket.Ticket{SourceID: "sc-1", Title: "one"}
+	m.TicketID = "sc-1"
+	m.Chosen = []catalog.Repo{{Name: "alpha", LocalPath: "/tmp/alpha"}}
+
+	pp := m.Pages[2].(*planPage)
+	// Simulate the user having visited Plan once for ticket sc-1 and
+	// typed a nickname.
+	pp.builtForID = "sc-1"
+	pp.nicknameInput.SetValue("my-pick")
+	pp.nicknameDirty = true
+	pp.color = "#abcdef"
+
+	// User goes back, picks ticket sc-2, advances forward — Plan's
+	// InitCmd runs again with the new ticket id on the model.
+	m.Ticket = ticket.Ticket{SourceID: "sc-2", Title: "two"}
+	m.TicketID = "sc-2"
+	_ = pp.InitCmd(m)
+
+	if got := pp.nicknameInput.Value(); got != "" {
+		t.Errorf("nickname not cleared on ticket change: got %q", got)
+	}
+	if pp.nicknameDirty {
+		t.Errorf("nicknameDirty not reset on ticket change — late suggester pre-fill will be blocked")
+	}
+	if pp.color != "" {
+		t.Errorf("color not cleared on ticket change: got %q", pp.color)
+	}
+	if pp.builtForID != "sc-2" {
+		t.Errorf("builtForID = %q, want sc-2", pp.builtForID)
+	}
+}
+
+// TestPlanInitCmdKeepsNicknameOnSameTicket mirrors
+// TestTicketCommitSameIDNoOp: navigating away and back to the SAME
+// ticket must preserve the user's typed nickname.
+func TestPlanInitCmdKeepsNicknameOnSameTicket(t *testing.T) {
+	m := newTestModel()
+	m.Ticket = ticket.Ticket{SourceID: "sc-1", Title: "one"}
+	m.TicketID = "sc-1"
+	m.Chosen = []catalog.Repo{{Name: "alpha", LocalPath: "/tmp/alpha"}}
+
+	pp := m.Pages[2].(*planPage)
+	pp.builtForID = "sc-1"
+	pp.nicknameInput.SetValue("my-pick")
+	pp.nicknameDirty = true
+	pp.color = "#abcdef"
+
+	_ = pp.InitCmd(m)
+
+	if got := pp.nicknameInput.Value(); got != "my-pick" {
+		t.Errorf("nickname wiped on same-ticket re-entry: got %q", got)
+	}
+	if !pp.nicknameDirty {
+		t.Errorf("nicknameDirty cleared on same-ticket re-entry")
+	}
+	if pp.color != "#abcdef" {
+		t.Errorf("color wiped on same-ticket re-entry: got %q", pp.color)
+	}
+}
+
 // TestRankFuzzyPrefersSubstringOverScattered guards against the
 // `sahilm/fuzzy` scoring quirk where a scattered match starting at
 // index 0 outranks a contiguous substring match deeper in the
