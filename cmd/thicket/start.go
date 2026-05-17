@@ -872,7 +872,11 @@ func buildPlanLegacy(cfg *config.Config, flags startFlags, src ticket.Source, tk
 	if branch == "" {
 		branch = workspace.Slug(tk.SourceID, tk.Title)
 	}
-	slug := workspace.Slug(tk.SourceID, tk.Title)
+	// Workspace slug uses the nickname (when set) as the hint — the
+	// ticket id alone guarantees uniqueness, the nickname is just for
+	// readability. Falls back to plain `<ticket-id>` when no nickname
+	// was passed via --nickname.
+	slug := workspace.Slug(tk.SourceID, flags.nickname)
 	wsDir := filepath.Join(cfg.WorkspaceRoot, slug)
 
 	g := gitops.New()

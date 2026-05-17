@@ -950,23 +950,28 @@ func TestAdd_partialFailureLeavesStateConsistent(t *testing.T) {
 
 func TestSlug_alwaysPrefixesTicketID(t *testing.T) {
 	cases := []struct {
-		id, title, want string
+		id, hint, want string
 	}{
 		{"sc-65825", "freshness", "sc-65825-freshness"},
 		{"SC-65825", "Freshness", "sc-65825-freshness"},
 		{"sc-12345", "Fix inventory grouping!!", "sc-12345-fix-inventory-grouping"},
 		{"sc-1", "", "sc-1"},
-		{"", "just-a-title", "just-a-title"},
+		{"", "just-a-hint", "just-a-hint"},
 		{"", "", "workspace"},
-		// Title contains the id — still safe: id wins as prefix.
+		// Hint contains the id — still safe: id wins as prefix.
 		{"sc-1", "sc-1 follow-up", "sc-1-sc-1-follow-up"},
 		// Non-ASCII letters are stripped; surrounding ASCII fuses.
 		{"sc-1", "café / résumé", "sc-1-caf-rsum"},
+		// Nickname-shaped hints (the common case when materializing
+		// a workspace): emoji and spaces collapse to a short suffix.
+		{"sc-1", "🐛 Bug Fix", "sc-1-bug-fix"},
+		// All-emoji nickname strips to empty → just the ticket id.
+		{"sc-99", "  💥💥💥  ", "sc-99"},
 	}
 	for _, tc := range cases {
-		t.Run(tc.id+"|"+tc.title, func(t *testing.T) {
-			if got := Slug(tc.id, tc.title); got != tc.want {
-				t.Errorf("Slug(%q,%q)=%q, want %q", tc.id, tc.title, got, tc.want)
+		t.Run(tc.id+"|"+tc.hint, func(t *testing.T) {
+			if got := Slug(tc.id, tc.hint); got != tc.want {
+				t.Errorf("Slug(%q,%q)=%q, want %q", tc.id, tc.hint, got, tc.want)
 			}
 		})
 	}

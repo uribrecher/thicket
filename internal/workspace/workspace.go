@@ -671,24 +671,26 @@ func ReadState(workspaceDir string) (State, error) {
 }
 
 // Slug returns the canonical workspace directory name for a ticket.
-// Format: "<lowercase-ticket-id>-<slugified-title>". Always carries the
-// ticket id so two tickets with the same title (e.g. "freshness") don't
-// collide on disk. The branch name is intentionally NOT used here —
-// Shortcut and other sources sometimes produce branch names that omit
-// the ticket id (e.g. "uri/freshness"), and we don't want the workspace
-// folder to inherit that fragility.
-func Slug(ticketID, title string) string {
+// Format: "<lowercase-ticket-id>-<slugified-hint>", or just the
+// ticket id when the hint is empty. The id alone is already unique;
+// the hint is decorative, so short identifiers are preferred. When
+// materializing a workspace, callers pass the nickname as the hint
+// (sanitized via Slugify — emojis and spaces are stripped) so the
+// on-disk slug stays short and filesystem-friendly. Falls back to the
+// slugified hint when there is no ticket id, and to "workspace" when
+// neither is available.
+func Slug(ticketID, hint string) string {
 	id := strings.ToLower(strings.TrimSpace(ticketID))
-	t := Slugify(title)
+	h := Slugify(hint)
 	switch {
-	case id == "" && t == "":
+	case id == "" && h == "":
 		return "workspace"
 	case id == "":
-		return t
-	case t == "":
+		return h
+	case h == "":
 		return id
 	}
-	return id + "-" + t
+	return id + "-" + h
 }
 
 // Slugify converts free-form text to a lowercase, hyphen-separated
