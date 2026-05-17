@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-17
+
+One first-run onboarding refinement — the Tickets page of
+`thicket config` no longer dead-ends users who don't yet have a
+Shortcut API token.
+
+### Added
+
+- **`thicket config` Tickets page now forks before the picker.**
+  First-time users without a Shortcut API token were previously
+  funneled straight into the password-manager picker for a token
+  that doesn't exist yet. The Tickets page now opens with a
+  two-option fork: "I don't have a Shortcut API token yet" opens
+  `https://app.shortcut.com/<workspace-slug>/settings/account/api-tokens`
+  in the default browser (slug-less fallback when not yet
+  configured) and exits the wizard cleanly with a hint to re-run
+  `thicket config` once the token is saved — no partial config
+  gets written. "I already have one" walks the existing manager-picker
+  cascade (1Password account/item/field, or typed ref for env /
+  bitwarden / pass). Re-runs against an existing `op://` ref still
+  skip the fork and land directly on the validated picker, so the
+  extra hop is only paid on first-time setup. The README's
+  "Secrets" section now documents the token-generation flow with a
+  screenshot of Shortcut's API Tokens page.
+
 ## [0.8.0] - 2026-05-17
 
 Two ticket-picker refinements — priority now drives ranking and is
