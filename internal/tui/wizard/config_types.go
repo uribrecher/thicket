@@ -34,4 +34,10 @@ type ConfigResult struct {
 	// and hit Confirm. If false (e.g. Esc), the caller should not
 	// save.
 	Confirmed bool
+
+	// DeferredForToken is set when the user bailed out of the Tickets
+	// page to go generate a Shortcut API token in their browser. The
+	// caller should print a "re-run thicket config once the token is
+	// saved" hint and exit 0 without writing the config.
+	DeferredForToken bool
 }

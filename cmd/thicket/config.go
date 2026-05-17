@@ -51,6 +51,11 @@ func runConfig(cmd *cobra.Command, _ []string) error {
 		}
 		return err
 	}
+	if res.DeferredForToken {
+		fmt.Fprintln(out, "Opened Shortcut's API tokens page in your browser.")
+		fmt.Fprintln(out, "Re-run `thicket config` once you've saved the token to your password manager (or as $SHORTCUT_API_TOKEN).")
+		return nil
+	}
 	if !res.Confirmed || res.Cfg == nil {
 		fmt.Fprintln(out, "cancelled.")
 		return nil

@@ -320,6 +320,91 @@ func TestGitPage_pickerRespectsPreseedSelection(t *testing.T) {
 	}
 }
 
+// TestTicketsPage_forkPicksGenerateEmitsDeferred verifies the
+// brand-new-user path: "I don't have a token yet" → "Open browser"
+// → ConfigDeferredMsg. The wizard handler upstream of this turns
+// the message into ConfigResult.DeferredForToken so cmd/thicket can
+// print the re-run hint and exit 0.
+func TestTicketsPage_forkPicksGenerateEmitsDeferred(t *testing.T) {
+	t.Setenv("SHORTCUT_API_TOKEN", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	d := config.Default()
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	tp := findPage(t, m, "Tickets").(*ticketsPage)
+	tp.InitCmd(m)
+	if tp.step != stepFork {
+		t.Fatalf("fresh page should land on fork, got step=%v", tp.step)
+	}
+	// "generate" is the first fork option (idx 0); just press enter.
+	tp.Update(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if tp.step != stepGenerate {
+		t.Fatalf("step after picking generate = %v, want stepGenerate", tp.step)
+	}
+	_, cmd := tp.Update(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("generate-button enter did not produce a cmd")
+	}
+	if _, ok := cmd().(wizard.ConfigDeferredMsg); !ok {
+		t.Errorf("generate-button cmd produced %T, want ConfigDeferredMsg", cmd())
+	}
+}
+
+// TestTicketsPage_forkPicksHaveOneEntersPicker verifies the
+// "already have a token" branch lands on the existing secret picker.
+func TestTicketsPage_forkPicksHaveOneEntersPicker(t *testing.T) {
+	t.Setenv("SHORTCUT_API_TOKEN", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	d := config.Default()
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	tp := findPage(t, m, "Tickets").(*ticketsPage)
+	tp.InitCmd(m)
+	tp.Update(m, tea.KeyMsg{Type: tea.KeyDown}) // idx 0 → 1
+	tp.Update(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if tp.step != stepPicker {
+		t.Errorf("step after picking have-one = %v, want stepPicker", tp.step)
+	}
+}
+
+// TestTicketsPage_preseedSkipsFork verifies the re-run path: an
+// existing op:// ref jumps the page past the fork so the user lands
+// directly on the validated picker.
+func TestTicketsPage_preseedSkipsFork(t *testing.T) {
+	t.Setenv("SHORTCUT_API_TOKEN", "")
+
+	d := config.Default()
+	d.Passwords.Manager = "1password"
+	d.Passwords.ShortcutTokenRef = "op://Prod/Shortcut/credential"
+	m := newModel(wizard.ConfigDeps{Ctx: context.Background(), Cfg: &d, FirstRun: false})
+	tp := findPage(t, m, "Tickets").(*ticketsPage)
+	tp.InitCmd(m)
+	if tp.step != stepPicker {
+		t.Errorf("preseeded ref should skip fork: step=%v", tp.step)
+	}
+	if !tp.picker.validated() {
+		t.Errorf("preseeded picker should be validated, state=%v", tp.picker.state)
+	}
+}
+
+// TestShortcutTokensURL covers both branches: with and without a
+// configured workspace slug.
+func TestShortcutTokensURL(t *testing.T) {
+	cases := []struct {
+		slug string
+		want string
+	}{
+		{"", "https://app.shortcut.com/settings/account/api-tokens"},
+		{"sentra", "https://app.shortcut.com/sentra/settings/account/api-tokens"},
+		{"  acme  ", "https://app.shortcut.com/acme/settings/account/api-tokens"},
+	}
+	for _, c := range cases {
+		if got := shortcutTokensURL(c.slug); got != c.want {
+			t.Errorf("shortcutTokensURL(%q) = %q, want %q", c.slug, got, c.want)
+		}
+	}
+}
+
 func TestInitGitPageCommitsOnAdvance(t *testing.T) {
 	t.Setenv("SHORTCUT_API_TOKEN", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")

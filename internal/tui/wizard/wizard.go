@@ -272,6 +272,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ConfigResult.Confirmed = true
 		m.Done = true
 		return m, tea.Quit
+
+	case ConfigDeferredMsg:
+		m.ConfigResult.DeferredForToken = true
+		m.Done = true
+		return m, tea.Quit
 	}
 
 	// Forward to the active page.
