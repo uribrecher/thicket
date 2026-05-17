@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-05-17
+
+One workspace-ergonomics fix — the on-disk directory name for a
+new workspace is now short enough to read at a glance.
+
+### Changed
+
+- **`thicket start` workspace slug is now `<ticket-id>-<sanitized-nickname>`
+  (or just `<ticket-id>` when no nickname is set).** Previously the
+  directory name was `<ticket-id>-<slugified-ticket-title>`, which
+  ran long whenever the ticket title was verbose — e.g.
+  `~/tasks/sc-70455-reduce-data-store-enable-asset-creation`. Since
+  the ticket id is already unique, the title carried no extra
+  identifying information, only visual noise. The slug now uses the
+  nickname as a short hint, sanitized via `Slugify` so emoji and
+  spaces are stripped: a nickname of `⚡ reduce inv latency` becomes
+  `~/tasks/sc-70455-reduce-inv-latency`, and an empty nickname
+  collapses to `~/tasks/sc-70455`. Human readability remains the
+  nickname's job (still rendered in the wizard, launcher tab title,
+  and `thicket list`), and the slug stays filesystem-friendly and
+  unique. The Plan page's workspace-dir preview live-renders against
+  the current nickname input so the displayed path matches what
+  `workspace.Create` will materialize, even as the user edits the
+  nickname. Existing workspaces on disk are unaffected — `thicket list`
+  and `thicket start` continue to discover them by manifest, not
+  by directory-name pattern. Also fixes a stale plan-page hint that
+  said `≤20` instead of `≤25` (the real `NicknameMaxChars`).
+
 ## [0.9.0] - 2026-05-17
 
 One first-run onboarding refinement — the Tickets page of
