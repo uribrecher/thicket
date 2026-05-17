@@ -85,7 +85,12 @@ func writeWorkspaceTable(out io.Writer, workspaces []workspace.ManagedWorkspace)
 		b.WriteString("  ")
 		b.WriteString(tui.PadRight(tui.Truncate(ws.Slug, listSlugW), listSlugW))
 		b.WriteString("  ")
-		b.WriteString(tui.PadRight(tui.Truncate(ws.State.TicketID, listIDW), listIDW))
+		// Hyperlink wraps the already padded+truncated cell so column
+		// width stays correct (runewidth would otherwise count the
+		// OSC escape bytes). State.URL is empty on legacy manifests,
+		// in which case Hyperlink returns the label unchanged.
+		b.WriteString(tui.Hyperlink(ws.State.URL,
+			tui.PadRight(tui.Truncate(ws.State.TicketID, listIDW), listIDW)))
 		b.WriteString("  ")
 		b.WriteString(tui.PadRight(tui.Truncate(ws.State.Branch, listBranchW), listBranchW))
 		b.WriteString("  ")

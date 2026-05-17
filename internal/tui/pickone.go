@@ -28,6 +28,16 @@ type Row struct {
 	// Filter is the text used for fuzzy matching. Empty falls back to
 	// the cells joined by spaces.
 	Filter string
+	// URL, when non-empty, wraps the cell at URLColumn in an OSC 8
+	// hyperlink so terminals that support it (iTerm2, WezTerm, kitty,
+	// Ghostty, modern Terminal.app, VS Code) let the user ⌘-click
+	// the cell to open the URL. Terminals that don't recognize OSC 8
+	// see the label unchanged.
+	URL string
+	// URLColumn is the cell index URL wraps; defaults to 0. Set when
+	// the navigable cell isn't the first column — e.g. the `thicket
+	// rm` picker leads with Nickname and puts Ticket at column 2.
+	URLColumn int
 }
 
 // PickOneOption configures PickOne. Empty / zero-value fields use
@@ -236,7 +246,17 @@ func (m pickOneModel) View() string {
 			if i >= len(m.columns) {
 				break
 			}
-			b.WriteString(style.Render(PadRight(Truncate(cell, m.columns[i].Width), m.columns[i].Width)))
+			rendered := style.Render(PadRight(Truncate(cell, m.columns[i].Width), m.columns[i].Width))
+			if i == row.URLColumn {
+				// Hyperlink wraps the styled, padded label so width
+				// math stays correct — go-runewidth treats the OSC
+				// escape bytes as printable runes and would otherwise
+				// shift every following column right. Hyperlink is a
+				// no-op when row.URL is "", which keeps rows without
+				// a URL (legacy manifests pre-state.URL) untouched.
+				rendered = Hyperlink(row.URL, rendered)
+			}
+			b.WriteString(rendered)
 			b.WriteString("  ")
 		}
 		b.WriteString("\n")
