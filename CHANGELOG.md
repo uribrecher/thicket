@@ -21,10 +21,11 @@ new workspace is now short enough to read at a glance.
   `~/tasks/sc-70455-reduce-data-store-enable-asset-creation`. Since
   the ticket id is already unique, the title carried no extra
   identifying information, only visual noise. The slug now uses the
-  nickname as a short hint, sanitized via `Slugify` so emoji and
-  spaces are stripped: a nickname of `⚡ reduce inv latency` becomes
-  `~/tasks/sc-70455-reduce-inv-latency`, and an empty nickname
-  collapses to `~/tasks/sc-70455`. Human readability remains the
+  nickname as a short hint, sanitized via `Slugify`: non-alphanumerics
+  are dropped, and runs of separator characters (space, `_`, `/`,
+  tab, `-`) collapse to a single `-`. A nickname of `⚡ reduce inv
+  latency` becomes `~/tasks/sc-70455-reduce-inv-latency`, and an empty
+  nickname collapses to `~/tasks/sc-70455`. Human readability remains the
   nickname's job (still rendered in the wizard, launcher tab title,
   and `thicket list`), and the slug stays filesystem-friendly and
   unique. The Plan page's workspace-dir preview live-renders against
