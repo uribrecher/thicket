@@ -29,6 +29,13 @@ var (
 	SectionStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
 	CursorStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
 	HighlightStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
+	// CommittedRowStyle marks a row whose value drives downstream
+	// pages — e.g. the previously-picked ticket on the Ticket page
+	// after the user has been to Repos and come back. Green to match
+	// the existing "completion" semantics (CompletedTabStyle,
+	// SelectedTagStyle); not bold so the pink cursor still wins
+	// when it lands on the same row.
+	CommittedRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
 	SelectedTagStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
 	RelevanceTagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("99"))
 	DimStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))

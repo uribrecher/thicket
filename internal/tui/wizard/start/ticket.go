@@ -462,6 +462,16 @@ func (p *ticketPage) View(m *wizard.Model) string {
 		row := p.rows[ri]
 		marker := " "
 		style := wizard.DimStyle // unfocused rows; wizard.PendingTabStyle has padding which would break column alignment
+		// Committed-row hint: when the user has been to Repos and
+		// come back, p.fetchedID points at the ticket whose data is
+		// driving the downstream pages. Mark it so the user can
+		// tell their committed choice apart from wherever the
+		// cursor happens to be sitting now. Cursor styling below
+		// wins when the cursor lands on the committed row.
+		if p.fetchedID != "" && row.tk.SourceID == p.fetchedID {
+			marker = wizard.CommittedRowStyle.Render("●")
+			style = wizard.CommittedRowStyle
+		}
 		if vi == p.cursor {
 			marker = wizard.CursorStyle.Render("▶")
 			style = wizard.CursorStyle
