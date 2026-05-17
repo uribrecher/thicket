@@ -350,6 +350,32 @@ account picker → item autocomplete → field picker. The previous slot's
 account is offered as the default for the next, so single-account users
 just press Enter and multi-account users can switch per secret.
 
+### Generate a Shortcut API token
+
+If you don't have a Shortcut API token yet, the `Tickets` page of
+`thicket config` offers an **"I don't have a Shortcut API token yet"**
+option that opens the token page in your browser. Pick "Open Shortcut
+API tokens page →" and the wizard exits cleanly so you can mint the
+token and re-run `thicket config` to wire it up.
+
+You can also reach the page directly:
+
+> https://app.shortcut.com/&lt;your-workspace&gt;/settings/account/api-tokens
+
+In Shortcut: click your avatar → **Settings** → **API Tokens**, give the
+token a name (e.g. `thicket`), leave **Read-only** unchecked if you
+plan to let thicket update tickets, and press **Generate Token**.
+Shortcut shows the value exactly once — copy it now.
+
+<p align="center">
+  <img src=".github/assets/shortcut-api-tokens.png" alt="Shortcut API Tokens page — Settings → API Tokens → Generate Token" width="800">
+</p>
+
+Once the token exists, save it to your password manager (or export it
+as `SHORTCUT_API_TOKEN`) and re-run `thicket config`. Pick **"I already
+have one"** on the Tickets page and point thicket at the manager
+entry.
+
 ### Env-var overrides
 
 Two env vars always short-circuit the password manager at runtime:

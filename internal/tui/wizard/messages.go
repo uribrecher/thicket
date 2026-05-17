@@ -66,6 +66,12 @@ type ConfigDoneMsg struct {
 	Err error
 }
 
+// ConfigDeferredMsg signals that the user bailed out of the config
+// flow on the Tickets page to go mint a Shortcut API token in their
+// browser. The wizard quits without writing the config; cmd/thicket
+// prints a "re-run after you save the token" hint and exits 0.
+type ConfigDeferredMsg struct{}
+
 // SecretValidatedMsg carries the result of a secretPicker's live
 // reference test. Ref and Manager echo the pair we validated so the
 // picker can drop late results when the user has since edited the
