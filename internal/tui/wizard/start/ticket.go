@@ -14,6 +14,7 @@ import (
 
 	"github.com/uribrecher/thicket/internal/ticket"
 	"github.com/uribrecher/thicket/internal/ticket/rank"
+	"github.com/uribrecher/thicket/internal/tui"
 )
 
 const ticketVisibleRows = 12
@@ -466,7 +467,12 @@ func (p *ticketPage) View(m *wizard.Model) string {
 			style = wizard.CursorStyle
 		}
 		b.WriteString(marker + "  ")
-		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.tk.SourceID, idW), idW)))
+		// Hyperlink wraps the styled, padded ticket-id cell so ⌘-click
+		// in supporting terminals opens the ticket URL; runewidth-based
+		// width math is preserved because the OSC 8 escapes are
+		// appended after Truncate/PadRight measured the visible label.
+		b.WriteString(tui.Hyperlink(row.tk.URL,
+			style.Render(wizard.PadRight(wizard.Truncate(row.tk.SourceID, idW), idW))))
 		b.WriteString("  ")
 		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.tk.State, stateW), stateW)))
 		b.WriteString("  ")

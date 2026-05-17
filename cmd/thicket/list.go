@@ -85,7 +85,14 @@ func writeWorkspaceTable(out io.Writer, workspaces []workspace.ManagedWorkspace)
 		b.WriteString("  ")
 		b.WriteString(tui.PadRight(tui.Truncate(ws.Slug, listSlugW), listSlugW))
 		b.WriteString("  ")
-		b.WriteString(tui.PadRight(tui.Truncate(ws.State.TicketID, listIDW), listIDW))
+		// HyperlinkForWriter wraps the already padded+truncated cell
+		// (so runewidth's column math stays correct — OSC bytes are
+		// appended last) AND falls back to plain text when out isn't
+		// a TTY, so `thicket list | tee log.txt` consumers don't see
+		// raw escape bytes. State.URL is empty on legacy manifests,
+		// in which case the helper also returns the label unchanged.
+		b.WriteString(tui.HyperlinkForWriter(out, ws.State.URL,
+			tui.PadRight(tui.Truncate(ws.State.TicketID, listIDW), listIDW)))
 		b.WriteString("  ")
 		b.WriteString(tui.PadRight(tui.Truncate(ws.State.Branch, listBranchW), listBranchW))
 		b.WriteString("  ")

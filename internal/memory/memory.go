@@ -10,6 +10,8 @@ package memory
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -39,6 +41,36 @@ type Input struct {
 
 // FileName is the file thicket writes inside every workspace.
 const FileName = "CLAUDE.local.md"
+
+// urlLinePrefix is what Render emits ahead of the ticket URL. Kept in
+// one place so ExtractURL and the template stay in sync if the bullet
+// label ever changes.
+const urlLinePrefix = "- **URL:** "
+
+// ExtractURL reads the workspace's CLAUDE.local.md and returns the
+// ticket URL recorded in the "- **URL:** ..." line, or "" when the
+// file is missing, malformed, or carries no URL. Best-effort: any
+// I/O or parse failure yields "" so callers can use it to backfill
+// workspace.State.URL on manifests written before that field
+// existed without having to plumb an error path through every
+// display site.
+func ExtractURL(workspaceDir string) string {
+	b, err := os.ReadFile(filepath.Join(workspaceDir, FileName))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		// The template emits the URL line near the top — we don't
+		// short-circuit because callers might pass a hand-edited file
+		// where blank lines moved it down.
+		rest, ok := strings.CutPrefix(line, urlLinePrefix)
+		if !ok {
+			continue
+		}
+		return strings.TrimSpace(rest)
+	}
+	return ""
+}
 
 const tmpl = `# Ticket {{.TicketID}} — {{.Title}}
 

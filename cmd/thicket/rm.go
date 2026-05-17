@@ -148,7 +148,7 @@ func printRemovePreview(out io.Writer, dir string, st *workspace.State, force bo
 	}
 	fmt.Fprintf(out, "  path:    %s\n", dir)
 	if st != nil {
-		fmt.Fprintf(out, "  ticket:  %s\n", st.TicketID)
+		fmt.Fprintf(out, "  ticket:  %s\n", tui.HyperlinkForWriter(out, st.URL, st.TicketID))
 		fmt.Fprintf(out, "  branch:  %s\n", st.Branch)
 		fmt.Fprintf(out, "  repos:   %d worktree(s)\n", len(st.Repos))
 		for _, r := range st.Repos {
@@ -210,9 +210,11 @@ func pickWorkspaceForRm(workspaces []workspace.ManagedWorkspace, prefilter strin
 	for i, w := range workspaces {
 		when := w.State.CreatedAt.Local().Format("2006-01-02 15:04")
 		rows[i] = tui.Row{
-			Key:    w.Slug,
-			Cells:  []string{w.State.Nickname, w.Slug, w.State.TicketID, when, fmt.Sprintf("%d", len(w.State.Repos))},
-			Filter: w.State.Nickname + " " + w.Slug + " " + w.State.TicketID + " " + w.State.Branch,
+			Key:       w.Slug,
+			Cells:     []string{w.State.Nickname, w.Slug, w.State.TicketID, when, fmt.Sprintf("%d", len(w.State.Repos))},
+			Filter:    w.State.Nickname + " " + w.Slug + " " + w.State.TicketID + " " + w.State.Branch,
+			URL:       w.State.URL,
+			URLColumn: 2, // hyperlink the Ticket cell (Nickname/Slug come first)
 		}
 	}
 	key, err := tui.PickOne("Select a workspace to remove", columns, rows,

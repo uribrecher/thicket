@@ -57,6 +57,7 @@ func basePlan(root string) Plan {
 		},
 		Memory: memory.Input{
 			TicketID: "sc-1", Title: "X", Body: "body",
+			URL:    "https://app.shortcut.com/example/story/1",
 			Branch: "u/sc-1-x", WorkspaceDir: wsDir,
 			Repos: []memory.RepoEntry{
 				{Name: "alpha", Branch: "u/sc-1-x", WorktreePath: filepath.Join(wsDir, "alpha"), DefaultBranch: "main"},
@@ -100,6 +101,9 @@ func TestCreate_happyPath(t *testing.T) {
 	}
 	if st.TicketID != "sc-1" || st.Branch != "u/sc-1-x" || len(st.Repos) != 2 {
 		t.Errorf("state mismatch: %+v", st)
+	}
+	if st.URL != "https://app.shortcut.com/example/story/1" {
+		t.Errorf("state.URL = %q, want the URL from Memory", st.URL)
 	}
 }
 
@@ -585,6 +589,22 @@ func TestState_OmitsEmptyColor(t *testing.T) {
 	}
 }
 
+func TestState_OmitsEmptyURL(t *testing.T) {
+	// Manifests written before State.URL existed must round-trip
+	// without an "url" key so legacy installs continue to look
+	// identical on disk and ReadState can still rely on the
+	// CLAUDE.local.md backfill path.
+	dir := t.TempDir()
+	writeFakeState(t, dir, State{TicketID: "sc-11", Branch: "b", CreatedAt: time.Now()})
+	b, err := os.ReadFile(filepath.Join(dir, ".thicket", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "\"url\"") {
+		t.Errorf("empty url should be omitted; got JSON: %s", string(b))
+	}
+}
+
 func TestState_OmitsEmptyNickname(t *testing.T) {
 	dir := t.TempDir()
 	// Empty nickname: omitempty should keep it out of the JSON
@@ -652,6 +672,65 @@ func TestManagedWorkspace_DisplayName(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestReadState_backfillsURLFromMemoryFile(t *testing.T) {
+	// Workspaces created before State.URL existed have no "url" key
+	// in state.json but do carry the URL in CLAUDE.local.md (the
+	// template has always rendered it). ReadState backfills from the
+	// memory file so OSC 8 hyperlinks light up across legacy
+	// workspaces without a separate migration step.
+	dir := t.TempDir()
+	writeFakeState(t, dir, State{
+		TicketID: "sc-7", Branch: "b",
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+	})
+	body, err := memory.Render(memory.Input{
+		TicketID: "sc-7", Title: "T",
+		URL:    "https://app.shortcut.com/acme/story/7",
+		Branch: "b", WorkspaceDir: dir, CreatedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, memory.FileName), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadState(dir)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if got.URL != "https://app.shortcut.com/acme/story/7" {
+		t.Errorf("URL = %q, want backfill from CLAUDE.local.md", got.URL)
+	}
+}
+
+func TestReadState_existingURLNotOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	writeFakeState(t, dir, State{
+		TicketID:  "sc-8",
+		URL:       "https://from-state.example.com/8",
+		Branch:    "b",
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+	})
+	body, err := memory.Render(memory.Input{
+		TicketID: "sc-8", Title: "T",
+		URL:    "https://from-memory.example.com/8",
+		Branch: "b", WorkspaceDir: dir, CreatedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, memory.FileName), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadState(dir)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if got.URL != "https://from-state.example.com/8" {
+		t.Errorf("URL = %q, want the state.json value to win over the memory file", got.URL)
 	}
 }
 

@@ -106,7 +106,11 @@ func RenderTicketSummary(tk ticket.Ticket, summary []string) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(WarnStyle.Render(fmt.Sprintf("%s — %s", tk.SourceID, tk.Title)))
+	// Hyperlink wraps the styled "<id> — <title>" header so ⌘-click
+	// on the visible label opens the ticket URL in terminals that
+	// speak OSC 8; others see the label unchanged.
+	b.WriteString(tui.Hyperlink(tk.URL,
+		WarnStyle.Render(fmt.Sprintf("%s — %s", tk.SourceID, tk.Title))))
 	b.WriteString("\n")
 	lines := summary
 	if len(lines) == 0 {

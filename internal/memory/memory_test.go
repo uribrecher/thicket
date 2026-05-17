@@ -162,3 +162,40 @@ func TestRender_omitsOptionalFields(t *testing.T) {
 		t.Errorf("Owner row should be omitted when empty\n%s", s)
 	}
 }
+
+func TestExtractURL_roundTrip(t *testing.T) {
+	dir := t.TempDir()
+	in := Input{
+		TicketID: "sc-42", Title: "T", Body: "body",
+		URL:    "https://app.shortcut.com/acme/story/42",
+		Branch: "b", WorkspaceDir: dir,
+		CreatedAt: time.Now(),
+	}
+	body, err := Render(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, FileName), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := ExtractURL(dir)
+	if got != in.URL {
+		t.Errorf("ExtractURL = %q, want %q", got, in.URL)
+	}
+}
+
+func TestExtractURL_missingFileReturnsEmpty(t *testing.T) {
+	if got := ExtractURL(t.TempDir()); got != "" {
+		t.Errorf("ExtractURL on dir without %s = %q, want \"\"", FileName, got)
+	}
+}
+
+func TestExtractURL_noURLLineReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, FileName), []byte("# nothing useful\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ExtractURL(dir); got != "" {
+		t.Errorf("ExtractURL on file without URL line = %q, want \"\"", got)
+	}
+}

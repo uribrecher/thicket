@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sahilm/fuzzy"
 
+	"github.com/uribrecher/thicket/internal/tui"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
 
@@ -247,7 +248,12 @@ func (p *workspacePage) View(m *wizard.Model) string {
 		b.WriteString("  ")
 		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.ws.Slug, slugW), slugW)))
 		b.WriteString("  ")
-		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.ws.State.TicketID, idW), idW)))
+		// Hyperlink wraps the styled, padded ticket-id cell so the
+		// workspace picker is ⌘-clickable in supporting terminals.
+		// State.URL is empty on legacy manifests, in which case
+		// Hyperlink returns the label unchanged.
+		b.WriteString(tui.Hyperlink(row.ws.State.URL,
+			style.Render(wizard.PadRight(wizard.Truncate(row.ws.State.TicketID, idW), idW))))
 		b.WriteString("  ")
 		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.ws.State.Branch, branchW), branchW)))
 		b.WriteString("  ")
@@ -265,7 +271,11 @@ func (p *workspacePage) View(m *wizard.Model) string {
 // page that owns the workspace-picker semantics.
 func renderWorkspaceSummary(ws workspace.ManagedWorkspace) string {
 	var b strings.Builder
-	b.WriteString(wizard.WarnStyle.Render(fmt.Sprintf("%s — %s", ws.Slug, ws.State.TicketID)))
+	// Hyperlink wraps the workspace header so ⌘-click on the styled
+	// "<slug> — <ticket>" line opens the ticket in supporting
+	// terminals. State.URL is empty on legacy manifests.
+	b.WriteString(tui.Hyperlink(ws.State.URL,
+		wizard.WarnStyle.Render(fmt.Sprintf("%s — %s", ws.Slug, ws.State.TicketID))))
 	b.WriteString("\n")
 	b.WriteString("  " + wizard.HintStyle.Render(fmt.Sprintf("branch: %s", ws.State.Branch)) + "\n")
 	b.WriteString("  " + wizard.HintStyle.Render(fmt.Sprintf("worktrees: %d", len(ws.State.Repos))) + "\n")

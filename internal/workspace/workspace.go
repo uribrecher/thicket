@@ -62,7 +62,16 @@ type Plan struct {
 // It lets `thicket rm` clean up worktrees without scanning every repo.
 type State struct {
 	TicketID string `json:"ticket_id"`
-	Branch   string `json:"branch"`
+	// URL is the canonical web URL for TicketID at its source
+	// (e.g. https://app.shortcut.com/<org>/story/12345/...). Persisted
+	// so display sites — `thicket list`, `thicket rm`, the edit
+	// wizard's workspace picker — can render TicketID as an OSC 8
+	// hyperlink without re-fetching from the ticket source. `omitempty`
+	// so manifests written before this field existed round-trip
+	// cleanly; callers treat empty as "no link available" and fall
+	// back to plain text.
+	URL    string `json:"url,omitempty"`
+	Branch string `json:"branch"`
 	// Nickname is the per-workspace display label set at creation
 	// time. `omitempty` so manifests written before this field
 	// existed round-trip cleanly.
@@ -578,6 +587,7 @@ var ErrNoState = errors.New("no state manifest")
 func writeState(p Plan) error {
 	st := State{
 		TicketID: p.Memory.TicketID,
+		URL:      p.Memory.URL,
 		Branch:   p.Branch,
 		// Sanitize at the persistence boundary: any caller (wizard,
 		// legacy --nickname flag, future API) writes through here, so
@@ -631,6 +641,14 @@ func writeStateAtomic(workspaceDir string, st State) error {
 }
 
 // ReadState loads the manifest for a workspace directory.
+//
+// As a transparent migration, when the manifest carries no URL (i.e.
+// the workspace was created before State.URL was added) ReadState
+// best-effort backfills it from the workspace's CLAUDE.local.md, which
+// has always recorded the ticket URL. This keeps `thicket list`,
+// `thicket rm`, and the edit wizard's pickers rendering OSC 8
+// hyperlinks even on workspaces predating State.URL — without
+// requiring an explicit migration step from the user.
 func ReadState(workspaceDir string) (State, error) {
 	b, err := os.ReadFile(filepath.Join(workspaceDir, ".thicket", "state.json"))
 	if err != nil {
@@ -642,6 +660,12 @@ func ReadState(workspaceDir string) (State, error) {
 	var st State
 	if err := json.Unmarshal(b, &st); err != nil {
 		return State{}, fmt.Errorf("parse state: %w", err)
+	}
+	if st.URL == "" {
+		// Failure is silent — ExtractURL returns "" on missing /
+		// malformed memory files, which leaves URL empty (the same
+		// state the caller already tolerated before this backfill).
+		st.URL = memory.ExtractURL(workspaceDir)
 	}
 	return st, nil
 }
