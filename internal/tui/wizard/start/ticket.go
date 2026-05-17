@@ -39,6 +39,7 @@ type ticketPage struct {
 	input   textinput.Model
 	matches []int
 	cursor  int
+	offset  int // scroll offset into matches; visible window is [offset, offset+ticketVisibleRows)
 
 	// Per-row Fetch state — Fetch is fired when user presses Enter; the
 	// result is stored on the page so going back & forward shows the
@@ -80,7 +81,7 @@ func (p *ticketPage) preseed(tk ticket.Ticket) {
 
 func (p *ticketPage) Title() string { return "Ticket" }
 
-func (p *ticketPage) Hints() string { return "↑/↓ navigate · enter picks" }
+func (p *ticketPage) Hints() string { return "↑/↓ navigate · pgup/pgdn page · enter picks" }
 
 // Complete is true once we have a fetched ticket — the page has all
 // the info downstream needs.
@@ -228,12 +229,40 @@ func (p *ticketPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd)
 		case "up":
 			if p.cursor > 0 {
 				p.cursor--
+				p.clampOffset()
 			}
 			return p, nil
 		case "down":
 			if p.cursor < len(p.matches)-1 {
 				p.cursor++
+				p.clampOffset()
 			}
+			return p, nil
+		case "pgup":
+			// Advance the visible window by a full page, then keep the
+			// cursor at its prior position within that window. Without
+			// moving offset directly, clampOffset only scrolls just
+			// enough to keep the cursor visible — which is a partial
+			// page when the cursor was not at an edge.
+			p.offset -= ticketVisibleRows
+			p.cursor -= ticketVisibleRows
+			p.clampWindow()
+			return p, nil
+		case "pgdown":
+			p.offset += ticketVisibleRows
+			p.cursor += ticketVisibleRows
+			p.clampWindow()
+			return p, nil
+		case "home":
+			p.cursor = 0
+			p.clampOffset()
+			return p, nil
+		case "end":
+			p.cursor = len(p.matches) - 1
+			if p.cursor < 0 {
+				p.cursor = 0
+			}
+			p.clampOffset()
 			return p, nil
 		case "enter":
 			// Fetch the row under the cursor. This is what locks in a
@@ -277,21 +306,68 @@ func (p *ticketPage) recompute() {
 	p.matches = p.matches[:0]
 	if q == "" {
 		for i := range p.rows {
-			if i >= ticketVisibleRows {
-				break
-			}
 			p.matches = append(p.matches, i)
 		}
 	} else {
 		fm := fuzzy.Find(q, p.haystack)
-		for i, mm := range fm {
-			if i >= ticketVisibleRows {
-				break
-			}
+		for _, mm := range fm {
 			p.matches = append(p.matches, mm.Index)
 		}
 	}
 	if p.cursor >= len(p.matches) {
+		p.cursor = 0
+	}
+	p.clampOffset()
+}
+
+// clampOffset adjusts offset so the cursor stays within the visible
+// window of ticketVisibleRows rows. Used for cursor-driven motion
+// (up/down/home/end) where offset only needs to scroll enough to keep
+// the cursor visible.
+func (p *ticketPage) clampOffset() {
+	if p.cursor < p.offset {
+		p.offset = p.cursor
+	} else if p.cursor >= p.offset+ticketVisibleRows {
+		p.offset = p.cursor - ticketVisibleRows + 1
+	}
+	if p.offset < 0 {
+		p.offset = 0
+	}
+	maxOffset := len(p.matches) - ticketVisibleRows
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if p.offset > maxOffset {
+		p.offset = maxOffset
+	}
+}
+
+// clampWindow clamps offset to a valid range first, then snaps the
+// cursor into the resulting window. Used for page-driven motion
+// (pgup/pgdn) where the offset is authoritative and the cursor must
+// follow — the opposite priority from clampOffset.
+func (p *ticketPage) clampWindow() {
+	maxOffset := len(p.matches) - ticketVisibleRows
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if p.offset < 0 {
+		p.offset = 0
+	}
+	if p.offset > maxOffset {
+		p.offset = maxOffset
+	}
+	end := p.offset + ticketVisibleRows
+	if end > len(p.matches) {
+		end = len(p.matches)
+	}
+	if p.cursor < p.offset {
+		p.cursor = p.offset
+	}
+	if p.cursor >= end {
+		p.cursor = end - 1
+	}
+	if p.cursor < 0 {
 		p.cursor = 0
 	}
 }
@@ -333,13 +409,23 @@ func (p *ticketPage) View(m *wizard.Model) string {
 	b.WriteString("\n")
 	q := strings.TrimSpace(p.input.Value())
 	switch {
-	case q == "":
-		b.WriteString("  " + wizard.HintStyle.Render(fmt.Sprintf("showing first %d of %d",
-			len(p.matches), len(p.rows))))
-	case len(p.matches) == 0:
+	case len(p.matches) == 0 && q != "":
 		b.WriteString("  " + wizard.HintStyle.Render(fmt.Sprintf("no match for %q", q)))
+	case len(p.matches) == 0:
+		b.WriteString("  " + wizard.HintStyle.Render("no tickets"))
 	default:
-		b.WriteString("  " + wizard.HintStyle.Render(fmt.Sprintf("%d match(es)", len(p.matches))))
+		end := p.offset + ticketVisibleRows
+		if end > len(p.matches) {
+			end = len(p.matches)
+		}
+		total := len(p.rows)
+		filtered := ""
+		if q != "" {
+			filtered = fmt.Sprintf(" (filtered from %d)", total)
+			total = len(p.matches)
+		}
+		b.WriteString("  " + wizard.HintStyle.Render(fmt.Sprintf("showing %d–%d of %d%s",
+			p.offset+1, end, total, filtered)))
 	}
 	b.WriteString("\n\n")
 
@@ -366,7 +452,12 @@ func (p *ticketPage) View(m *wizard.Model) string {
 	}
 	b.WriteString("\n")
 
-	for vi, ri := range p.matches {
+	end := p.offset + ticketVisibleRows
+	if end > len(p.matches) {
+		end = len(p.matches)
+	}
+	for vi := p.offset; vi < end; vi++ {
+		ri := p.matches[vi]
 		row := p.rows[ri]
 		marker := " "
 		style := wizard.DimStyle // unfocused rows; wizard.PendingTabStyle has padding which would break column alignment

@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **`thicket start` ticket picker scrolls past the first page.** The
+  picker previously hard-capped the visible list at the first 12 rows
+  with a `showing first 12 of 47` hint and no way to reach the rest.
+  ↑/↓ now scrolls the window through all matches, pgup/pgdn jumps a
+  page, and home/end jumps to the ends. The status line shows the
+  current window (`showing 13–24 of 47`).
 
 ## [0.6.3] - 2026-05-17
 
