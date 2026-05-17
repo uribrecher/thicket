@@ -31,9 +31,14 @@ multi-repo workspace. Given a Shortcut ticket id it:
 5. Auto-clones any repos that aren't on your machine yet
 6. Drops a `CLAUDE.local.md` into the workspace so your AI coding session
    inside it has full ticket context, across reboots and context resets
-7. Launches Claude Code (`claude --name <slug>`) so the session is
-   labelled in the prompt box, `/resume` picker, and terminal title —
-   handy for distinguishing several open workspaces
+7. Picks a short, friendly **nickname** (≤25 chars, emoji allowed) and a
+   `#RRGGBB` color via the LLM — both stored on the workspace, both
+   tweakable in the wizard
+8. Launches Claude Code (`claude --name <nickname>`) so the session is
+   labelled in the prompt box, `/resume` picker, and terminal title.
+   Under iTerm2, the nickname is also written to the tab title + badge
+   and the color tints the tab background — concurrent workspaces are
+   visually distinct in the tab strip at a glance
 
 End result: `thicket start` → pick a ticket → review LLM picks → you're coding.
 
@@ -164,7 +169,13 @@ consolidated hint line at the bottom combines the active page's
 local keys with the wizard's nav keys.
 
 1. **Ticket** — fuzzy-search your open assigned Shortcut tickets in a
-   tabular view (`Ticket | State | Title | Workspace`). Existing
+   tabular view (`Ticket | State | Iter | Title | Workspace`). Tickets
+   are ranked by a state-dominant composite — workflow state is the
+   strongest signal, then iteration distance (current sprint > previous
+   > older), with a boost for tickets that already have a live local
+   workspace. Future-iteration tickets (sprints that haven't started)
+   are filtered out. The `Iter` column shows the distance per row
+   (`0` = current sprint, `1` = previous, `—` = no iteration). Existing
    workspaces for a ticket appear in the rightmost column so switching
    back to in-flight work is a single Enter. Pressing Enter on a row
    fetches the full ticket (body, requester, labels) and auto-advances
@@ -183,7 +194,11 @@ local keys with the wizard's nav keys.
    first).
 3. **Plan** — workspace dir, branch, the worktrees to create, and a
    "Missing clones" checklist for any selected repos that aren't yet
-   cloned locally (default checked; space toggles). The cloned-on-
+   cloned locally (default checked; space toggles). An editable
+   **nickname** input is pre-populated with the LLM's suggestion (mined
+   from customer / hosting-service / file-format keywords in the
+   ticket), alongside a swatch + hex code for the matching tab color
+   (chosen to contrast with currently-open workspaces). The cloned-on-
    create repos are also listed above the workspace summary so you
    know exactly what'll land in `repos_root` before the workspace
    itself. On Create, clones stream in-page with `✓`/`✗` lines. A
@@ -196,6 +211,13 @@ Repos with the Ticket page rendering a read-only summary you can still
 peek at via `←`. If a workspace already exists for that ticket, the
 wizard short-circuits even further and opens Claude in the existing
 dir (no LLM call wasted).
+
+`thicket start` with no id also short-circuits when your pwd is
+already inside a managed workspace (`workspace_root/<slug>/...` —
+including any worktree subdir under it): the containing workspace is
+detected and Claude is re-launched on it immediately, no ticket
+fetch, no wizard. `--no-launch` / `--dry-run` print the `cd` line
+instead.
 
 `--no-interactive`, `--dry-run`, and non-TTY stdin (CI, pipes) drop
 back to the pre-wizard line-oriented flow so scripts keep working
@@ -350,6 +372,7 @@ thicket config            First-run wizard (or re-run to edit existing config).
 thicket start <ticket>  Spawn a workspace.
    --only foo,bar       Skip the LLM; use exactly these repos.
    --branch <name>      Override the branch name (slug stays ticket-id-prefixed).
+   --nickname '<label>' Override the LLM-suggested workspace nickname.
    --no-interactive     Accept the LLM picks; auto-clone missing repos.
    --no-launch          Don't auto-launch claude after creating.
    --dry-run            Print the plan, change nothing on disk.
@@ -359,7 +382,10 @@ thicket edit [slug]     Add repos to an existing workspace.
                           - Slug: skip the picker.
                         Removing repos isn't supported yet (use rm + start).
 
-thicket list            Show active workspaces (newest first).
+thicket list            Show active workspaces (newest first). Columns:
+                        NICKNAME, SLUG, TICKET, BRANCH, REPOS, CREATED
+                        — runewidth-aware, fixed at 118 visible cells
+                        so emoji nicknames don't shift columns.
 thicket rm [slug]       Remove a workspace + its worktrees.
                           - No arg: interactive picker.
                           - Partial slug: picker pre-filtered.
@@ -371,12 +397,20 @@ thicket rm [slug]       Remove a workspace + its worktrees.
 thicket catalog         Show the GitHub-org repo cache.
    --refresh            Re-fetch via `gh`.
 
+thicket completion <shell>
+                        Emit a domain-aware completion script for
+                        bash / zsh / fish / powershell. Beyond the
+                        usual subcommand/flag completion:
+                          - `rm <Tab>` / `edit <Tab>` suggest managed
+                            workspace slugs (nickname as description).
+                          - `start --only <Tab>` suggests repo names
+                            from the catalog cache, comma-aware.
 thicket doctor          Diagnose config, tokens, external tools.
                         Reports password-manager status, per-secret
                         fetchability, and env-var overrides.
 thicket update          Check for and apply a newer release in place
                         (ignores the 24h auto-update cache).
-thicket version         Print version info.
+thicket version         Print version info (commit sha + commit date).
 ```
 
 ### Self-update
