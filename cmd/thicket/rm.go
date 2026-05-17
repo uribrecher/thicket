@@ -148,7 +148,7 @@ func printRemovePreview(out io.Writer, dir string, st *workspace.State, force bo
 	}
 	fmt.Fprintf(out, "  path:    %s\n", dir)
 	if st != nil {
-		fmt.Fprintf(out, "  ticket:  %s\n", tui.Hyperlink(st.URL, st.TicketID))
+		fmt.Fprintf(out, "  ticket:  %s\n", tui.HyperlinkForWriter(out, st.URL, st.TicketID))
 		fmt.Fprintf(out, "  branch:  %s\n", st.Branch)
 		fmt.Fprintf(out, "  repos:   %d worktree(s)\n", len(st.Repos))
 		for _, r := range st.Repos {

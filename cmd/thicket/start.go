@@ -285,7 +285,7 @@ func runStartLegacy(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		if tk.State == "" && picked.State != "" {
 			tk.State = picked.State
 		}
-		fmt.Fprintf(out, "  %s — %s\n", tui.Hyperlink(tk.URL, tk.SourceID), tk.Title)
+		fmt.Fprintf(out, "  %s — %s\n", tui.HyperlinkForWriter(out, tk.URL, tk.SourceID), tk.Title)
 	} else {
 		id, err := src.Parse(args[0])
 		if err != nil {
@@ -297,7 +297,7 @@ func runStartLegacy(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		if err2 != nil {
 			return err2
 		}
-		fmt.Fprintf(out, "  %s — %s\n", tui.Hyperlink(tk.URL, tk.SourceID), tk.Title)
+		fmt.Fprintf(out, "  %s — %s\n", tui.HyperlinkForWriter(out, tk.URL, tk.SourceID), tk.Title)
 	}
 	if existing := findWorkspaceForTicket(cfg, tk.SourceID, errOut); existing != nil {
 		fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)

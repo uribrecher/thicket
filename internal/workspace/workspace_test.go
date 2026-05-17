@@ -589,6 +589,22 @@ func TestState_OmitsEmptyColor(t *testing.T) {
 	}
 }
 
+func TestState_OmitsEmptyURL(t *testing.T) {
+	// Manifests written before State.URL existed must round-trip
+	// without an "url" key so legacy installs continue to look
+	// identical on disk and ReadState can still rely on the
+	// CLAUDE.local.md backfill path.
+	dir := t.TempDir()
+	writeFakeState(t, dir, State{TicketID: "sc-11", Branch: "b", CreatedAt: time.Now()})
+	b, err := os.ReadFile(filepath.Join(dir, ".thicket", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "\"url\"") {
+		t.Errorf("empty url should be omitted; got JSON: %s", string(b))
+	}
+}
+
 func TestState_OmitsEmptyNickname(t *testing.T) {
 	dir := t.TempDir()
 	// Empty nickname: omitempty should keep it out of the JSON
