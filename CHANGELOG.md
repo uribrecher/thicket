@@ -22,9 +22,9 @@ Shortcut API token.
   two-option fork: "I don't have a Shortcut API token yet" opens
   `https://app.shortcut.com/<workspace-slug>/settings/account/api-tokens`
   in the default browser (slug-less fallback when not yet
-  configured) and exits the wizard cleanly with a `re-run thicket
-  config after you save the token` hint — no partial config gets
-  written. "I already have one" walks the existing manager-picker
+  configured) and exits the wizard cleanly with a hint to re-run
+  `thicket config` once the token is saved — no partial config
+  gets written. "I already have one" walks the existing manager-picker
   cascade (1Password account/item/field, or typed ref for env /
   bitwarden / pass). Re-runs against an existing `op://` ref still
   skip the fork and land directly on the validated picker, so the
