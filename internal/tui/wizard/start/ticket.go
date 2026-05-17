@@ -239,21 +239,19 @@ func (p *ticketPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd)
 			}
 			return p, nil
 		case "pgup":
+			// Advance the visible window by a full page, then keep the
+			// cursor at its prior position within that window. Without
+			// moving offset directly, clampOffset only scrolls just
+			// enough to keep the cursor visible — which is a partial
+			// page when the cursor was not at an edge.
+			p.offset -= ticketVisibleRows
 			p.cursor -= ticketVisibleRows
-			if p.cursor < 0 {
-				p.cursor = 0
-			}
-			p.clampOffset()
+			p.clampWindow()
 			return p, nil
 		case "pgdown":
+			p.offset += ticketVisibleRows
 			p.cursor += ticketVisibleRows
-			if p.cursor > len(p.matches)-1 {
-				p.cursor = len(p.matches) - 1
-			}
-			if p.cursor < 0 {
-				p.cursor = 0
-			}
-			p.clampOffset()
+			p.clampWindow()
 			return p, nil
 		case "home":
 			p.cursor = 0
@@ -323,7 +321,9 @@ func (p *ticketPage) recompute() {
 }
 
 // clampOffset adjusts offset so the cursor stays within the visible
-// window of ticketVisibleRows rows.
+// window of ticketVisibleRows rows. Used for cursor-driven motion
+// (up/down/home/end) where offset only needs to scroll enough to keep
+// the cursor visible.
 func (p *ticketPage) clampOffset() {
 	if p.cursor < p.offset {
 		p.offset = p.cursor
@@ -339,6 +339,36 @@ func (p *ticketPage) clampOffset() {
 	}
 	if p.offset > maxOffset {
 		p.offset = maxOffset
+	}
+}
+
+// clampWindow clamps offset to a valid range first, then snaps the
+// cursor into the resulting window. Used for page-driven motion
+// (pgup/pgdn) where the offset is authoritative and the cursor must
+// follow — the opposite priority from clampOffset.
+func (p *ticketPage) clampWindow() {
+	maxOffset := len(p.matches) - ticketVisibleRows
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if p.offset < 0 {
+		p.offset = 0
+	}
+	if p.offset > maxOffset {
+		p.offset = maxOffset
+	}
+	end := p.offset + ticketVisibleRows
+	if end > len(p.matches) {
+		end = len(p.matches)
+	}
+	if p.cursor < p.offset {
+		p.cursor = p.offset
+	}
+	if p.cursor >= end {
+		p.cursor = end - 1
+	}
+	if p.cursor < 0 {
+		p.cursor = 0
 	}
 }
 
