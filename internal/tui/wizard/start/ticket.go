@@ -150,7 +150,7 @@ func (p *ticketPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd)
 			}
 			p.rows[i] = ticketRow{
 				tk:        tk,
-				filter:    tk.SourceID + " " + tk.State + " " + tk.Title + " " + ws,
+				filter:    tk.SourceID + " " + tk.State + " " + tk.Priority + " " + tk.Title + " " + ws,
 				workspace: ws,
 			}
 			p.haystack[i] = p.rows[i].filter
@@ -432,8 +432,12 @@ func (p *ticketPage) View(m *wizard.Model) string {
 
 	// Table.
 	const (
-		idW    = 10
-		stateW = 18
+		idW = 10
+		// stateW packs the priority glyph and state prefix into one
+		// cell — see rank.FormatPriorityState. Width matches that
+		// helper's documented 14 cells (2-cell prio slot + space + 11
+		// cells of state).
+		stateW = 14
 		titleW = 50
 		wsW    = 36
 		iterW  = 5
@@ -442,7 +446,7 @@ func (p *ticketPage) View(m *wizard.Model) string {
 	for _, col := range []struct {
 		t string
 		w int
-	}{{"Ticket", idW}, {"State", stateW}, {"Title", titleW}, {"Workspace", wsW}, {"Iter", iterW}} {
+	}{{"Ticket", idW}, {"   State", stateW}, {"Title", titleW}, {"Workspace", wsW}, {"Iter", iterW}} {
 		b.WriteString(wizard.SectionStyle.Render(wizard.PadRight(col.t, col.w)))
 		b.WriteString("  ")
 	}
@@ -484,7 +488,8 @@ func (p *ticketPage) View(m *wizard.Model) string {
 		b.WriteString(tui.Hyperlink(row.tk.URL,
 			style.Render(wizard.PadRight(wizard.Truncate(row.tk.SourceID, idW), idW))))
 		b.WriteString("  ")
-		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.tk.State, stateW), stateW)))
+		b.WriteString(style.Render(wizard.PadRight(
+			rank.FormatPriorityState(row.tk.Priority, row.tk.State), stateW)))
 		b.WriteString("  ")
 		b.WriteString(style.Render(wizard.PadRight(wizard.Truncate(row.tk.Title, titleW), titleW)))
 		b.WriteString("  ")

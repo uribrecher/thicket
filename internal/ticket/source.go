@@ -61,6 +61,14 @@ type Ticket struct {
 	// Sources that don't surface this leave it zero.
 	UpdatedAt time.Time
 
+	// Priority is the source's priority label for this ticket
+	// (e.g. "Highest", "High", "Medium", "Low" — Shortcut's
+	// default priority custom-field values; "P0".."P3" in other
+	// conventions). Empty means the source has no value or the
+	// value couldn't be resolved. The ranker treats unknown
+	// labels as factor 0.
+	Priority string
+
 	// IterationDistance is the integer step from the source's
 	// "current" iteration to this ticket's iteration, in timeline
 	// order:

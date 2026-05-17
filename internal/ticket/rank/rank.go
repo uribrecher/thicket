@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/uribrecher/thicket/internal/ticket"
+	"github.com/uribrecher/thicket/internal/tui"
 )
 
 // FormatIterationDistance renders a Ticket.IterationDistance for
@@ -21,9 +22,45 @@ func FormatIterationDistance(distance int) string {
 	return strconv.Itoa(distance)
 }
 
+// FormatPriority renders a Ticket.Priority label as a compact arrow
+// glyph used by the picker's combined State column (see
+// FormatPriorityState). Full labels ("Highest", "High", "Medium",
+// "Low") chewed up too much width in the table; the four-glyph
+// ladder still conveys magnitude and direction. Some glyphs are
+// East-Asian-wide (2 cells) and some are narrow (e.g. "▪" or the
+// blank fallback for unknown labels) — callers must pad to a fixed
+// 2-cell slot for row alignment.
+func FormatPriority(name string) string {
+	switch priorityRank(name) {
+	case 4:
+		return "⏫"
+	case 3:
+		return "🔼"
+	case 2:
+		return "▪"
+	case 1:
+		return "🔽"
+	default:
+		return " "
+	}
+}
+
+// FormatPriorityState renders the picker's combined State cell: a
+// fixed 2-cell slot for the priority glyph, a single-space
+// separator, then up to 11 cells of state prefix. Total visible
+// width is 14 cells. Used by both the wizard picker and the
+// cmd-side tui.PickOne fallback so the two layouts can't drift
+// apart and silently misalign rows again.
+func FormatPriorityState(priority, state string) string {
+	return tui.PadRight(FormatPriority(priority), 2) + " " + tui.Truncate(state, 11)
+}
+
 // Score returns the composite ranking score for one ticket.
 //
-//	score = 1000 * stateTier  +  30 * iterationFactor10  +  100 * workspace
+//	score = 1000 * stateTier
+//	      +   50 * priorityTier   // 0..4 (Low..Highest), 0 if unknown
+//	      +   30 * iterationFactor10
+//	      +  100 * workspace
 //
 // where iterationFactor10 is iterationFactor*10 (kept integer to
 // avoid floating-point quantization at the 0.1 step boundary), and
@@ -31,18 +68,19 @@ func FormatIterationDistance(distance int) string {
 //
 // State dominance is the load-bearing invariant: maxNonLive is
 //
-//	1000 + 30*10 + 100 = 1400
+//	1000 + 50*4 + 30*10 + 100 = 1600
 //
 // while minLive is 2000, so every live-tier ticket outranks every
 // neutral-tier ticket regardless of the other signals.
 func Score(t ticket.Ticket, hasWorkspace bool) int {
 	state := stateRank(t.State)
+	prio := priorityRank(t.Priority)
 	iter := iterationFactor10(t.IterationDistance)
 	ws := 0
 	if hasWorkspace {
 		ws = 1
 	}
-	return 1000*state + 30*iter + 100*ws
+	return 1000*state + 50*prio + 30*iter + 100*ws
 }
 
 // Sort orders `tickets` in-place by Score desc, UpdatedAt desc. The
@@ -102,6 +140,26 @@ func iterationFactor10(distance int) int {
 		return 0
 	}
 	return f
+}
+
+// priorityRank assigns each priority label a sort tier in [0, 4].
+// Tiers map both Shortcut's default custom-field values ("Highest",
+// "High", "Medium", "Low") and the "P0".."P3" convention some
+// workspaces adopt. Unknown / empty labels return 0, matching the
+// behaviour for tickets whose source doesn't expose a priority.
+func priorityRank(name string) int {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "highest", "p0":
+		return 4
+	case "high", "p1":
+		return 3
+	case "medium", "p2":
+		return 2
+	case "low", "p3":
+		return 1
+	default:
+		return 0
+	}
 }
 
 // stateRank assigns each workflow-state name a sort tier:
