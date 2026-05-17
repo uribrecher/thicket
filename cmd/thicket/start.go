@@ -583,9 +583,12 @@ func pickAssignedTicketLegacy(ctx context.Context, src ticket.Source, cfg *confi
 		return slugByTicket[sourceID] != ""
 	})
 
+	// State column carries the priority glyph as its first 2 cells,
+	// a space, then up to 11 cells of state prefix — same packed
+	// layout the wizard picker uses.
 	columns := []tui.Column{
 		{Title: "Ticket", Width: 10},
-		{Title: "State", Width: 18},
+		{Title: "   State", Width: 14},
 		{Title: "Title", Width: 50},
 		{Title: "Workspace", Width: 36},
 		{Title: "Iter", Width: 5},
@@ -595,10 +598,11 @@ func pickAssignedTicketLegacy(ctx context.Context, src ticket.Source, cfg *confi
 	for i, tk := range tickets {
 		ws := slugByTicket[tk.SourceID]
 		iter := rank.FormatIterationDistance(tk.IterationDistance)
+		stateCell := tui.PadRight(rank.FormatPriority(tk.Priority), 2) + " " + tui.Truncate(tk.State, 11)
 		rows[i] = tui.Row{
 			Key:    tk.SourceID,
-			Cells:  []string{tk.SourceID, tk.State, tk.Title, ws, iter},
-			Filter: tk.SourceID + " " + tk.State + " " + tk.Title + " " + ws,
+			Cells:  []string{tk.SourceID, stateCell, tk.Title, ws, iter},
+			Filter: tk.SourceID + " " + tk.State + " " + tk.Priority + " " + tk.Title + " " + ws,
 			URL:    tk.URL, // Ticket is column 0 — URLColumn defaults to 0.
 		}
 		byID[tk.SourceID] = tk

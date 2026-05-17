@@ -222,6 +222,11 @@ func listAssignedServerWithIterations(t *testing.T, member memberResponse,
 			_ = json.NewEncoder(w).Encode(member)
 		case r.URL.Path == "/api/v3/workflows" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(workflows)
+		case r.URL.Path == "/api/v3/custom-fields" && r.Method == http.MethodGet:
+			// Tests that don't care about priority get an empty list,
+			// which forces priorityFieldID to "" and leaves all
+			// Ticket.Priority values empty — the documented fallback.
+			_, _ = w.Write([]byte("[]"))
 		case r.URL.Path == "/api/v3/iterations" && r.Method == http.MethodGet:
 			// Emit the date-only wire format Shortcut actually
 			// returns ("2026-05-06"), not RFC 3339. Exercises the
@@ -488,6 +493,100 @@ func TestListAssigned_noStartedIterationLeavesDistanceSentinel(t *testing.T) {
 	if got[0].IterationDistance != -1 {
 		t.Errorf("IterationDistance=%d, want -1 when no started iteration exists",
 			got[0].IterationDistance)
+	}
+}
+
+// TestListAssigned_resolvesPriorityCustomField checks that the
+// shortcut client identifies the workspace's "priority" custom field
+// by canonical_name and projects each story's matching value into
+// Ticket.Priority. Stories with no value get an empty Priority.
+func TestListAssigned_resolvesPriorityCustomField(t *testing.T) {
+	const priorityFieldID = "field-prio"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v3/member":
+			_ = json.NewEncoder(w).Encode(memberResponse{ID: "u"})
+		case r.URL.Path == "/api/v3/workflows":
+			_ = json.NewEncoder(w).Encode([]workflowResponse{{
+				States: []workflowStateResponse{{ID: 1, Name: "In Development", Type: "started"}},
+			}})
+		case r.URL.Path == "/api/v3/iterations":
+			_, _ = w.Write([]byte("[]"))
+		case r.URL.Path == "/api/v3/custom-fields":
+			fmt.Fprintf(w, `[
+				{"id": "field-sev", "name": "Severity", "canonical_name": "severity"},
+				{"id": %q,         "name": "Priority", "canonical_name": "priority"}
+			]`, priorityFieldID)
+		case r.URL.Path == "/api/v3/stories/search":
+			fmt.Fprintf(w, `[
+				{"id": 1, "name": "a", "workflow_state_id": 1, "custom_fields": [
+					{"field_id": %q, "value": "High",   "value_id": "v-1"}
+				]},
+				{"id": 2, "name": "b", "workflow_state_id": 1, "custom_fields": [
+					{"field_id": "field-sev", "value": "Sev2", "value_id": "v-2"}
+				]},
+				{"id": 3, "name": "c", "workflow_state_id": 1}
+			]`, priorityFieldID)
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	want := map[string]string{"sc-1": "High", "sc-2": "", "sc-3": ""}
+	if len(got) != len(want) {
+		t.Fatalf("got %d tickets, want %d", len(got), len(want))
+	}
+	for _, tk := range got {
+		w, ok := want[tk.SourceID]
+		if !ok {
+			t.Errorf("unexpected ticket %s", tk.SourceID)
+			continue
+		}
+		if tk.Priority != w {
+			t.Errorf("%s: Priority=%q, want %q", tk.SourceID, tk.Priority, w)
+		}
+	}
+}
+
+// TestListAssigned_priorityFieldFetchFailureIsTolerated guards the
+// best-effort contract: when /api/v3/custom-fields 5xx's, the picker
+// still loads tickets with empty Priority (rather than aborting).
+func TestListAssigned_priorityFieldFetchFailureIsTolerated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v3/member":
+			_ = json.NewEncoder(w).Encode(memberResponse{ID: "u"})
+		case "/api/v3/workflows":
+			_ = json.NewEncoder(w).Encode([]workflowResponse{{
+				States: []workflowStateResponse{{ID: 1, Name: "In Development", Type: "started"}},
+			}})
+		case "/api/v3/iterations":
+			_, _ = w.Write([]byte("[]"))
+		case "/api/v3/custom-fields":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/api/v3/stories/search":
+			fmt.Fprint(w, `[{"id": 1, "name": "a", "workflow_state_id": 1}]`)
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	got, err := New("tok", srv.URL).ListAssigned(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || got[0].Priority != "" {
+		t.Errorf("got %+v, want one ticket with empty Priority", got)
 	}
 }
 

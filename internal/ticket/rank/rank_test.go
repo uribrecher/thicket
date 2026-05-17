@@ -68,6 +68,49 @@ func TestScore_iterationDecay(t *testing.T) {
 	}
 }
 
+func TestScore_priorityTiers(t *testing.T) {
+	// Vary Priority on a neutral, no-iter, no-ws ticket so the
+	// score is 1000 + 50*priorityTier — readable directly.
+	cases := map[string]int{
+		"Highest": 4,
+		"highest": 4,
+		"P0":      4,
+		"High":    3,
+		"p1":      3,
+		"Medium":  2,
+		"P2":      2,
+		"Low":     1,
+		"p3":      1,
+		"":        0,
+		"Bogus":   0,
+	}
+	for prio, wantTier := range cases {
+		got := rank.Score(ticket.Ticket{
+			State: "In Review", Priority: prio, IterationDistance: -1,
+		}, false)
+		want := 1000 + 50*wantTier
+		if got != want {
+			t.Errorf("Priority=%q: Score=%d, want %d (tier %d)", prio, got, want, wantTier)
+		}
+	}
+}
+
+// Priority must not break state dominance: every live ticket still
+// beats every non-live ticket regardless of priority.
+func TestScore_priorityDoesNotBreakStateDominance(t *testing.T) {
+	maxNonLive := rank.Score(
+		ticket.Ticket{State: "In Review", Priority: "Highest", IterationDistance: 0},
+		true,
+	)
+	minLive := rank.Score(
+		ticket.Ticket{State: "In Development", Priority: "Low", IterationDistance: -1},
+		false,
+	)
+	if minLive <= maxNonLive {
+		t.Errorf("priority broke state dominance: minLive=%d, maxNonLive=%d", minLive, maxNonLive)
+	}
+}
+
 func TestScore_workspaceBoost(t *testing.T) {
 	tk := ticket.Ticket{State: "In Development", IterationDistance: -1}
 	without := rank.Score(tk, false)

@@ -117,18 +117,37 @@ func (s *Source) BranchName(t ticket.Ticket) string {
 
 // storyResponse is the subset of the Shortcut story payload thicket consumes.
 type storyResponse struct {
-	ID                     int             `json:"id"`
-	Name                   string          `json:"name"`
-	Description            string          `json:"description"`
-	AppURL                 string          `json:"app_url"`
-	FormattedVCSBranchName string          `json:"formatted_vcs_branch_name"`
-	WorkflowStateID        int             `json:"workflow_state_id"`
-	OwnerIDs               []string        `json:"owner_ids"`
-	RequestedByID          string          `json:"requested_by_id"`
-	Labels                 []labelResponse `json:"labels"`
-	Archived               bool            `json:"archived"`
-	UpdatedAt              time.Time       `json:"updated_at"`
-	IterationID            *int            `json:"iteration_id"` // nil when not assigned
+	ID                     int                        `json:"id"`
+	Name                   string                     `json:"name"`
+	Description            string                     `json:"description"`
+	AppURL                 string                     `json:"app_url"`
+	FormattedVCSBranchName string                     `json:"formatted_vcs_branch_name"`
+	WorkflowStateID        int                        `json:"workflow_state_id"`
+	OwnerIDs               []string                   `json:"owner_ids"`
+	RequestedByID          string                     `json:"requested_by_id"`
+	Labels                 []labelResponse            `json:"labels"`
+	Archived               bool                       `json:"archived"`
+	UpdatedAt              time.Time                  `json:"updated_at"`
+	IterationID            *int                       `json:"iteration_id"` // nil when not assigned
+	CustomFields           []storyCustomFieldResponse `json:"custom_fields"`
+}
+
+// storyCustomFieldResponse is one entry in a story's custom_fields
+// array. The `value` is the resolved label string (e.g. "High"); the
+// `field_id` matches an entry in /api/v3/custom-fields.
+type storyCustomFieldResponse struct {
+	FieldID string `json:"field_id"`
+	Value   string `json:"value"`
+	ValueID string `json:"value_id"`
+}
+
+// customFieldResponse is the slice of /api/v3/custom-fields we need to
+// locate the "priority" field across workspaces — its `id` is what
+// shows up as `field_id` on each story.
+type customFieldResponse struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	CanonicalName string `json:"canonical_name"` // "priority", "severity", ...
 }
 
 // iterationResponse is the slice of the Shortcut iteration payload
@@ -244,7 +263,14 @@ func (s *Source) Fetch(id ticket.ID) (ticket.Ticket, error) {
 		fmt.Sprintf("/api/v3/stories/%d", int(scID)), nil, &sr); err != nil {
 		return ticket.Ticket{}, err
 	}
-	tk := s.toTicket(sr, "")
+	// Only resolve the priority field when the story actually has
+	// custom_fields entries — saves a round-trip on every Fetch for
+	// stories that don't carry a priority value.
+	var priority string
+	if len(sr.CustomFields) > 0 {
+		priority = pickPriorityValue(sr.CustomFields, s.priorityFieldID(ctx))
+	}
+	tk := s.toTicket(sr, "", priority)
 	// Best-effort requester name resolution — a failed lookup just
 	// leaves Requester empty so the ticket summary skips that line.
 	// We don't want a flaky members endpoint to abort `thicket start`.
@@ -254,6 +280,45 @@ func (s *Source) Fetch(id ticket.ID) (ticket.Ticket, error) {
 		}
 	}
 	return tk, nil
+}
+
+// priorityFieldID resolves the custom-field ID of the "priority"
+// field by canonical_name (falling back to a case-insensitive match
+// on Name). Returns "" if the endpoint fails or no such field exists
+// — callers then leave Ticket.Priority empty, which the ranker
+// treats as factor 0. The lookup is best-effort by design: a 5xx on
+// /api/v3/custom-fields must not abort the picker.
+func (s *Source) priorityFieldID(ctx context.Context) string {
+	var cfs []customFieldResponse
+	if err := s.doRequest(ctx, http.MethodGet, "/api/v3/custom-fields", nil, &cfs); err != nil {
+		return ""
+	}
+	for _, cf := range cfs {
+		if strings.EqualFold(cf.CanonicalName, "priority") {
+			return cf.ID
+		}
+	}
+	for _, cf := range cfs {
+		if strings.EqualFold(cf.Name, "priority") {
+			return cf.ID
+		}
+	}
+	return ""
+}
+
+// pickPriorityValue returns the resolved label for the story's
+// priority custom field, or "" if the story has no value set or
+// fieldID is empty.
+func pickPriorityValue(fields []storyCustomFieldResponse, fieldID string) string {
+	if fieldID == "" {
+		return ""
+	}
+	for _, f := range fields {
+		if f.FieldID == fieldID {
+			return f.Value
+		}
+	}
+	return ""
 }
 
 // fetchMemberName resolves a member UUID to a human-readable display
@@ -271,7 +336,7 @@ func (s *Source) fetchMemberName(ctx context.Context, id string) string {
 	return m.Profile.MentionName
 }
 
-func (s *Source) toTicket(sr storyResponse, stateName string) ticket.Ticket {
+func (s *Source) toTicket(sr storyResponse, stateName, priority string) ticket.Ticket {
 	var labels []string
 	for _, l := range sr.Labels {
 		if l.Name != "" {
@@ -285,6 +350,7 @@ func (s *Source) toTicket(sr storyResponse, stateName string) ticket.Ticket {
 		URL:               sr.AppURL,
 		State:             stateName,
 		Labels:            labels,
+		Priority:          priority,
 		UpdatedAt:         sr.UpdatedAt,
 		IterationDistance: -1, // overwritten in ListAssigned when iteration data is available
 		Extra: map[string]string{
@@ -427,6 +493,11 @@ func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 	}
 	distanceByIter, futureIter := buildIterationTimeline(iterations)
 
+	// Best-effort priority field lookup: any failure leaves
+	// Ticket.Priority empty, which the ranker treats as factor 0
+	// — same fallback behaviour as iterations above.
+	prioFieldID := s.priorityFieldID(ctx)
+
 	var stories []storyResponse
 	if err := s.doRequest(ctx, http.MethodPost, "/api/v3/stories/search",
 		searchBody{OwnerIDs: []string{me.ID}, Archived: false}, &stories); err != nil {
@@ -465,7 +536,7 @@ func (s *Source) ListAssigned(ctx context.Context) ([]ticket.Ticket, error) {
 	// order.
 	out := make([]ticket.Ticket, 0, len(kept))
 	for _, k := range kept {
-		tk := s.toTicket(k.sr, k.state)
+		tk := s.toTicket(k.sr, k.state, pickPriorityValue(k.sr.CustomFields, prioFieldID))
 		if k.sr.IterationID != nil {
 			if d, ok := distanceByIter[*k.sr.IterationID]; ok {
 				tk.IterationDistance = d
