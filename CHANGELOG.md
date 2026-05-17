@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-17
+
+Two user-visible additions — the ticket picker scrolls past page one,
+and ticket IDs are now ⌘-clickable in supporting terminals.
+
 ### Added
 
 - **`thicket start` ticket picker scrolls past the first page.** The
@@ -15,6 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   ↑/↓ now scrolls the window through all matches, pgup/pgdn jumps a
   page, and home/end jumps to the ends. The status line shows the
   current window (`showing 13–24 of 47`).
+
+- **Ticket IDs are now ⌘-clickable across the CLI.** Every ticket id
+  rendered by `thicket list`, `thicket rm`, `thicket start`, and the
+  start / edit wizards is wrapped in an OSC 8 hyperlink to the
+  ticket's URL — ⌘-click (or Ctrl-click) opens the ticket in
+  iTerm2, WezTerm, kitty, Ghostty, modern Terminal.app, VS Code's
+  integrated terminal, GNOME Terminal, and Windows Terminal.
+  Terminals that don't speak OSC 8 strip the escape and show the id
+  unchanged, and piped/redirected output (`thicket list | tee …`)
+  always sees plain text so scripts that parse the table keep
+  working. The ticket URL is now persisted in each workspace's
+  `.thicket/state.json`; workspaces written before this release have
+  the URL backfilled transparently from `CLAUDE.local.md`, so the
+  hyperlinks light up everywhere on the first upgrade without a
+  separate migration step.
 
 ## [0.6.3] - 2026-05-17
 
