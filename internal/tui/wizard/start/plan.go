@@ -27,7 +27,6 @@ type planPage struct {
 	buildErr    error
 	builtForID  string // ticket id the current cloneInclude state belongs to
 	branch      string
-	workspace   string
 	allRepos    []catalog.Repo // chosen, ordered (cloned + to-clone)
 	toClone     []catalog.Repo // subset needing a clone
 	branchExist map[string]bool
@@ -88,7 +87,7 @@ func (p *planPage) Hints() string {
 		return ""
 	}
 	if p.focusNickname {
-		return "type nickname (≤20) · ↑/↓ leaves · enter accepts & focuses Create"
+		return "type nickname (≤25) · ↑/↓ leaves · enter accepts & focuses Create"
 	}
 	if len(p.toClone) > 0 {
 		return "↑/↓ cursor · space toggles clone · enter creates"
@@ -159,8 +158,14 @@ func buildPlanCmd(m *wizard.Model) tea.Cmd {
 		// final state. Repos without LocalPath get a would-be
 		// target so the preview's source path renders sensibly; the
 		// real LocalPath lands after clone.
-		slug := workspace.Slug(m.Ticket.SourceID, m.Ticket.Title)
-		wsDir := filepath.Join(m.Deps.Cfg.WorkspaceRoot, slug)
+		//
+		// The on-disk slug is `<ticket-id>-<sanitized-nickname>` and the
+		// final nickname isn't known yet — finalizeCmd will rebuild
+		// WorkspaceDir + WorktreePaths once the user has committed it.
+		// Seed the preview with whatever nickname we already have
+		// (cached suggestion if any, else empty) so the path the user
+		// sees on the plan page matches what live View shows.
+		wsDir := workspaceDirFor(m, m.NicknameCache[m.TicketID].Nickname)
 		planRepos := make([]workspace.PlanRepo, 0, len(m.Chosen))
 		memRepos := make([]memory.RepoEntry, 0, len(m.Chosen))
 		for _, r := range m.Chosen {
@@ -214,7 +219,6 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 		p.built = true
 		p.buildErr = nil
 		p.branch = v.Plan.Branch
-		p.workspace = v.Plan.WorkspaceDir
 		p.allRepos = append(p.allRepos[:0], m.Chosen...)
 		p.toClone = v.ToClone
 		// Persist the partial result on the model so the wizard's
@@ -499,6 +503,16 @@ func (p *planPage) startCloneCmd(m *wizard.Model) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// workspaceDirFor returns the workspace directory for the current
+// ticket given a nickname hint. The on-disk slug is just the ticket
+// id when the hint is empty, and `<id>-<sanitized-nickname>` otherwise
+// — keeping it short and filesystem-friendly. The nickname can carry
+// emoji / spaces; workspace.Slug strips them.
+func workspaceDirFor(m *wizard.Model, nickname string) string {
+	return filepath.Join(m.Deps.Cfg.WorkspaceRoot,
+		workspace.Slug(m.Ticket.SourceID, nickname))
+}
+
 // finalizeCmd builds the post-clone plan and emits wizard.CreateDoneMsg.
 // workspace.Create itself runs AFTER the wizard exits (in runStart),
 // so the result here carries a finalized plan ready to execute.
@@ -521,6 +535,11 @@ func (p *planPage) finalizeCmd(m *wizard.Model) tea.Cmd {
 		}
 		// Re-build the plan against the kept repos so PlanRepo.SourcePath
 		// uses the freshly-cloned target dirs.
+		nickname := strings.TrimSpace(p.nicknameInput.Value())
+		// Recompute the workspace dir from the final nickname — at
+		// plan-build time we only had the cached suggestion (or
+		// nothing), and the user may have edited it since.
+		wsDir := workspaceDirFor(m, nickname)
 		planRepos := make([]workspace.PlanRepo, 0, len(kept))
 		memRepos := make([]memory.RepoEntry, 0, len(kept))
 		for _, r := range kept {
@@ -539,7 +558,7 @@ func (p *planPage) finalizeCmd(m *wizard.Model) tea.Cmd {
 				}
 				exists = ok
 			}
-			wt := filepath.Join(p.workspace, r.Name)
+			wt := filepath.Join(wsDir, r.Name)
 			planRepos = append(planRepos, workspace.PlanRepo{
 				Name:         r.Name,
 				SourcePath:   src,
@@ -553,15 +572,17 @@ func (p *planPage) finalizeCmd(m *wizard.Model) tea.Cmd {
 				DefaultBranch: r.DefaultBranch,
 			})
 		}
+		mem := m.Result.Plan.Memory
+		mem.WorkspaceDir = wsDir
+		mem.Repos = memRepos
 		plan := workspace.Plan{
-			WorkspaceDir: p.workspace,
+			WorkspaceDir: wsDir,
 			Branch:       p.branch,
-			Nickname:     strings.TrimSpace(p.nicknameInput.Value()),
+			Nickname:     nickname,
 			Color:        p.color,
 			Repos:        planRepos,
-			Memory:       m.Result.Plan.Memory,
+			Memory:       mem,
 		}
-		plan.Memory.Repos = memRepos
 		return wizard.CreateDoneMsg{Result: wizard.Result{Plan: plan, Skipped: m.Result.Skipped}}
 	}
 }
@@ -621,7 +642,11 @@ func (p *planPage) View(m *wizard.Model) string {
 		}
 
 		b.WriteString("  " + wizard.PlanHeaderStyle.Render("The following will be created:") + "\n")
-		b.WriteString(fmt.Sprintf("    workspace dir: %s\n", wizard.AbbrevHome(p.workspace)))
+		// Live-render the workspace dir against the current nickname so
+		// the path the user sees reflects what workspace.Create will
+		// actually use. Updates in real time as they type.
+		b.WriteString(fmt.Sprintf("    workspace dir: %s\n",
+			wizard.AbbrevHome(workspaceDirFor(m, p.nicknameInput.Value()))))
 		b.WriteString(fmt.Sprintf("    branch:        %s\n", p.branch))
 		// Nickname row: editable input with a live char counter.
 		// Cursor marker when focused.

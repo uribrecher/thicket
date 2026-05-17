@@ -246,7 +246,6 @@ func TestPlanCloneFailureProceeds(t *testing.T) {
 	pp := m.Pages[2].(*planPage)
 	pp.built = true
 	pp.branch = "feature/sc-1-one"
-	pp.workspace = "/tmp/ws/sc-1-one"
 	pp.allRepos = m.Chosen
 	pp.toClone = []catalog.Repo{{Name: "beta", CloneURL: "git@x:beta"}}
 	pp.branchExist = map[string]bool{"alpha": false, "beta": false, "gamma": false}
@@ -269,8 +268,10 @@ func TestPlanCloneFailureProceeds(t *testing.T) {
 	if !mm.Done {
 		t.Fatalf("done not set")
 	}
-	if mm.Result.Plan.WorkspaceDir != "/tmp/ws/sc-1-one" {
-		t.Errorf("workspace dir lost: %q", mm.Result.Plan.WorkspaceDir)
+	// finalizeCmd recomputes the workspace dir from the (empty)
+	// nickname here — the on-disk slug is the bare ticket id.
+	if mm.Result.Plan.WorkspaceDir != "/tmp/ws/sc-1" {
+		t.Errorf("workspace dir = %q, want /tmp/ws/sc-1", mm.Result.Plan.WorkspaceDir)
 	}
 	var names []string
 	for _, r := range mm.Result.Plan.Repos {
