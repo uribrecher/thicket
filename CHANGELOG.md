@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-17
+
+Two ticket-picker refinements — priority now drives ranking and is
+surfaced inline with the workflow state, and the row whose ticket is
+driving the downstream pages is visually distinguished from wherever
+the cursor happens to be sitting.
+
+### Added
+
+- **`thicket start` ticket picker ranks and surfaces priority.** The
+  picker now fetches the workspace's `priority` custom field from
+  Shortcut (canonical_name first, case-insensitive Name fallback)
+  and rolls a `50 × priorityTier` term into the ranker — Highest /
+  High / Medium / Low map to tiers 4 / 3 / 2 / 1 (P0–P3 also
+  recognised), unknown labels are tier 0. State dominance still
+  holds: every live-state ticket outranks every neutral-state
+  ticket regardless of priority. The picker's `State` column now
+  leads with a compact priority glyph (⏫ / 🔼 / ▪ / 🔽 or blank for
+  unset) followed by the state prefix, so the whole picker fits in
+  the same horizontal budget as before. The raw priority label
+  stays in the filter haystack, so typing `high` or `p0` still
+  narrows the list. The custom-fields lookup is best-effort: any
+  failure leaves `Priority` empty and the picker still loads.
+
+- **`thicket start` ticket picker marks the previously-picked row.**
+  When the user picks a ticket, advances to Repos, then `←`'s back
+  to Ticket, the row whose data is driving the downstream pages is
+  now rendered with a green `●` marker in the workspace's
+  completion-hue palette. The pink `▶` cursor still wins when it
+  lands on the committed row, so there's no ambiguity about which
+  row is "the current selection" vs "where I'm pointing." Useful
+  when bouncing between Ticket and Repos with the filter cleared —
+  the committed row was previously indistinguishable from any
+  other unfocused row.
+
 ## [0.7.0] - 2026-05-17
 
 Two user-visible additions — the ticket picker scrolls past page one,
