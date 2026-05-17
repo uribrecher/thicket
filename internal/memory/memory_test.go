@@ -167,7 +167,7 @@ func TestExtractURL_roundTrip(t *testing.T) {
 	dir := t.TempDir()
 	in := Input{
 		TicketID: "sc-42", Title: "T", Body: "body",
-		URL: "https://app.shortcut.com/acme/story/42",
+		URL:    "https://app.shortcut.com/acme/story/42",
 		Branch: "b", WorkspaceDir: dir,
 		CreatedAt: time.Now(),
 	}
