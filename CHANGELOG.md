@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-05-17
+
+One `thicket start` Plan-page bugfix — a nickname typed for one
+ticket no longer follows the user to a different ticket picked
+from the same wizard session.
+
+### Fixed
+
+- **Plan page no longer carries a typed nickname (or its color
+  swatch) across a ticket change.** Previously, once the user typed
+  anything into the nickname input on the Plan page, the input's
+  `dirty` flag stayed latched for the rest of the wizard session.
+  If they then went ← back to the Ticket page and picked a
+  different ticket, both nickname pre-fill gates — the cached
+  suggestion read on `PlanBuiltMsg` and the late-arriving
+  `NicknameSuggestedMsg` — stayed closed, so the stale label
+  remained in the input, leaked into the on-disk workspace slug
+  (`<ticket-id>-<sanitized-nickname>`), and the previous ticket's
+  iTerm2 tab color tagged along too. The `InitCmd` reset that
+  already wiped `cloneInclude` on a ticket-id change now also
+  clears `nicknameInput`, the dirty flag, and the cached color, so
+  the suggester's normal pre-fill path runs cleanly for the newly
+  picked ticket. Re-entering the Plan page for the *same* ticket
+  still preserves the user's edits (mirrors the existing
+  same-id-no-op policy for the LLM cache and chosen-repos set).
+
 ## [0.9.5] - 2026-05-17
 
 One workspace-ergonomics fix — the on-disk directory name for a
