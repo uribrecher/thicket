@@ -362,6 +362,12 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 		key := v.String()
 		switch key {
 		case "up", "k":
+			// Don't intercept "k" inside a focused text input — fall
+			// through to the input's own key handler so the user can
+			// actually type the letter k.
+			if p.focusNickname || p.focusPrompt {
+				break
+			}
 			return p, p.moveFocusUp()
 		case "down", "j":
 			// Don't intercept "j" inside a focused text input — fall
