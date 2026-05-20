@@ -41,11 +41,13 @@ type Plan struct {
 	// not required). Optional — when empty, display sites fall back
 	// to the workspace slug.
 	Nickname string
-	// Color is the workspace's tab-color hint, hex `#RRGGBB`. Used
-	// by iTerm2 to tint the tab background so concurrent workspace
-	// sessions are visually distinguishable. Optional — when empty,
-	// the launcher leaves the tab uncolored. Sanitized at the
-	// persistence boundary; invalid input is dropped to "".
+	// Color is the workspace's tab-color palette name (e.g. "blue").
+	// Used by the launcher to look up a representative hex for the
+	// iTerm2 tab tint and to prepend `/color <name>` to claude's
+	// initial prompt on first launch. Optional — when empty the tab
+	// is left uncolored. Sanitized at the persistence boundary via
+	// term.SanitizePaletteName; values outside the palette are
+	// dropped to "".
 	Color  string
 	Repos  []PlanRepo
 	Memory memory.Input
@@ -76,9 +78,9 @@ type State struct {
 	// time. `omitempty` so manifests written before this field
 	// existed round-trip cleanly.
 	Nickname string `json:"nickname,omitempty"`
-	// Color is the tab-color hint, hex `#RRGGBB`. iTerm2 uses it to
-	// tint the tab background at session start. `omitempty` —
-	// manifests without a color decode as "".
+	// Color is the tab-color palette name (e.g. "blue"). The launcher
+	// resolves a representative hex via term.PaletteHex for iTerm2's
+	// tab tint. `omitempty` — manifests without a color decode as "".
 	Color     string      `json:"color,omitempty"`
 	CreatedAt time.Time   `json:"created_at"`
 	Repos     []StateRepo `json:"repos"`
@@ -594,7 +596,7 @@ func writeState(p Plan) error {
 		// downstream display code can trust the field is already
 		// normalized.
 		Nickname:  SanitizeNickname(p.Nickname),
-		Color:     term.SanitizeHexColor(p.Color),
+		Color:     term.SanitizePaletteName(p.Color),
 		CreatedAt: p.Memory.CreatedAt,
 		Repos:     make([]StateRepo, 0, len(p.Repos)),
 	}
