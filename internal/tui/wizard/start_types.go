@@ -76,4 +76,10 @@ type Result struct {
 	// because the ticket already had a managed workspace. The caller
 	// should skip Create and launch Claude directly in ReuseDir.
 	ReuseDir string
+
+	// InitialPrompt is the optional first-message prompt the Plan
+	// page collected. The wizard's caller passes this to the
+	// launcher; it is NOT persisted to the workspace manifest
+	// because it's first-run-only.
+	InitialPrompt string
 }

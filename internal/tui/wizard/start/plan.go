@@ -17,6 +17,7 @@ import (
 
 	"github.com/uribrecher/thicket/internal/catalog"
 	"github.com/uribrecher/thicket/internal/memory"
+	"github.com/uribrecher/thicket/internal/term"
 	"github.com/uribrecher/thicket/internal/workspace"
 )
 
@@ -51,12 +52,27 @@ type planPage struct {
 	// late-arriving suggester response doesn't overwrite the edit.
 	nicknameInput textinput.Model
 	nicknameDirty bool
-	// color is the suggester-supplied tab color hint (`#RRGGBB`)
-	// captured at PlanBuiltMsg / NicknameSuggestedMsg time. Not
-	// user-editable in MVP — surfaced as a swatch in the preview
-	// and persisted via plan.Color so the launcher can tint the
-	// iTerm2 tab on every claude open.
+
+	// color is the canonical palette name selected via the swatch
+	// picker. Seeded from the suggester's cached.Color; user can
+	// cycle left/right while the color zone has focus. Persisted via
+	// plan.Color and used by launchClaudeIn to look up a representative
+	// hex for iTerm2 tab tinting AND to prepend `/color <name>` to the
+	// initial prompt on first launch.
 	color string
+
+	// promptInput is the optional, one-shot initial prompt the
+	// launcher will pass as claude's first user message. Empty by
+	// default. Single-line by design — the launcher always prepends
+	// "/color <name>\n", so the user input ends up as line 2.
+	promptInput textinput.Model
+
+	// focusColor / focusPrompt mirror focusNickname for the new
+	// focus zones. Exactly one of focusNickname/focusColor/
+	// focusPrompt/focusBtn is true at a time; when all are false the
+	// cursor is on a clone row at index `cursor`.
+	focusColor  bool
+	focusPrompt bool
 
 	// Post-Create state.
 	creating  bool
@@ -71,9 +87,15 @@ func newPlanPage() *planPage {
 	ni.Width = 30
 	ni.Prompt = "› "
 	ni.Placeholder = "short label (≤25 chars, acronyms + emoji ok)"
+	pi := textinput.New()
+	pi.CharLimit = 200
+	pi.Width = 50
+	pi.Prompt = "› "
+	pi.Placeholder = "optional first-message prompt (leave empty to skip)"
 	return &planPage{
 		cloneInclude:  make(map[string]bool),
 		nicknameInput: ni,
+		promptInput:   pi,
 	}
 }
 
@@ -86,13 +108,18 @@ func (p *planPage) Hints() string {
 	if p.creating {
 		return ""
 	}
-	if p.focusNickname {
-		return "type nickname (≤25) · ↑/↓ leaves · enter accepts & focuses Create"
-	}
-	if len(p.toClone) > 0 {
+	switch {
+	case p.focusNickname:
+		return "type nickname (≤25) · ↑/↓ leaves · enter accepts"
+	case p.focusColor:
+		return "←/→ cycles palette · ↑/↓ leaves · enter accepts"
+	case p.focusPrompt:
+		return "type optional prompt · ↑/↓ leaves · enter accepts"
+	case len(p.toClone) > 0:
 		return "↑/↓ cursor · space toggles clone · enter creates"
+	default:
+		return "↑/↓ moves to nickname · enter creates"
 	}
-	return "↑/↓ moves to nickname · enter creates"
 }
 
 // Complete is true once the plan is built without error. The page is
@@ -126,6 +153,9 @@ func (p *planPage) InitCmd(m *wizard.Model) tea.Cmd {
 		p.nicknameInput.SetValue("")
 		p.nicknameDirty = false
 		p.color = ""
+		p.promptInput.SetValue("")
+		p.focusColor = false
+		p.focusPrompt = false
 	}
 	p.built = false
 	p.buildErr = nil
@@ -254,17 +284,24 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 			p.color = cached.Color
 		}
 		// Reset focus — clone rows first if any, then nickname, then
-		// Create. The user's most common edit (the nickname) sits at
-		// the natural "where do I go next?" spot regardless.
+		// color, then prompt, then Create. The user's most common edit
+		// (the nickname) sits at the natural "where do I go next?" spot
+		// regardless.
 		var focusCmd tea.Cmd
 		switch {
 		case len(p.toClone) > 0:
 			p.cursor = 0
 			p.focusBtn = false
 			p.focusNickname = false
+			p.focusColor = false
+			p.focusPrompt = false
 			p.nicknameInput.Blur()
+			p.promptInput.Blur()
 		default:
 			p.focusBtn = false
+			p.focusColor = false
+			p.focusPrompt = false
+			p.promptInput.Blur()
 			p.focusNickname = true
 			focusCmd = p.nicknameInput.Focus()
 		}
@@ -327,17 +364,50 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 		case "up", "k":
 			return p, p.moveFocusUp()
 		case "down", "j":
+			// Don't intercept "j" inside a focused text input — fall
+			// through to the input's own key handler so the user can
+			// actually type the letter j.
+			if p.focusNickname || p.focusPrompt {
+				break
+			}
 			return p, p.moveFocusDown()
+		case "left", "h":
+			if p.focusColor {
+				p.cyclePaletteLeft()
+				return p, nil
+			}
+			if p.focusNickname || p.focusPrompt {
+				break
+			}
+			return p, nil
+		case "right", "l":
+			if p.focusColor {
+				p.cyclePaletteRight()
+				return p, nil
+			}
+			if p.focusNickname || p.focusPrompt {
+				break
+			}
+			return p, nil
 		case "enter":
 			switch {
 			case p.focusNickname:
 				// Enter on nickname accepts the typed value and moves
-				// to Create — it does NOT fire create. Two presses
-				// (one to commit nickname, one on Create) keeps the
-				// flow predictable.
+				// to color — it does NOT fire create. Stepping through
+				// (nickname → color → prompt → Create) keeps the flow
+				// predictable.
 				p.focusNickname = false
-				p.focusBtn = true
+				p.focusColor = true
 				p.nicknameInput.Blur()
+				return p, nil
+			case p.focusColor:
+				p.focusColor = false
+				p.focusPrompt = true
+				return p, p.promptInput.Focus()
+			case p.focusPrompt:
+				p.focusPrompt = false
+				p.focusBtn = true
+				p.promptInput.Blur()
 				return p, nil
 			case p.focusBtn || len(p.toClone) == 0:
 				return p, p.startCloneCmd(m)
@@ -348,13 +418,13 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 				return p, nil
 			}
 		case " ":
-			if !p.focusBtn && !p.focusNickname && len(p.toClone) > 0 {
+			if !p.focusBtn && !p.focusNickname && !p.focusColor && !p.focusPrompt && len(p.toClone) > 0 {
 				name := p.toClone[p.cursor].Name
 				p.cloneInclude[name] = !p.cloneInclude[name]
 			}
-			// Space inside the nickname falls through to the
-			// textinput forwarder below.
-			if !p.focusNickname {
+			// Space inside a text input falls through to the
+			// textinput forwarder below so the user can type spaces.
+			if !p.focusNickname && !p.focusPrompt {
 				return p, nil
 			}
 		}
@@ -369,23 +439,37 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 			}
 			return p, cmd
 		}
+		if p.focusPrompt {
+			var cmd tea.Cmd
+			p.promptInput, cmd = p.promptInput.Update(v)
+			return p, cmd
+		}
 	}
 	return p, nil
 }
 
 // moveFocusUp shifts focus toward the top of the page across the
-// three zones: clone rows → nickname → (above-nothing). Wraps the
-// textinput focus state so the cursor renders correctly.
+// focus zones: clone rows → nickname → color → prompt → Create.
 func (p *planPage) moveFocusUp() tea.Cmd {
 	switch {
 	case p.focusBtn:
-		// Create → nickname.
+		// Create → prompt.
 		p.focusBtn = false
+		p.focusPrompt = true
+		return p.promptInput.Focus()
+	case p.focusPrompt:
+		// Prompt → color.
+		p.focusPrompt = false
+		p.focusColor = true
+		p.promptInput.Blur()
+		return nil
+	case p.focusColor:
+		// Color → nickname.
+		p.focusColor = false
 		p.focusNickname = true
 		return p.nicknameInput.Focus()
 	case p.focusNickname:
-		// Nickname → last clone row (if any). If none, stay on
-		// nickname (no clone rows above).
+		// Nickname → last clone row (if any).
 		if len(p.toClone) > 0 {
 			p.focusNickname = false
 			p.cursor = len(p.toClone) - 1
@@ -401,17 +485,26 @@ func (p *planPage) moveFocusUp() tea.Cmd {
 	}
 }
 
-// moveFocusDown is the mirror: nickname → Create, last clone row →
-// nickname, intermediate clone rows → next clone row.
+// moveFocusDown is the mirror.
 func (p *planPage) moveFocusDown() tea.Cmd {
 	switch {
 	case p.focusBtn:
-		// Already at the bottom.
 		return nil
-	case p.focusNickname:
-		// Nickname → Create.
-		p.focusNickname = false
+	case p.focusPrompt:
+		// Prompt → Create.
+		p.focusPrompt = false
 		p.focusBtn = true
+		p.promptInput.Blur()
+		return nil
+	case p.focusColor:
+		// Color → prompt.
+		p.focusColor = false
+		p.focusPrompt = true
+		return p.promptInput.Focus()
+	case p.focusNickname:
+		// Nickname → color.
+		p.focusNickname = false
+		p.focusColor = true
 		p.nicknameInput.Blur()
 		return nil
 	default:
@@ -424,6 +517,40 @@ func (p *planPage) moveFocusDown() tea.Cmd {
 		p.focusNickname = true
 		return p.nicknameInput.Focus()
 	}
+}
+
+// cyclePaletteLeft / cyclePaletteRight move the color selection by
+// one palette entry, wrapping at both ends. The seed value (from
+// the LLM suggester) is treated as the starting position.
+func (p *planPage) cyclePaletteLeft() {
+	names := term.PaletteNames()
+	if len(names) == 0 {
+		return
+	}
+	idx := paletteIndex(names, p.color)
+	idx = (idx - 1 + len(names)) % len(names)
+	p.color = names[idx]
+}
+
+func (p *planPage) cyclePaletteRight() {
+	names := term.PaletteNames()
+	if len(names) == 0 {
+		return
+	}
+	idx := paletteIndex(names, p.color)
+	idx = (idx + 1) % len(names)
+	p.color = names[idx]
+}
+
+// paletteIndex returns the index of cur in names, or 0 when not
+// found (so an empty/unknown seed lands on the first palette entry).
+func paletteIndex(names []string, cur string) int {
+	for i, n := range names {
+		if n == cur {
+			return i
+		}
+	}
+	return 0
 }
 
 // allClonesDone reports whether every started clone has finished.
@@ -590,7 +717,11 @@ func (p *planPage) finalizeCmd(m *wizard.Model) tea.Cmd {
 			Repos:        planRepos,
 			Memory:       mem,
 		}
-		return wizard.CreateDoneMsg{Result: wizard.Result{Plan: plan, Skipped: m.Result.Skipped}}
+		return wizard.CreateDoneMsg{Result: wizard.Result{
+			Plan:          plan,
+			Skipped:       m.Result.Skipped,
+			InitialPrompt: strings.TrimSpace(p.promptInput.Value()),
+		}}
 	}
 }
 
@@ -665,16 +796,25 @@ func (p *planPage) View(m *wizard.Model) string {
 		b.WriteString(fmt.Sprintf("  %snickname:      %s  %s\n",
 			nnMarker, p.nicknameInput.View(),
 			wizard.HintStyle.Render(fmt.Sprintf("(%d/%d)", nnCount, workspace.NicknameMaxChars))))
-		// Color row (read-only): swatch + hex. Only rendered when
-		// the suggester emitted a parseable color. iTerm2 only —
-		// the row is harmless context elsewhere.
-		if p.color != "" {
-			swatch := lipgloss.NewStyle().
-				Background(lipgloss.Color(p.color)).
-				Render("    ")
-			b.WriteString(fmt.Sprintf("    tab color:     %s  %s\n",
-				swatch, wizard.HintStyle.Render(p.color+"  (iTerm2 tab tint)")))
+		// Color row: horizontal swatch picker over the fixed palette.
+		// The selected entry is bracketed and labelled; cursor marker
+		// appears when this zone is focused. Always rendered so the
+		// user sees the picker even before the LLM returns a suggestion.
+		clrMarker := "  "
+		if p.focusColor {
+			clrMarker = wizard.CursorStyle.Render("▶ ")
 		}
+		b.WriteString(fmt.Sprintf("  %stab color:     %s\n",
+			clrMarker, renderPaletteSwatches(p.color)))
+
+		// Prompt row: optional one-shot initial prompt. Cursor marker
+		// when focused.
+		prMarker := "  "
+		if p.focusPrompt {
+			prMarker = wizard.CursorStyle.Render("▶ ")
+		}
+		b.WriteString(fmt.Sprintf("  %sinitial prompt: %s\n",
+			prMarker, p.promptInput.View()))
 		final := p.finalSelection()
 		b.WriteString(fmt.Sprintf("    worktrees:     %d\n", len(final)))
 		for _, r := range final {
@@ -714,6 +854,29 @@ func (p *planPage) View(m *wizard.Model) string {
 		}
 	}
 	return wizard.Indent(b.String(), 2)
+}
+
+// renderPaletteSwatches draws the palette as a row of colored blocks
+// with the currently-selected entry bracketed and named. Always renders
+// even when selected is "", so the user has something to start from
+// (paletteIndex returns 0 for unknown/empty, landing on "red").
+func renderPaletteSwatches(selected string) string {
+	names := term.PaletteNames()
+	var b strings.Builder
+	for _, n := range names {
+		sw := lipgloss.NewStyle().
+			Background(lipgloss.Color(term.PaletteHex(n))).
+			Render("  ")
+		if n == selected {
+			b.WriteString(wizard.CursorStyle.Render("[") + sw + wizard.CursorStyle.Render("]"))
+		} else {
+			b.WriteString(" " + sw + " ")
+		}
+	}
+	if selected != "" {
+		b.WriteString("  " + wizard.HintStyle.Render(selected))
+	}
+	return b.String()
 }
 
 // checkedClones returns the missing-clone repos the user has left
