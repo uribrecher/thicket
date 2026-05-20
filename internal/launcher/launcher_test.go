@@ -111,6 +111,58 @@ func TestPrintFallback_mentionsWorkspaceDir(t *testing.T) {
 	}
 }
 
+func TestLaunch_appendsInitialPrompt(t *testing.T) {
+	tmp := t.TempDir()
+	cwdBefore, _ := os.Getwd()
+	defer func() { _ = os.Chdir(cwdBefore) }()
+
+	var gotArgv []string
+	l := &Launcher{
+		BinaryName:    "claude",
+		ExtraArgs:     []string{"--name", "ws-x"},
+		InitialPrompt: "/color blue\nreview the plan",
+		LookPath:      func(name string) (string, error) { return "/opt/claude/claude", nil },
+		Exec: func(_ string, argv []string, _ []string) error {
+			gotArgv = argv
+			return nil
+		},
+	}
+	if err := l.Launch(tmp); err != nil {
+		t.Fatalf("launch: %v", err)
+	}
+	if len(gotArgv) != 4 ||
+		gotArgv[0] != "claude" ||
+		gotArgv[1] != "--name" ||
+		gotArgv[2] != "ws-x" ||
+		gotArgv[3] != "/color blue\nreview the plan" {
+		t.Errorf("argv = %v", gotArgv)
+	}
+}
+
+func TestLaunch_emptyInitialPromptOmitted(t *testing.T) {
+	tmp := t.TempDir()
+	cwdBefore, _ := os.Getwd()
+	defer func() { _ = os.Chdir(cwdBefore) }()
+
+	var gotArgv []string
+	l := &Launcher{
+		BinaryName:    "claude",
+		ExtraArgs:     []string{"--name", "ws-x"},
+		InitialPrompt: "",
+		LookPath:      func(name string) (string, error) { return "/opt/claude/claude", nil },
+		Exec: func(_ string, argv []string, _ []string) error {
+			gotArgv = argv
+			return nil
+		},
+	}
+	if err := l.Launch(tmp); err != nil {
+		t.Fatalf("launch: %v", err)
+	}
+	if len(gotArgv) != 3 {
+		t.Errorf("argv = %v (want length 3, prompt should be omitted)", gotArgv)
+	}
+}
+
 // evalSymlinks resolves symlinks so macOS's /var → /private/var dance doesn't
 // confuse the cwd comparison.
 func evalSymlinks(t *testing.T, p string) string {

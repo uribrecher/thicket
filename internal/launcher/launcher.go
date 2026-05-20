@@ -34,8 +34,13 @@ type Launcher struct {
 	// session is labelled in the prompt box, /resume list, and the
 	// terminal window title.
 	ExtraArgs []string
-	LookPath  LookPathFn
-	Exec      ExecFn
+	// InitialPrompt, when non-empty, is appended as the final positional
+	// argument to the claude binary. claude treats this as the first
+	// user message of the session, so leading slash commands (e.g.
+	// `/color blue`) fire on session start just as if typed.
+	InitialPrompt string
+	LookPath      LookPathFn
+	Exec          ExecFn
 }
 
 // New returns a Launcher with production defaults.
@@ -63,6 +68,9 @@ func (l *Launcher) Launch(workspaceDir string) error {
 		return ErrMissingBinary
 	}
 	argv := append([]string{l.BinaryName}, l.ExtraArgs...)
+	if l.InitialPrompt != "" {
+		argv = append(argv, l.InitialPrompt)
+	}
 	if err := l.Exec(path, argv, os.Environ()); err != nil {
 		return fmt.Errorf("exec claude: %w", err)
 	}
