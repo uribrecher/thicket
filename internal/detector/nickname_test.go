@@ -47,6 +47,12 @@ func TestParseSuggestion(t *testing.T) {
 			wantColor:    "blue",
 		},
 		{
+			name:         "generic prose intro skipped",
+			raw:          "Output:\n🐛 Wix S3 dedup\nblue",
+			wantNickname: "🐛 Wix S3 dedup",
+			wantColor:    "blue",
+		},
+		{
 			name:         "unknown color name drops to empty",
 			raw:          "🐛 Wix S3 dedup\nchartreuse",
 			wantNickname: "🐛 Wix S3 dedup",
@@ -56,6 +62,12 @@ func TestParseSuggestion(t *testing.T) {
 			name:         "uppercase color",
 			raw:          "🐛 Wix S3 dedup\nBLUE",
 			wantNickname: "🐛 Wix S3 dedup",
+			wantColor:    "blue",
+		},
+		{
+			name:         "wrapping quotes stripped",
+			raw:          "\"picker fix\"\nblue",
+			wantNickname: "picker fix",
 			wantColor:    "blue",
 		},
 	}
@@ -146,16 +158,16 @@ func TestRenderExistingColorsClause(t *testing.T) {
 	t.Run("caps at 8", func(t *testing.T) {
 		// 12 palette names → only the first 8 should land in the
 		// rendered clause so the prompt stays bounded.
-		in := []string{
+		got := renderExistingColorsClause([]string{
 			"red", "orange", "yellow", "green",
 			"cyan", "blue", "purple", "pink",
-			"red", "orange", "yellow", "green",
-		}
-		got := renderExistingColorsClause(in)
-		// The 9th–12th entries are duplicates of the first four; just
-		// confirm the function ran without issue and contains the 8th.
+			"red", "orange", "yellow", "green", // these four should be dropped
+		})
 		if !strings.Contains(got, "pink") {
-			t.Errorf("8th color (pink) missing: %q", got)
+			t.Errorf("8th entry missing from clause: %q", got)
+		}
+		if strings.Count(got, "red") != 1 || strings.Count(got, "orange") != 1 {
+			t.Errorf("over-cap duplicates leaked into clause: %q", got)
 		}
 	})
 }

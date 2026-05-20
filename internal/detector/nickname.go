@@ -78,7 +78,7 @@ COLOR RULES — pick exactly one name from this fixed list:
   * Investigation / spike → purple
   * Performance → cyan
   * Security / auth → red or orange
-  * Docs → green
+  * Docs → green or yellow
 - DIFFERENTIATION (CRITICAL): %s
 
 Output format — EXACTLY two lines, in this order, no preamble or trailing prose:
