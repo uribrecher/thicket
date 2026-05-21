@@ -138,9 +138,14 @@ func (p *planPage) Complete() bool { return p.built && p.buildErr == nil }
 func (p *planPage) Locked() bool { return p.creating }
 
 // OwnsLeftRight tells the wizard to deliver ←/→ to this page's Update
-// when the color swatch picker has focus, so the arrows cycle the
-// palette instead of navigating tabs.
-func (p *planPage) OwnsLeftRight() bool { return p.focusColor }
+// instead of using them for tab navigation. We claim them whenever a
+// page-local control needs them: the color swatch (cycles palette) or
+// either text input (so the user can move the cursor within the
+// field). Returning false outside those zones keeps tab navigation
+// working everywhere else on the page.
+func (p *planPage) OwnsLeftRight() bool {
+	return p.focusColor || p.focusNickname || p.focusPrompt
+}
 
 // InitCmd rebuilds the plan on EVERY activation. Earlier we tried to
 // skip rebuilds when the chosen-repo list was unchanged, but that
@@ -407,11 +412,15 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 			}
 			return p, p.moveFocusDown()
 		case "left":
-			// Reaches us only when OwnsLeftRight returns true (i.e.
-			// focusColor) — the wizard's global handler eats ← in every
-			// other state.
+			// Reaches us only when OwnsLeftRight returns true. On the
+			// color zone we cycle the palette; in a text input we fall
+			// through so the textinput moves its cursor.
 			if p.focusColor {
 				p.cyclePaletteLeft()
+				return p, nil
+			}
+			if p.focusNickname || p.focusPrompt {
+				break
 			}
 			return p, nil
 		case "h":
@@ -426,6 +435,10 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 		case "right":
 			if p.focusColor {
 				p.cyclePaletteRight()
+				return p, nil
+			}
+			if p.focusNickname || p.focusPrompt {
+				break
 			}
 			return p, nil
 		case "l":
