@@ -20,9 +20,9 @@ import (
 type NicknameSuggestion struct {
 	// Nickname is pre-sanitized via workspace.SanitizeNickname.
 	Nickname string
-	// Color is pre-normalized to `#RRGGBB` uppercase via
-	// term.SanitizeHexColor. Empty when the model didn't emit a
-	// parseable color.
+	// Color is the canonical palette name (e.g. "blue") sanitized
+	// via term.SanitizePaletteName. Empty when the model didn't
+	// emit a value that matches the palette.
 	Color string
 }
 
@@ -32,9 +32,9 @@ type NicknameSuggestion struct {
 // the iTerm2 tab background so multiple concurrent workspaces are
 // visually distinguishable.
 //
-// existingColors is the list of `#RRGGBB` colors already in use by
-// other workspaces. The prompt asks the model to avoid colors close
-// to these so the new tab contrasts visibly in the tab strip. Pass
+// existingColors is the list of palette names already in use by
+// other workspaces. The prompt asks the model to avoid names already
+// taken so the new tab contrasts visibly in the tab strip. Pass
 // nil or empty when there are no other workspaces.
 type NicknameSuggester interface {
 	Suggest(ctx context.Context, title, body string, existingColors []string) (NicknameSuggestion, error)
@@ -42,7 +42,7 @@ type NicknameSuggester interface {
 
 // nicknamePromptTemplate is the prompt body both backends share.
 // Three %s slots in order: existing-colors block, ticket title,
-// ticket body. Asks for two lines: nickname, then `#RRGGBB`.
+// ticket body. Asks for two lines: nickname, then a palette name.
 // Client-side parsing is tolerant of order, prefix, and case — see
 // parseSuggestion.
 const nicknamePromptTemplate = `Suggest a workspace nickname AND a tab color for this ticket. The developer is juggling many concurrent workspaces and needs to recognize THIS one INSTANTLY in a list of tabs.
@@ -58,32 +58,32 @@ NICKNAME RULES:
 - BAD (too generic — never do this): "fix the bug", "add feature", "investigate issue", "update code", "ticket fix".
 - GOOD: "🐛 Wix S3 dedup", "🔍 MR Snowflake enum", "⚡ WD GDrive scan", "🧪 SP file probe", "📝 Rivian CAD docs", "🔧 Sentra retry loop".
 
-COLOR RULES (output one hex code, #RRGGBB):
-- PRIMARY inspiration — match a famous brand color when one is mentioned in the ticket:
-  * AWS / S3 → orange (~#FF9900)
-  * Google Drive / GCP → blue or green (~#4285F4 / ~#0F9D58)
-  * Microsoft / SharePoint / OneDrive / Azure → Microsoft blue (~#0078D4)
-  * Snowflake → cyan (~#29B5E8)
-  * Databricks → orange-red (~#FF3621)
-  * Atlassian / Jira / Confluence → Atlassian blue (~#0052CC)
-  * GitHub → near-black (~#24292E) — but skip pure black; use #3A3F44
-  * MongoDB → green (~#13AA52)
-  * Slack → purple-pink (~#4A154B / ~#E01E5A)
-  * Notion / Linear → skip if the brand color is white/very dark; pick a work-type color instead
+COLOR RULES — pick exactly one name from this fixed list:
+  red, orange, yellow, green, cyan, blue, purple, pink
+
+- PRIMARY inspiration — match a famous brand when one is mentioned in the ticket:
+  * AWS / S3 → orange
+  * Google Drive / GCP → blue or green
+  * Microsoft / SharePoint / OneDrive / Azure → blue
+  * Snowflake → cyan
+  * Databricks → red
+  * Atlassian / Jira / Confluence → blue
+  * GitHub → purple
+  * MongoDB → green
+  * Slack → purple or pink
 - FALLBACK inspiration — when no brand fits, pick from the WORK TYPE:
-  * Bug / fix → reds and dark oranges (#C8232C, #B22222, #DC143C, #E55934)
-  * Feature → greens, vibrant blues, purples (#2E7D32, #1565C0, #6A1B9A, #00838F) — VARY these between tickets
-  * Refactor / chore → muted blues or browns (#3A6EA5, #8B6F4E, #6D4C41)
-  * Investigation / spike → purples (#7E57C2, #5E35B1, #4527A0)
-  * Performance → cyans / teals (#00ACC1, #26A69A, #00838F)
-  * Security / auth → deep red or amber (#B71C1C, #F9A825, #C62828)
-  * Docs → soft greens or muted teals (#558B2F, #00897B)
+  * Bug / fix → red
+  * Feature → green or blue
+  * Refactor / chore → blue
+  * Investigation / spike → purple
+  * Performance → cyan
+  * Security / auth → red or orange
+  * Docs → green or yellow
 - DIFFERENTIATION (CRITICAL): %s
-- AVOID: pure black, pure white, washed-out pastels (R+G+B above ~700 is too light), pure neutral gray (R≈G≈B), and the exact RED-ORANGE #FF5733 family (overused).
 
 Output format — EXACTLY two lines, in this order, no preamble or trailing prose:
 <nickname>
-<#RRGGBB>
+<color-name>
 
 TICKET TITLE:
 %s
@@ -93,17 +93,17 @@ TICKET BODY:
 
 // renderExistingColorsClause builds the differentiation rule
 // referenced by the prompt's "%s" slot. Empty input → encourages
-// novelty; non-empty → asks the model to pick something visibly
-// distinct from each listed color.
+// novelty; non-empty → asks the model to pick something different
+// from the already-used palette names.
 func renderExistingColorsClause(existingColors []string) string {
 	if len(existingColors) == 0 {
-		return "no other thicket workspaces are currently colored — feel free to set the visual baseline."
+		return "no other thicket workspaces are currently colored — feel free to pick anything from the list."
 	}
 	// Cap to the most-recent 8 so the prompt stays bounded.
 	if len(existingColors) > 8 {
 		existingColors = existingColors[:8]
 	}
-	return fmt.Sprintf("other workspace tabs are already using these colors — pick something with a clearly different hue or brightness so the user can tell them apart at a glance: %s.",
+	return fmt.Sprintf("other workspace tabs are already using these colors — pick something different so the user can tell them apart at a glance: %s.",
 		strings.Join(existingColors, ", "))
 }
 
@@ -131,20 +131,17 @@ func parseSuggestion(raw string) NicknameSuggestion {
 			if candidate != "" {
 				line = candidate
 			} else {
-				// Empty value after the separator. If the prefix
-				// mentions "nickname" or "color" (e.g. "Sure!
-				// Here's a nickname:"), the real content is on
-				// the next line — skip this entirely so it
+				// Empty value after the separator means this is an
+				// introductory label line (e.g. "Here you go:",
+				// "Sure! Here's a nickname:"). The real content is
+				// on the next line — skip this entirely so it
 				// doesn't become the nickname by default.
-				lower := strings.ToLower(line[:idx])
-				if strings.Contains(lower, "nickname") || strings.Contains(lower, "color") {
-					continue
-				}
+				continue
 			}
 		}
-		// Try color first — if it parses as hex, it's the color
-		// line regardless of where it appeared.
-		if c := term.SanitizeHexColor(line); c != "" && s.Color == "" {
+		// Try color first — if it canonicalizes to a palette name,
+		// it's the color line regardless of where it appeared.
+		if c := term.SanitizePaletteName(line); c != "" && s.Color == "" {
 			s.Color = c
 			continue
 		}
@@ -232,7 +229,7 @@ func (d *ClaudeCLINicknameSuggester) Suggest(ctx context.Context, title, body st
 		return NicknameSuggestion{}, errors.New("nickname: empty title and body")
 	}
 	prompt := fmt.Sprintf(nicknamePromptTemplate, renderExistingColorsClause(existingColors), title, body)
-	prompt += "\n\nReturn ONLY the two lines (nickname then #RRGGBB). No prose around them."
+	prompt += "\n\nReturn ONLY the two lines (nickname then color-name). No prose around them."
 
 	args := []string{"-p"}
 	if d.Model != "" {

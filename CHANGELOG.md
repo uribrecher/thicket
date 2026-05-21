@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- `thicket start` Plan page now offers a horizontal color swatch picker
+  (red, orange, yellow, green, cyan, blue, purple, pink) plus an optional
+  one-line initial prompt. On first launch the prompt is sent to Claude
+  as the session's first user message. Resumed workspaces (`thicket
+  start <id>` against an existing workspace, or `thicket start` from
+  inside one) skip the prompt. The picked color tints the iTerm2 tab on
+  every launch via `term.PaletteHex`.
+
 ## [0.9.6] - 2026-05-17
 
 One `thicket start` Plan-page bugfix — a nickname typed for one

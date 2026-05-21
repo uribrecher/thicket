@@ -561,19 +561,45 @@ func TestState_NicknameRoundtrip(t *testing.T) {
 func TestState_ColorRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	st := State{
-		TicketID:  "sc-9",
-		Branch:    "u/sc-9",
-		Color:     "#FF5733",
-		CreatedAt: time.Now().UTC().Truncate(time.Second),
-		Repos:     []StateRepo{{Name: "alpha", SourcePath: "/x", WorktreePath: "/y"}},
+		TicketID:  "sc-1",
+		Branch:    "main",
+		Color:     "blue",
+		CreatedAt: time.Now().Round(time.Second),
+		Repos:     []StateRepo{{Name: "r", SourcePath: "/s", WorktreePath: "/w"}},
 	}
-	writeFakeState(t, dir, st)
+	if err := writeStateAtomic(dir, st); err != nil {
+		t.Fatal(err)
+	}
 	got, err := ReadState(dir)
 	if err != nil {
-		t.Fatalf("read state: %v", err)
+		t.Fatal(err)
 	}
-	if got.Color != "#FF5733" {
+	if got.Color != "blue" {
 		t.Errorf("color lost on roundtrip: got %q", got.Color)
+	}
+}
+
+func TestState_DropsUnknownColor(t *testing.T) {
+	dir := t.TempDir()
+	// Plans built before this migration may still carry hex values
+	// (e.g. "#FF5733") or junk; writeState should drop anything not
+	// in the palette so the manifest is always canonical.
+	p := Plan{
+		WorkspaceDir: dir,
+		Branch:       "main",
+		Color:        "#FF5733",
+		Repos:        []PlanRepo{{Name: "r", SourcePath: "/s", WorktreePath: "/w"}},
+		Memory:       memory.Input{TicketID: "sc-1", Branch: "main", WorkspaceDir: dir, CreatedAt: time.Now()},
+	}
+	if err := writeState(p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadState(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Color != "" {
+		t.Errorf("unknown color was persisted: %q", got.Color)
 	}
 }
 

@@ -148,11 +148,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Err = tui.ErrCancelled
 			return m, tea.Quit
 		case "left":
+			// Pages can own ← when an internal control (e.g. the Plan
+			// page's color swatch picker) needs the key — fall through
+			// to the page's Update without consuming it here.
+			if pp, ok := m.Pages[m.Active].(HorizontalKeyOwner); ok && pp.OwnsLeftRight() {
+				break
+			}
 			if m.canGoPrev() {
 				return m.gotoPage(m.Active - 1)
 			}
 			return m, nil
 		case "right":
+			if pp, ok := m.Pages[m.Active].(HorizontalKeyOwner); ok && pp.OwnsLeftRight() {
+				break
+			}
 			if m.canGoNext() {
 				return m.advance()
 			}
@@ -327,10 +336,17 @@ func (m *Model) renderFooter() string {
 	if pageHints := m.Pages[m.Active].Hints(); pageHints != "" {
 		parts = append(parts, pageHints)
 	}
-	if m.canGoPrev() {
+	// Skip the wizard-level ←/→ hints when the page owns those keys
+	// (e.g. Plan page with the color swatch picker focused) — otherwise
+	// the footer would contradict the page's own hint string.
+	pageOwnsLR := false
+	if pp, ok := m.Pages[m.Active].(HorizontalKeyOwner); ok && pp.OwnsLeftRight() {
+		pageOwnsLR = true
+	}
+	if !pageOwnsLR && m.canGoPrev() {
 		parts = append(parts, "← back")
 	}
-	if m.canGoNext() {
+	if !pageOwnsLR && m.canGoNext() {
 		parts = append(parts, "→ next")
 	}
 	parts = append(parts, "esc cancel")
@@ -363,6 +379,14 @@ func (m *Model) canGoNext() bool {
 // the Plan page while a workspace is being created).
 type NavLocker interface {
 	Locked() bool
+}
+
+// HorizontalKeyOwner is implemented by pages that want ←/→ delivered
+// to their own Update instead of the wizard's tab-nav. The Plan page
+// uses this so the color swatch picker can cycle on the arrow keys
+// when the color zone is focused.
+type HorizontalKeyOwner interface {
+	OwnsLeftRight() bool
 }
 
 // advance moves to the next page and fires its init cmd if it has one.
