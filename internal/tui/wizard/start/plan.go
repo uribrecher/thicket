@@ -137,6 +137,11 @@ func (p *planPage) Complete() bool { return p.built && p.buildErr == nil }
 // workspace.
 func (p *planPage) Locked() bool { return p.creating }
 
+// OwnsLeftRight tells the wizard to deliver ←/→ to this page's Update
+// when the color swatch picker has focus, so the arrows cycle the
+// palette instead of navigating tabs.
+func (p *planPage) OwnsLeftRight() bool { return p.focusColor }
+
 // InitCmd rebuilds the plan on EVERY activation. Earlier we tried to
 // skip rebuilds when the chosen-repo list was unchanged, but that
 // invited a class of stale-state bugs: a repo's LocalPath could
@@ -372,23 +377,34 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 		}
 		key := v.String()
 		switch key {
-		case "up", "k":
-			// Don't intercept "k" inside a focused text input — fall
-			// through to the input's own key handler so the user can
-			// actually type the letter k.
+		case "up":
+			// Arrow always navigates focus, even from inside a text
+			// input — that's how the user escapes the nickname/prompt
+			// fields.
+			return p, p.moveFocusUp()
+		case "k":
+			// Letter k is a vim-style alias for ↑ but must reach a
+			// focused text input as a literal character.
 			if p.focusNickname || p.focusPrompt {
 				break
 			}
 			return p, p.moveFocusUp()
-		case "down", "j":
-			// Don't intercept "j" inside a focused text input — fall
-			// through to the input's own key handler so the user can
-			// actually type the letter j.
+		case "down":
+			return p, p.moveFocusDown()
+		case "j":
 			if p.focusNickname || p.focusPrompt {
 				break
 			}
 			return p, p.moveFocusDown()
-		case "left", "h":
+		case "left":
+			// Reaches us only when OwnsLeftRight returns true (i.e.
+			// focusColor) — the wizard's global handler eats ← in every
+			// other state.
+			if p.focusColor {
+				p.cyclePaletteLeft()
+			}
+			return p, nil
+		case "h":
 			if p.focusColor {
 				p.cyclePaletteLeft()
 				return p, nil
@@ -397,7 +413,12 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 				break
 			}
 			return p, nil
-		case "right", "l":
+		case "right":
+			if p.focusColor {
+				p.cyclePaletteRight()
+			}
+			return p, nil
+		case "l":
 			if p.focusColor {
 				p.cyclePaletteRight()
 				return p, nil
