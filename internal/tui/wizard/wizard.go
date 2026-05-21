@@ -336,10 +336,17 @@ func (m *Model) renderFooter() string {
 	if pageHints := m.Pages[m.Active].Hints(); pageHints != "" {
 		parts = append(parts, pageHints)
 	}
-	if m.canGoPrev() {
+	// Skip the wizard-level ←/→ hints when the page owns those keys
+	// (e.g. Plan page with the color swatch picker focused) — otherwise
+	// the footer would contradict the page's own hint string.
+	pageOwnsLR := false
+	if pp, ok := m.Pages[m.Active].(HorizontalKeyOwner); ok && pp.OwnsLeftRight() {
+		pageOwnsLR = true
+	}
+	if !pageOwnsLR && m.canGoPrev() {
 		parts = append(parts, "← back")
 	}
-	if m.canGoNext() {
+	if !pageOwnsLR && m.canGoNext() {
 		parts = append(parts, "→ next")
 	}
 	parts = append(parts, "esc cancel")

@@ -297,6 +297,16 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 				p.color = cached.Color
 			}
 		}
+		// Seed the swatch picker to the first palette entry when no
+		// LLM suggestion is available yet, so the persisted color
+		// matches what the picker visually brackets. The
+		// NicknameSuggestedMsg handler later replaces this if the
+		// suggester returns a different name (guarded by colorDirty).
+		if !p.colorDirty && p.color == "" {
+			if names := term.PaletteNames(); len(names) > 0 {
+				p.color = names[0]
+			}
+		}
 		// Reset focus — clone rows first if any, then nickname, then
 		// color, then prompt, then Create. The user's most common edit
 		// (the nickname) sits at the natural "where do I go next?" spot
