@@ -120,7 +120,7 @@ func TestLaunch_appendsInitialPrompt(t *testing.T) {
 	l := &Launcher{
 		BinaryName:    "claude",
 		ExtraArgs:     []string{"--name", "ws-x"},
-		InitialPrompt: "/color blue\nreview the plan",
+		InitialPrompt: "review the plan",
 		LookPath:      func(name string) (string, error) { return "/opt/claude/claude", nil },
 		Exec: func(_ string, argv []string, _ []string) error {
 			gotArgv = argv
@@ -134,7 +134,7 @@ func TestLaunch_appendsInitialPrompt(t *testing.T) {
 		gotArgv[0] != "claude" ||
 		gotArgv[1] != "--name" ||
 		gotArgv[2] != "ws-x" ||
-		gotArgv[3] != "/color blue\nreview the plan" {
+		gotArgv[3] != "review the plan" {
 		t.Errorf("argv = %v", gotArgv)
 	}
 }

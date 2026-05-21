@@ -430,7 +430,16 @@ func launchClaudeIn(out io.Writer, cfg *config.Config, name, color, prompt,
 		// over.
 		thicketterm.WriteTabTitle(os.Stdout, name)
 		thicketterm.WriteBadge(os.Stdout, name)
-		thicketterm.WriteTabColor(os.Stdout, thicketterm.PaletteHex(color))
+		// Resolve the tint hex from the palette name. For pre-migration
+		// state.json manifests that still carry a raw `#RRGGBB` color,
+		// fall back to the value as-is — losing the tint on resume of
+		// older workspaces would be a worse outcome than the migration
+		// bug fix.
+		tint := thicketterm.PaletteHex(color)
+		if tint == "" {
+			tint = thicketterm.SanitizeHexColor(color)
+		}
+		thicketterm.WriteTabColor(os.Stdout, tint)
 	}
 	l := launcher.New(cfg.ClaudeBinary)
 	l.ExtraArgs = []string{"--name", name}

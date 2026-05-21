@@ -3,7 +3,7 @@ package term
 import "strings"
 
 // paletteEntry pairs a canonical name with its hex color.
-// Name is what we persist in the manifest and pass to /color <name>.
+// Name is what the LLM suggests and what we persist in the workspace manifest.
 // Hex is what we feed to WriteTabColor for iTerm2 tab tinting.
 // Keeping them together means TUI rendering, LLM prompts, manifest validation,
 // and iTerm2 tinting all agree on the same set of values.
@@ -53,7 +53,7 @@ func PaletteHex(name string) string {
 }
 
 // PaletteNames returns all palette names in their canonical order.
-// Callers MUST NOT mutate the slice.
+// The returned slice is a fresh copy; mutating it does not affect future calls.
 func PaletteNames() []string {
 	out := make([]string, len(palette))
 	for i, p := range palette {

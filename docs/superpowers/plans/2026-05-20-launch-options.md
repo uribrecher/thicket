@@ -2,14 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Post-implementation addendum (2026-05-21):** The shipped implementation drops the `/color <name>\n<user-prompt>` prefix described in this plan. Smoke testing showed `claude` treats the positional prompt arg as a single user message — the trailing user prose got swallowed into the `/color` slash command's argument (e.g. `/color purple\nsolve it` parsed as color = `"purple\nsolve it"`). The launcher now passes the trimmed user prompt as the only positional arg; the picked palette name continues to drive the iTerm2 tab tint on every launch via `term.PaletteHex`. See commit `5328799` for the change.
+> **Post-implementation addendum (2026-05-21):** The shipped implementation drops the `/color <name>\n<user-prompt>` prefix originally described below. Smoke testing showed `claude` treats the positional prompt arg as a single user message — the trailing user prose got swallowed into the `/color` slash command's argument (e.g. `/color purple\nsolve it` parsed as color = `"purple\nsolve it"`). The launcher now passes the trimmed user prompt as the only positional arg; the picked palette name continues to drive the iTerm2 tab tint on every launch via `term.PaletteHex`. See commit `5328799` for the change. The Goal/Architecture and Task 6 sections below preserve the original design as a historical record — they DO NOT reflect shipped behavior.
 
-**Goal:** Add an optional initial-prompt input to the Plan page and switch the LLM color suggestion from free-form hex (`#RRGGBB`) to a fixed Claude color palette displayed as a horizontal swatch picker. On the first launch only, prepend `/color <name>` to the initial-prompt argument passed to `claude`.
+**Goal (historical):** Add an optional initial-prompt input to the Plan page and switch the LLM color suggestion from free-form hex (`#RRGGBB`) to a fixed Claude color palette displayed as a horizontal swatch picker. On the first launch only, prepend `/color <name>` to the initial-prompt argument passed to `claude`. *(Shipped: the `/color` prefix is omitted — see addendum.)*
 
-**Architecture:**
+**Architecture (historical):**
 - New `internal/term/palette.go` defines a fixed palette (name → representative hex). Both the manifest and the LLM speak palette **names**; iTerm2 tab tinting still uses the hex via lookup.
 - `internal/launcher.Launcher` gains an `InitialPrompt` field that becomes a positional argument to `claude` (after `--name <slug>`).
-- `cmd/thicket/start.go`'s wizard-finalize path is the only call site that passes a non-empty prompt; the wizard's Plan page produces it as `"/color <name>\n<user-typed prompt>"`. Every reuse path (existing-workspace launch from `thicket start [id]` or from inside a workspace) passes empty.
+- ~~`cmd/thicket/start.go`'s wizard-finalize path is the only call site that passes a non-empty prompt; the wizard's Plan page produces it as `"/color <name>\n<user-typed prompt>"`.~~ *(Shipped: the wizard-finalize path passes just the trimmed user prompt; the color is no longer encoded into the prompt arg.)* Every reuse path (existing-workspace launch from `thicket start [id]` or from inside a workspace) passes empty.
 
 **Tech Stack:** Go, Bubble Tea (charmbracelet/bubbletea + bubbles/textinput), Lipgloss for swatch rendering.
 
