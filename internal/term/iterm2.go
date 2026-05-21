@@ -103,8 +103,8 @@ func ParseHexColor(hex string) (r, g, b int, ok bool) {
 
 // SanitizeHexColor normalizes a color string to `#RRGGBB` uppercase,
 // or returns "" if the input doesn't parse as a 6-digit hex color.
-// Used at the persistence boundary in workspace.writeState so what
-// lands in state.json is always canonical.
+// Called by WriteTabColor callers that need a canonical form before
+// emitting an OSC escape (and by tests validating the round-trip).
 func SanitizeHexColor(hex string) string {
 	r, g, b, ok := ParseHexColor(hex)
 	if !ok {

@@ -26,13 +26,13 @@ type Deps struct {
 	// the panel always renders something useful.
 	Summarize func(ctx context.Context, tk ticket.Ticket) ([]string, error)
 	// Nickname, when set, suggests a short (≤25-char, emoji-friendly)
-	// label PLUS a tab color hint (`#RRGGBB`) for the picked ticket.
-	// Used to pre-fill the editable nickname input on the Plan page
-	// and to tint the iTerm2 tab when claude launches. May be nil —
-	// the input then starts empty and the launcher leaves the tab
-	// uncolored. Implementations should bake in the existing-colors
-	// differentiation hint at closure-build time so each Suggest
-	// call sees the right "avoid these" list.
+	// label PLUS a tab color hint (a palette name, e.g. "blue") for
+	// the picked ticket. Used to pre-fill the editable nickname input
+	// on the Plan page and to tint the iTerm2 tab when claude
+	// launches. May be nil — the input then starts empty and the
+	// launcher leaves the tab uncolored. Implementations should bake
+	// in the existing-colors differentiation hint at closure-build
+	// time so each Suggest call sees the right "avoid these" list.
 	Nickname func(ctx context.Context, tk ticket.Ticket) (detector.NicknameSuggestion, error)
 	Git      *gitops.Git
 	Flags    Flags

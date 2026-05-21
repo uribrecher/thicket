@@ -52,6 +52,11 @@ type planPage struct {
 	// late-arriving suggester response doesn't overwrite the edit.
 	nicknameInput textinput.Model
 	nicknameDirty bool
+	// colorDirty flips to true once the user has cycled the swatch
+	// picker; mirrors nicknameDirty. Suppresses late-arriving
+	// NicknameSuggestedMsg color updates so the user's selection
+	// survives a slow LLM response.
+	colorDirty bool
 
 	// color is the canonical palette name selected via the swatch
 	// picker. Seeded from the suggester's cached.Color; user can
@@ -152,6 +157,7 @@ func (p *planPage) InitCmd(m *wizard.Model) tea.Cmd {
 		p.builtForID = m.TicketID
 		p.nicknameInput.SetValue("")
 		p.nicknameDirty = false
+		p.colorDirty = false
 		p.color = ""
 		p.promptInput.SetValue("")
 		p.focusColor = false
@@ -275,13 +281,16 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 		}
 		// Pre-fill the nickname input from cache when it has a
 		// suggestion and the user hasn't typed anything yet. Color
-		// is captured unconditionally — it's not user-editable in
-		// MVP, so a fresh cache hit replaces any earlier value.
+		// follows the same guard: skip the update if the user has
+		// already cycled the swatch picker so their selection
+		// survives a cache refresh triggered by repo-list changes.
 		if cached, ok := m.NicknameCache[m.TicketID]; ok {
 			if !p.nicknameDirty && cached.Nickname != "" {
 				p.nicknameInput.SetValue(cached.Nickname)
 			}
-			p.color = cached.Color
+			if !p.colorDirty {
+				p.color = cached.Color
+			}
 		}
 		// Reset focus — clone rows first if any, then nickname, then
 		// color, then prompt, then Create. The user's most common edit
@@ -311,13 +320,15 @@ func (p *planPage) Update(m *wizard.Model, msg tea.Msg) (wizard.Page, tea.Cmd) {
 		// Late-arriving suggester result. Pre-fill the nickname
 		// input only if the user hasn't started typing AND it's
 		// currently empty (so a previous suggestion the user
-		// explicitly cleared stays cleared). Color always pulls
-		// from the latest suggestion — not user-editable.
+		// explicitly cleared stays cleared). Color follows the
+		// same dirty guard so the user's swatch selection is not
+		// overwritten by a slow LLM response that arrives after
+		// they have already cycled the picker.
 		if v.Err == nil && v.TicketID == m.TicketID {
 			if !p.nicknameDirty && v.Suggestion.Nickname != "" && p.nicknameInput.Value() == "" {
 				p.nicknameInput.SetValue(v.Suggestion.Nickname)
 			}
-			if v.Suggestion.Color != "" {
+			if !p.colorDirty && v.Suggestion.Color != "" {
 				p.color = v.Suggestion.Color
 			}
 		}
@@ -536,6 +547,7 @@ func (p *planPage) cyclePaletteLeft() {
 	idx := paletteIndex(names, p.color)
 	idx = (idx - 1 + len(names)) % len(names)
 	p.color = names[idx]
+	p.colorDirty = true
 }
 
 func (p *planPage) cyclePaletteRight() {
@@ -546,6 +558,7 @@ func (p *planPage) cyclePaletteRight() {
 	idx := paletteIndex(names, p.color)
 	idx = (idx + 1) % len(names)
 	p.color = names[idx]
+	p.colorDirty = true
 }
 
 // paletteIndex returns the index of cur in names, or 0 when not
