@@ -36,8 +36,10 @@ type Launcher struct {
 	ExtraArgs []string
 	// InitialPrompt, when non-empty, is appended as the final positional
 	// argument to the claude binary. claude treats this as the first
-	// user message of the session, so leading slash commands (e.g.
-	// `/color blue`) fire on session start just as if typed.
+	// user message of the session — a single plain-text message, NOT a
+	// script: claude only honors a leading slash command if the entire
+	// arg is the slash command alone, so callers should pass either a
+	// pure slash invocation or pure prose, not both.
 	InitialPrompt string
 	LookPath      LookPathFn
 	Exec          ExecFn

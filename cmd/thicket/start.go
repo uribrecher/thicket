@@ -250,10 +250,9 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		return err
 	}
 	fmt.Fprintf(out, "\nworkspace ready at %s\n", plan.WorkspaceDir)
-	prompt := buildInitialPrompt(plan.Color, res.InitialPrompt)
 	return launchClaudeIn(out, cfg,
 		nicknameOrSlug(plan.Nickname, workspace.Slug(res.Ticket.SourceID, res.Ticket.Title)),
-		plan.Color, prompt, plan.WorkspaceDir, flags.noLaunch)
+		plan.Color, strings.TrimSpace(res.InitialPrompt), plan.WorkspaceDir, flags.noLaunch)
 }
 
 // runStartLegacy preserves the pre-wizard CLI flow for the cases
@@ -444,27 +443,6 @@ func launchClaudeIn(out io.Writer, cfg *config.Config, name, color, prompt,
 		return err
 	}
 	return nil
-}
-
-// buildInitialPrompt assembles the first-message prompt for a fresh
-// workspace launch. The launcher always prepends a "/color <name>"
-// line when a palette color is set, so the workspace tab is themed
-// from the very first session regardless of the user prompt. Returns
-// "" when both inputs are empty so the launcher omits the positional
-// arg entirely.
-func buildInitialPrompt(color, userPrompt string) string {
-	userPrompt = strings.TrimSpace(userPrompt)
-	color = thicketterm.SanitizePaletteName(color)
-	switch {
-	case color == "" && userPrompt == "":
-		return ""
-	case color == "":
-		return userPrompt
-	case userPrompt == "":
-		return "/color " + color
-	default:
-		return "/color " + color + "\n" + userPrompt
-	}
 }
 
 // nicknameOrSlug returns the nickname when non-empty, the slug

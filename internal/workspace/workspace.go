@@ -43,10 +43,9 @@ type Plan struct {
 	Nickname string
 	// Color is the workspace's tab-color palette name (e.g. "blue").
 	// Used by the launcher to look up a representative hex for the
-	// iTerm2 tab tint and to prepend `/color <name>` to claude's
-	// initial prompt on first launch. Optional — when empty the tab
-	// is left uncolored. Sanitized at the persistence boundary via
-	// term.SanitizePaletteName; values outside the palette are
+	// iTerm2 tab tint via term.PaletteHex. Optional — when empty the
+	// tab is left uncolored. Sanitized at the persistence boundary
+	// via term.SanitizePaletteName; values outside the palette are
 	// dropped to "".
 	Color  string
 	Repos  []PlanRepo

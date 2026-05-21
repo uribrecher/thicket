@@ -61,15 +61,15 @@ type planPage struct {
 	// color is the canonical palette name selected via the swatch
 	// picker. Seeded from the suggester's cached.Color; user can
 	// cycle left/right while the color zone has focus. Persisted via
-	// plan.Color and used by launchClaudeIn to look up a representative
-	// hex for iTerm2 tab tinting AND to prepend `/color <name>` to the
-	// initial prompt on first launch.
+	// plan.Color and used by launchClaudeIn to resolve a hex for
+	// iTerm2 tab tinting on every launch.
 	color string
 
 	// promptInput is the optional, one-shot initial prompt the
-	// launcher will pass as claude's first user message. Empty by
-	// default. Single-line by design — the launcher always prepends
-	// "/color <name>\n", so the user input ends up as line 2.
+	// launcher passes as claude's first user message on first
+	// launch. Empty by default. Single-line — claude treats it as
+	// one user message, so leading slash commands aren't reliable
+	// here.
 	promptInput textinput.Model
 
 	// focusColor / focusPrompt mirror focusNickname for the new
