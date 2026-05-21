@@ -897,25 +897,25 @@ func (p *planPage) View(m *wizard.Model) string {
 }
 
 // renderPaletteSwatches draws the palette as a row of colored blocks
-// with the currently-selected entry bracketed and named. Always renders
-// even when selected is "", so the user has something to start from
-// (paletteIndex returns 0 for unknown/empty, landing on "red").
+// with the currently-selected entry bracketed and labelled. Always
+// renders a bracket — paletteIndex returns 0 on an empty/unknown seed
+// so the bracket lands on "red" until the LLM (or the user) names a
+// concrete color.
 func renderPaletteSwatches(selected string) string {
 	names := term.PaletteNames()
+	sel := paletteIndex(names, selected)
 	var b strings.Builder
-	for _, n := range names {
+	for i, n := range names {
 		sw := lipgloss.NewStyle().
 			Background(lipgloss.Color(term.PaletteHex(n))).
 			Render("  ")
-		if n == selected {
+		if i == sel {
 			b.WriteString(wizard.CursorStyle.Render("[") + sw + wizard.CursorStyle.Render("]"))
 		} else {
 			b.WriteString(" " + sw + " ")
 		}
 	}
-	if selected != "" {
-		b.WriteString("  " + wizard.HintStyle.Render(selected))
-	}
+	b.WriteString("  " + wizard.HintStyle.Render(names[sel]))
 	return b.String()
 }
 
