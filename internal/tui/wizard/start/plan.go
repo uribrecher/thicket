@@ -115,15 +115,15 @@ func (p *planPage) Hints() string {
 	}
 	switch {
 	case p.focusNickname:
-		return "type nickname (≤25) · ↑/↓ leaves · enter accepts"
+		return "type nickname (≤25) · ↑/↓ navigate · enter accepts"
 	case p.focusColor:
-		return "←/→ cycles palette · ↑/↓ leaves · enter accepts"
+		return "←/→ cycles palette · ↑/↓ navigate · enter accepts"
 	case p.focusPrompt:
-		return "type optional prompt · ↑/↓ leaves · enter accepts"
+		return "type optional prompt · ↑/↓ navigate · enter accepts"
 	case len(p.toClone) > 0:
-		return "↑/↓ cursor · space toggles clone · enter creates"
+		return "↑/↓ navigate · space toggles clone · enter creates"
 	default:
-		return "↑/↓ moves to nickname · enter creates"
+		return "↑/↓ navigate · enter creates"
 	}
 }
 
