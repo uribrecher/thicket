@@ -65,7 +65,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 				}
 				return launchClaudeIn(out, cfg,
 					nicknameOrSlug(ws.State.Nickname, ws.Slug),
-					ws.State.Color, ws.Path, flags.noLaunch || flags.dryRun)
+					ws.State.Color, "", ws.Path, flags.noLaunch || flags.dryRun)
 			case errors.Is(findErr, workspace.ErrNoState):
 				// Normal "not in a workspace" — fall through silently.
 			default:
@@ -128,7 +128,7 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 			fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
 			return launchClaudeIn(out, cfg,
 				nicknameOrSlug(existing.State.Nickname, workspace.Slug(tk.SourceID, tk.Title)),
-				existing.State.Color, existing.Path, flags.noLaunch)
+				existing.State.Color, "", existing.Path, flags.noLaunch)
 		}
 		preselected = &tk
 	}
@@ -231,7 +231,7 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 			}
 			color = st.Color
 		}
-		return launchClaudeIn(out, cfg, name, color, res.ReuseDir, flags.noLaunch)
+		return launchClaudeIn(out, cfg, name, color, "", res.ReuseDir, flags.noLaunch)
 	}
 
 	// Surface any skipped/failed clones from the wizard's clone phase
@@ -250,9 +250,10 @@ func runStartWizard(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		return err
 	}
 	fmt.Fprintf(out, "\nworkspace ready at %s\n", plan.WorkspaceDir)
+	prompt := buildInitialPrompt(plan.Color, res.InitialPrompt)
 	return launchClaudeIn(out, cfg,
 		nicknameOrSlug(plan.Nickname, workspace.Slug(res.Ticket.SourceID, res.Ticket.Title)),
-		plan.Color, plan.WorkspaceDir, flags.noLaunch)
+		plan.Color, prompt, plan.WorkspaceDir, flags.noLaunch)
 }
 
 // runStartLegacy preserves the pre-wizard CLI flow for the cases
@@ -303,7 +304,7 @@ func runStartLegacy(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 		fmt.Fprintf(out, "reusing existing workspace at %s\n", existing.Path)
 		return launchClaudeIn(out, cfg,
 			nicknameOrSlug(existing.State.Nickname, workspace.Slug(tk.SourceID, tk.Title)),
-			existing.State.Color, existing.Path, flags.noLaunch)
+			existing.State.Color, "", existing.Path, flags.noLaunch)
 	}
 
 	repos, err := loadCatalog(cfg, errOut)
@@ -361,7 +362,7 @@ func runStartLegacy(cmd *cobra.Command, cfg *config.Config, flags startFlags,
 	fmt.Fprintf(out, "\nworkspace ready at %s\n", plan.WorkspaceDir)
 	return launchClaudeIn(out, cfg,
 		nicknameOrSlug(plan.Nickname, workspace.Slug(tk.SourceID, tk.Title)),
-		plan.Color, plan.WorkspaceDir, flags.noLaunch)
+		plan.Color, "", plan.WorkspaceDir, flags.noLaunch)
 }
 
 // findWorkspaceForTicket scans the workspace root for a managed
@@ -396,20 +397,21 @@ func findWorkspaceForTicket(cfg *config.Config, ticketID string, errOut io.Write
 // Claude's prompt box, /resume picker, and the terminal title.
 // Honors --no-launch by printing the cd line instead.
 //
-// Before the syscall.Exec hand-off, when running under iTerm2 AND
-// stdout is a TTY, also emits OSC escapes to set the tab title
-// (= name), the tab badge (= name), and the tab background color
-// (= color, when valid). These persist for the lifetime of the tab
-// so concurrent workspace sessions stay visually distinct. Piped
-// stdout (`thicket start … | tee …`) skips the escapes so the pipe
-// doesn't see gibberish.
+// On iTerm2, also emits OSC escapes for the tab title, badge, and a
+// background tint resolved from the color palette name via
+// thicketterm.PaletteHex.
+//
+// `prompt` is the optional first-message prompt. When non-empty it is
+// appended as a positional arg to the claude invocation, becoming the
+// first user message. Reuse callers (existing-workspace launches)
+// pass "" so resuming a workspace doesn't re-fire the initial prompt.
 //
 // Callers pass the workspace's nickname when set (short, human-
 // friendly), falling back to the slug. See nicknameOrSlug. We
 // re-run name through workspace.SanitizeNickname here so a hand-
 // edited or freshly-typed value can't smuggle escape characters
 // into the `--name` arg or the OSC stream.
-func launchClaudeIn(out io.Writer, cfg *config.Config, name, color,
+func launchClaudeIn(out io.Writer, cfg *config.Config, name, color, prompt,
 	workspaceDir string, noLaunch bool) error {
 
 	// Defensive: SanitizeNickname drops control chars / ANSI
@@ -429,10 +431,11 @@ func launchClaudeIn(out io.Writer, cfg *config.Config, name, color,
 		// over.
 		thicketterm.WriteTabTitle(os.Stdout, name)
 		thicketterm.WriteBadge(os.Stdout, name)
-		thicketterm.WriteTabColor(os.Stdout, color)
+		thicketterm.WriteTabColor(os.Stdout, thicketterm.PaletteHex(color))
 	}
 	l := launcher.New(cfg.ClaudeBinary)
 	l.ExtraArgs = []string{"--name", name}
+	l.InitialPrompt = prompt
 	if err := l.Launch(workspaceDir); err != nil {
 		if errors.Is(err, launcher.ErrMissingBinary) {
 			launcher.PrintFallback(out, workspaceDir)
@@ -441,6 +444,27 @@ func launchClaudeIn(out io.Writer, cfg *config.Config, name, color,
 		return err
 	}
 	return nil
+}
+
+// buildInitialPrompt assembles the first-message prompt for a fresh
+// workspace launch. The launcher always prepends a "/color <name>"
+// line when a palette color is set, so the workspace tab is themed
+// from the very first session regardless of the user prompt. Returns
+// "" when both inputs are empty so the launcher omits the positional
+// arg entirely.
+func buildInitialPrompt(color, userPrompt string) string {
+	userPrompt = strings.TrimSpace(userPrompt)
+	color = thicketterm.SanitizePaletteName(color)
+	switch {
+	case color == "" && userPrompt == "":
+		return ""
+	case color == "":
+		return userPrompt
+	case userPrompt == "":
+		return "/color " + color
+	default:
+		return "/color " + color + "\n" + userPrompt
+	}
 }
 
 // nicknameOrSlug returns the nickname when non-empty, the slug
