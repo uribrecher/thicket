@@ -1,0 +1,128 @@
+name: release-pr
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  models: read
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: true
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Install changie
+        run: go install github.com/miniscruff/changie@latest
+
+      - name: Check for pending fragments
+        id: pending
+        run: |
+          if ls .changes/unreleased/*.yaml >/dev/null 2>&1; then
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has=false" >> "$GITHUB_OUTPUT"
+            echo "No unreleased fragments; nothing to release."
+          fi
+
+      - name: Compute next version
+        if: steps.pending.outputs.has == 'true'
+        id: ver
+        run: echo "version=$(changie next auto)" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse an existing intro if the release PR already has one
+        if: steps.pending.outputs.has == 'true'
+        id: existing
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          git fetch origin automated/release --depth=1 2>/dev/null || true
+          if git show "origin/automated/release:.changes/${V}.md" > "$RUNNER_TEMP/prev.md" 2>/dev/null; then
+            python3 scripts/changelog_intro.py extract "$RUNNER_TEMP/prev.md" > "$RUNNER_TEMP/intro.md"
+          else
+            : > "$RUNNER_TEMP/intro.md"
+          fi
+          if [ -s "$RUNNER_TEMP/intro.md" ] && grep -q '[^[:space:]]' "$RUNNER_TEMP/intro.md"; then
+            echo "reused=true" >> "$GITHUB_OUTPUT"
+          else
+            : > "$RUNNER_TEMP/intro.md"
+            echo "reused=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Batch fragments into the version file
+        if: steps.pending.outputs.has == 'true'
+        run: changie batch auto
+
+      - name: Build the intro prompt
+        if: steps.pending.outputs.has == 'true' && steps.existing.outputs.reused == 'false'
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          {
+            echo "Release ${V}. Write the intro for these change entries:"
+            echo
+            sed -n '/^### /,$p' ".changes/${V}.md"
+          } > "$RUNNER_TEMP/prompt.txt"
+
+      - name: Draft intro via GitHub Models
+        if: steps.pending.outputs.has == 'true' && steps.existing.outputs.reused == 'false'
+        id: ai
+        continue-on-error: true
+        uses: actions/ai-inference@v1
+        with:
+          model: openai/gpt-4o-mini
+          system-prompt: |
+            You write a one-paragraph changelog intro for the "thicket" CLI in its house voice:
+            terse, 1-3 sentences, present tense, leading with the user-visible change. Output the
+            paragraph only — no markdown heading, no bullet list, no surrounding quotes.
+          prompt-file: ${{ runner.temp }}/prompt.txt
+
+      - name: Save the drafted intro (or fall back to none)
+        if: steps.pending.outputs.has == 'true' && steps.existing.outputs.reused == 'false'
+        env:
+          RESP: ${{ steps.ai.outputs.response }}
+        run: |
+          if [ "${{ steps.ai.outcome }}" = "success" ] && [ -n "$RESP" ]; then
+            printf '%s\n' "$RESP" > "$RUNNER_TEMP/intro.md"
+          else
+            : > "$RUNNER_TEMP/intro.md"
+            echo "GitHub Models unavailable or empty; releasing without an intro."
+          fi
+
+      - name: Inject the intro into the version file
+        if: steps.pending.outputs.has == 'true'
+        run: python3 scripts/changelog_intro.py inject ".changes/${{ steps.ver.outputs.version }}.md" "$RUNNER_TEMP/intro.md"
+
+      - name: Regenerate CHANGELOG.md
+        if: steps.pending.outputs.has == 'true'
+        run: changie merge
+
+      - name: Create or update the release PR
+        if: steps.pending.outputs.has == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: automated/release
+          base: main
+          title: "Release ${{ steps.ver.outputs.version }}"
+          commit-message: "docs: cut CHANGELOG ${{ steps.ver.outputs.version }} section"
+          delete-branch: true
+          labels: release
+          body: |
+            Automated release PR maintained by `.github/workflows/release-pr.yaml`.
+
+            - Rolls every pending `.changes/unreleased/` fragment into `${{ steps.ver.outputs.version }}`.
+            - The intro paragraph is GitHub Models-drafted — edit it by pushing to this branch; your edit is preserved on later bot updates.
+            - **Merging this PR publishes the release:** `release-publish.yaml` tags `${{ steps.ver.outputs.version }}` and runs GoReleaser.
