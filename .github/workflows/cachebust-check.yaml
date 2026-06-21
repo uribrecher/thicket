@@ -15,8 +15,6 @@ name: cachebust-check
 
 on:
   pull_request:
-  push:
-    branches: [automated/release]
 
 permissions:
   contents: read

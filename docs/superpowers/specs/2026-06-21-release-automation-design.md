@@ -38,6 +38,11 @@ including the bot's branch, are unconstrained). Relevant rules:
 workflows, so the four required checks would never run on the release PR and it would be
 unmergeable. We solve this with the *CI bridge* below — no PAT required.
 
+> **Correction (post-review):** The CI bridge (push triggers on `automated/release`) also does not
+> work — GitHub's recursion rule blocks workflow triggers from pushes made with the built-in
+> `GITHUB_TOKEN`. The bridge was reverted; the maintainer uses a ruleset bypass to merge the
+> release PR instead (the changelog-only diff makes the code checks vacuous).
+
 ## Architecture
 
 ```
@@ -118,6 +123,12 @@ no PAT:
 
 `strict_required_status_checks_policy` is `false`, so the bot branch need not be kept in sync
 with `main`.
+
+> **Correction (post-review):** The CI bridge does not work — GitHub does not trigger workflows
+> from pushes made with the built-in `GITHUB_TOKEN`, so the bot branch's `push` triggers never fire
+> and the required checks never run on the release PR. Resolution: the maintainer merges the
+> release PR using their ruleset bypass; the PR's changelog-only diff makes the code checks vacuous.
+> The `ci.yaml` / `cachebust-check.yaml` bridge edits were reverted.
 
 ### 4. `release.yaml` (existing) — unchanged manual escape hatch
 

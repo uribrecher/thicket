@@ -43,7 +43,13 @@ Releases are automated — you do not run `changie batch`/`merge` or push tags b
    standing **`Release vX.Y.Z`** PR: it batches the pending fragments, regenerates `CHANGELOG.md`,
    and drafts a one-paragraph intro via GitHub Models.
 2. When you're ready to ship, review that PR. Optionally tweak the intro by pushing a commit to its
-   `automated/release` branch (your edit survives later bot updates). Approve and **squash-merge**.
+   `automated/release` branch (your edit survives later bot updates as long as the version number
+   doesn't change). Approve and **squash-merge** it.
+
+   > The bot opens the PR with the built-in `GITHUB_TOKEN`, so the required status checks
+   > (`test`, `lint`, `check`) don't run on it. The PR's diff is changelog-only — it can't affect
+   > the Go build, lint, or cache-bust check — so merge it using your maintainer bypass ("merge
+   > without waiting for requirements"). The underlying code already passed CI on its own feature PR.
 3. Merging triggers **`release-publish.yaml`**, which tags `vX.Y.Z` and runs GoReleaser to publish
    the GitHub Release.
 

@@ -21,7 +21,7 @@ jobs:
           cache: true
 
       - name: Install changie
-        run: go install github.com/miniscruff/changie@latest
+        run: go install github.com/miniscruff/changie@v1.24.2
 
       - name: Decide whether to publish
         id: gate
