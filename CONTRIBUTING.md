@@ -61,9 +61,9 @@ only `Fixed`/`Internal` → patch).
 
 The release-PR bot needs **Settings → Actions → General → Workflow permissions → "Allow GitHub
 Actions to create and approve pull requests"** enabled. Without it, `release-pr.yaml` runs to the
-end but fails the final step with `GitHub Actions is not permitted to create or approve pull
-requests` (it still pushes the `automated/release` branch — there's just no PR). Already enabled
-for this repo.
+end but fails the final create-PR step — the error is
+`GitHub Actions is not permitted to create or approve pull requests`, though it still pushes the
+`automated/release` branch (there's just no PR). Already enabled for this repo.
 
 ### Manual release (escape hatch)
 
