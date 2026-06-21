@@ -60,6 +60,11 @@ tasks:
     cmds:
       - go test -race -count=1 ./...
 
+  test:scripts:
+    desc: Run the Python helper-script unit tests (stdlib unittest)
+    cmds:
+      - python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
   vet:
     desc: Run go vet
     cmds:
