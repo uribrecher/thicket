@@ -164,7 +164,12 @@ workflow wires `extract` (reuse-first), the `ai-inference` step, and `inject`.
 
 ## One-time setup
 
-- **None required for git.** No PAT, no App, no `ANTHROPIC_API_KEY`.
+- **No git credential required.** No PAT, no App, no `ANTHROPIC_API_KEY`.
+- **Enable "Allow GitHub Actions to create and approve pull requests"** (Settings → Actions →
+  General → Workflow permissions). Without it `release-pr.yaml` fails its final step with
+  `GitHub Actions is not permitted to create or approve pull requests` even though it pushes the
+  `automated/release` branch. Enabled for this repo on 2026-06-21. (`default_workflow_permissions`
+  can stay `read` — each workflow declares its own `permissions:` block.)
 - **GitHub Models** must be enabled for the account for the intro to draft; if not, intros are
   simply skipped (no failure). This can be enabled later with no code change.
 

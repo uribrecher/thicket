@@ -57,6 +57,14 @@ Releases are automated — you do not run `changie batch`/`merge` or push tags b
 The version bump is chosen automatically from the fragment kinds (any `Added`/`Changed` → minor,
 only `Fixed`/`Internal` → patch).
 
+### Repository setup (one-time)
+
+The release-PR bot needs **Settings → Actions → General → Workflow permissions → "Allow GitHub
+Actions to create and approve pull requests"** enabled. Without it, `release-pr.yaml` runs to the
+end but fails the final create-PR step — the error is
+`GitHub Actions is not permitted to create or approve pull requests`, though it still pushes the
+`automated/release` branch (there's just no PR). Already enabled for this repo.
+
 ### Manual release (escape hatch)
 
 You can still cut a release by hand if needed: `task changelog:batch -- <version>`,
