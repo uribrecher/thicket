@@ -37,27 +37,33 @@ This writes a YAML file under `.changes/unreleased/`. Commit it alongside your c
 
 ## Cutting a release
 
-1. Roll the pending fragments into a version note (auto-picks the SemVer bump from
-   the fragment kinds — any `Added`/`Changed` → minor, only `Fixed`/`Internal` →
-   patch; or pass an explicit `minor` / `patch` / `0.10.0`):
-   ```
-   task changelog:batch -- auto
-   ```
-   This creates `.changes/v<version>.md` and clears `.changes/unreleased/`.
-2. **(Optional but conventional)** open the new `.changes/v<version>.md` and add the
-   one short intro paragraph that every release section opens with, just under the
-   `## [version]` header.
-3. Regenerate `CHANGELOG.md`:
-   ```
-   task changelog:merge
-   ```
-4. Commit the result (`.changes/` + `CHANGELOG.md`), e.g. `docs: cut CHANGELOG [0.10.0]`.
-5. Tag and push — the `release` workflow runs GoReleaser on the tag:
-   ```
-   git tag v<version>
-   git push origin main --tags
-   ```
+Releases are automated — you do not run `changie batch`/`merge` or push tags by hand.
 
-GoReleaser is unchanged: it still bundles `CHANGELOG.md` into the release tarball and
-builds the GitHub Release notes from the commit log. The curated `CHANGELOG.md` and
-the auto-generated GitHub release notes are complementary.
+1. As soon as any fragment lands on `main`, the **`release-pr.yaml`** bot opens (or updates) a
+   standing **`Release vX.Y.Z`** PR: it batches the pending fragments, regenerates `CHANGELOG.md`,
+   and drafts a one-paragraph intro via GitHub Models.
+2. When you're ready to ship, review that PR. Optionally tweak the intro by pushing a commit to its
+   `automated/release` branch (your edit survives later bot updates as long as the version number
+   doesn't change). Approve and **squash-merge** it.
+
+   > The bot opens the PR with the built-in `GITHUB_TOKEN`, so the required status checks
+   > (`test (ubuntu-latest)`, `test (macos-latest)`, `lint`, `check`) don't run on it. The PR's
+   > diff is changelog-only — it can't affect
+   > the Go build, lint, or cache-bust check — so merge it using your maintainer bypass ("merge
+   > without waiting for requirements"). The underlying code already passed CI on its own feature PR.
+3. Merging triggers **`release-publish.yaml`**, which tags `vX.Y.Z` and runs GoReleaser to publish
+   the GitHub Release.
+
+The version bump is chosen automatically from the fragment kinds (any `Added`/`Changed` → minor,
+only `Fixed`/`Internal` → patch).
+
+### Manual release (escape hatch)
+
+You can still cut a release by hand if needed: `task changelog:batch -- <version>`,
+`task changelog:merge`, commit, then `git tag vX.Y.Z && git push origin vX.Y.Z` — the unchanged
+`release.yaml` publishes on the tag push.
+
+### GitHub Models
+
+The intro draft uses GitHub Models via the built-in token (no API key). If Models is not enabled
+for the account, the intro is simply skipped and the release proceeds.

@@ -1,0 +1,58 @@
+name: release-publish
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Install changie
+        run: go install github.com/miniscruff/changie@v1.24.2
+
+      - name: Decide whether to publish
+        id: gate
+        run: |
+          V="$(changie latest)"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          git fetch --tags --quiet
+          if git rev-parse -q --verify "refs/tags/$V" >/dev/null; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Tag $V already exists; nothing to publish."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "New version $V detected; will tag and publish."
+          fi
+
+      - name: Create and push the tag
+        if: steps.gate.outputs.publish == 'true'
+        run: |
+          V="${{ steps.gate.outputs.version }}"
+          git tag "$V"
+          git push origin "$V"
+
+      - name: Publish with GoReleaser
+        if: steps.gate.outputs.publish == 'true'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This workflow runs on push to main (not a tag ref), so make the
+          # release version explicit instead of relying on GITHUB_REF/git describe.
+          GORELEASER_CURRENT_TAG: ${{ steps.gate.outputs.version }}
