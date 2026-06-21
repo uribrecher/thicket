@@ -104,6 +104,28 @@ tasks:
     cmds:
       - goreleaser release --clean
 
+  changelog:new:
+    desc: Add a CHANGELOG fragment for your change (interactive picker → .changes/unreleased/)
+    # Requires changie: go install github.com/miniscruff/changie@latest
+    cmds:
+      - changie new
+
+  changelog:preview:
+    desc: Preview CHANGELOG.md with the pending (unreleased) fragments rendered as [Unreleased]
+    cmds:
+      - changie merge --include-unreleased "## [Unreleased]" --dry-run
+
+  changelog:batch:
+    desc: 'Roll unreleased fragments into a version note. Pass a version or bump (default auto): task changelog:batch -- minor'
+    cmds:
+      - changie batch {{.CLI_ARGS | default "auto"}}
+      - 'echo "Batched into .changes/. Optionally add an intro paragraph to the new .changes/v*.md, then: task changelog:merge"'
+
+  changelog:merge:
+    desc: Regenerate CHANGELOG.md from the header + all batched version notes
+    cmds:
+      - changie merge
+
   pages:cachebust:
     desc: Recompute the styles.css cache-busting hash in docs/index.html
     # Shared with the cachebust-check CI workflow, so both paths

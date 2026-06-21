@@ -1,0 +1,40 @@
+# changie config — manages CHANGELOG.md from per-PR fragments.
+# See https://changie.dev. Workflow: `changie new` to add a fragment,
+# `changie batch <version|auto> && changie merge` to cut a release.
+changesDir: .changes
+unreleasedDir: unreleased
+headerPath: header.tpl.md
+changelogPath: CHANGELOG.md
+versionExt: md
+
+# Match the existing Keep-a-Changelog house style. `.Version` carries a
+# leading `v` (and the git tags are `vX.Y.Z`); the changelog headers are
+# bare `## [X.Y.Z]`, so strip the prefix here.
+versionFormat: '## [{{.Version | trimPrefix "v"}}] - {{.Time.Format "2006-01-02"}}'
+kindFormat: '### {{.Kind}}'
+changeFormat: '- {{.Body}}'
+
+# Single blank line between every element (header→version, title→intro,
+# intro→kind, kind→change, change→change, change→kind, version→version).
+# changie *sums* adjacent before/after counts, so only one side of each
+# boundary is set to 1.
+newlines:
+  afterChangelogHeader: 0
+  beforeChangelogVersion: 1
+  afterVersion: 1
+  beforeKind: 0
+  afterKind: 1
+  beforeChange: 0
+  afterChange: 1
+
+# `auto` lets `changie batch auto` pick the SemVer bump from the kinds
+# present: any Added/Changed → minor, only Fixed/Internal → patch.
+kinds:
+  - label: Added
+    auto: minor
+  - label: Changed
+    auto: minor
+  - label: Fixed
+    auto: patch
+  - label: Internal
+    auto: patch
