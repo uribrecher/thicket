@@ -6,6 +6,8 @@
 
 **Architecture:** A `release-pr.yaml` workflow watches `main`; when fragments are pending it runs `changie batch`/`merge`, drafts a one-paragraph intro via GitHub Models (reuse-first, auto-skip on failure), and opens/updates the release PR. A `release-publish.yaml` workflow runs on the release-PR merge, tags the version, and runs GoReleaser in the same job. Existing CI workflows are extended to also run on the bot branch so the four required checks attach to the PR (no PAT). The only non-trivial logic — preserving/injecting the intro — lives in a unit-tested Python helper.
 
+> **Correction (post-review):** The "extend CI workflows to run on the bot branch" approach (Task 2) does NOT work — GitHub does not trigger workflows from pushes made with the built-in `GITHUB_TOKEN`, so the required checks never attach to the bot's release PR. Task 2 was reverted; the maintainer instead merges the release PR via a ruleset bypass (the changelog-only diff makes the code checks vacuous). See the design spec for the full rationale. The rest of this plan still describes how the feature was built.
+
 **Tech Stack:** GitHub Actions, changie, GoReleaser, GitHub Models (`actions/ai-inference`), `peter-evans/create-pull-request`, Python 3 stdlib (helper + tests), Go 1.24.
 
 ## Global Constraints
@@ -198,6 +200,8 @@ git commit -m "feat(release): add changelog intro extract/inject helper"
 ---
 
 ### Task 2: CI bridge — run required checks on the bot branch
+
+> **Reverted (post-review):** This task does NOT achieve its goal. GitHub does not trigger workflows from pushes made with the built-in `GITHUB_TOKEN`, so adding `automated/release` to the `push` triggers never makes the required checks run on the bot's release PR. The edits below were applied and then reverted; the release PR is instead merged via a maintainer ruleset bypass. This task text is retained for historical accuracy — do not re-implement it.
 
 A PR opened by `GITHUB_TOKEN` does not trigger `pull_request` workflows, so the four required checks would never run on the release PR. Make them run on `push` to `automated/release` instead; same job names → same required-check contexts → they attach to the PR.
 

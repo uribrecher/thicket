@@ -53,3 +53,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This workflow runs on push to main (not a tag ref), so make the
+          # release version explicit instead of relying on GITHUB_REF/git describe.
+          GORELEASER_CURRENT_TAG: ${{ steps.gate.outputs.version }}

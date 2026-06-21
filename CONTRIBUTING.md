@@ -47,7 +47,8 @@ Releases are automated — you do not run `changie batch`/`merge` or push tags b
    doesn't change). Approve and **squash-merge** it.
 
    > The bot opens the PR with the built-in `GITHUB_TOKEN`, so the required status checks
-   > (`test`, `lint`, `check`) don't run on it. The PR's diff is changelog-only — it can't affect
+   > (`test (ubuntu-latest)`, `test (macos-latest)`, `lint`, `check`) don't run on it. The PR's
+   > diff is changelog-only — it can't affect
    > the Go build, lint, or cache-bust check — so merge it using your maintainer bypass ("merge
    > without waiting for requirements"). The underlying code already passed CI on its own feature PR.
 3. Merging triggers **`release-publish.yaml`**, which tags `vX.Y.Z` and runs GoReleaser to publish

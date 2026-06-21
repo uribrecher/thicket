@@ -124,5 +124,5 @@ jobs:
             Automated release PR maintained by `.github/workflows/release-pr.yaml`.
 
             - Rolls every pending `.changes/unreleased/` fragment into `${{ steps.ver.outputs.version }}`.
-            - The intro paragraph is GitHub Models-drafted — edit it by pushing to this branch; your edit is preserved on later bot updates.
+            - The intro paragraph is GitHub Models-drafted — edit it by pushing to this branch; your edit is preserved on later bot updates as long as the version number doesn't change.
             - **Merging this PR publishes the release:** `release-publish.yaml` tags `${{ steps.ver.outputs.version }}` and runs GoReleaser.
