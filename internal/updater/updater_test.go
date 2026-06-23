@@ -226,6 +226,37 @@ func TestCheckAndApplyNow_networkErrorSurfaces(t *testing.T) {
 	}
 }
 
+func TestFinishSuccessfulUpdate_printsRerunMessageAndExitsZero(t *testing.T) {
+	// After a successful in-place swap the running process is still the
+	// OLD binary, so continuing the user's command would render the old
+	// version (the confusing UX this replaces). Instead we tell the user
+	// to re-run and exit cleanly.
+	var gotCode int
+	exitCalls := 0
+	prev := exit
+	exit = func(code int) {
+		gotCode = code
+		exitCalls++
+	}
+	t.Cleanup(func() { exit = prev })
+
+	var errOut bytes.Buffer
+	finishSuccessfulUpdate(&errOut, "v0.2.0")
+
+	if exitCalls != 1 {
+		t.Fatalf("exit called %d times, want exactly 1", exitCalls)
+	}
+	if gotCode != 0 {
+		t.Errorf("exit code = %d, want 0", gotCode)
+	}
+	got := errOut.String()
+	for _, want := range []string{"v0.2.0", "completed successfully", "re-run"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("message %q missing %q", got, want)
+		}
+	}
+}
+
 // mustCachePath returns the resolved cache-file path or fails the test.
 func mustCachePath(t *testing.T) string {
 	t.Helper()
