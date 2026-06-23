@@ -452,7 +452,11 @@ on macOS).
 When a newer release is available and stderr is a TTY, you're
 prompted to apply it. Saying yes downloads the matching release
 tarball, verifies its SHA-256 against `checksums.txt`, and
-atomically swaps the running binary in place.
+atomically swaps the running binary in place. Because the swap
+replaces the file on disk while the current process is still running
+the old code in memory, thicket exits after a successful update and
+asks you to re-run your command — the next invocation picks up the new
+version (and the 24h-cached probe then sees you're already on latest).
 
 The probe is synchronous but bounded by a 2-second HTTP timeout and
 silently soft-fails on any network / parse error — so a flaky GitHub

@@ -61,6 +61,11 @@ var (
 // Test-only override.
 var apiBaseURL = "https://api.github.com"
 
+// exit terminates the process after a successful in-place update. It's
+// a package var so tests can observe the call instead of killing the
+// test runner.
+var exit = os.Exit
+
 // CheckOnRun is the lightweight "did a new release land?" probe.
 // Synchronous on the calling goroutine: cache hits are effectively
 // free; cache misses pay one HTTP round-trip bounded by the package
@@ -229,7 +234,19 @@ func promptAndApply(currentVersion, latestTag string, out, errOut io.Writer) {
 		fmt.Fprintf(errOut, "update failed: %v\n", err)
 		return
 	}
-	fmt.Fprintf(errOut, "thicket updated to %s. Continuing with your original command using the previous binary…\n", latestTag)
+	finishSuccessfulUpdate(errOut, latestTag)
+}
+
+// finishSuccessfulUpdate reports a completed in-place update and stops
+// the process. The swap replaced the binary on disk, but THIS process
+// is still running the old code loaded into memory — continuing the
+// user's command here would render the previous version (the confusing
+// UX this replaces). Exiting cleanly prompts the user to re-run, which
+// loads the freshly-installed binary; the 24h-cached check then sees
+// "already on latest" and stays out of the way.
+func finishSuccessfulUpdate(errOut io.Writer, latestTag string) {
+	fmt.Fprintf(errOut, "Update to %s completed successfully. Please re-run the CLI to use this latest version.\n", latestTag)
+	exit(0)
 }
 
 // resolveAndCheckManaged returns the symlink-resolved current
