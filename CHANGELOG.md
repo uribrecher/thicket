@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.1] - 2026-06-23
+
+Self-update now properly exits after replacing the binary, prompting you to re-run the command instead of continuing with the old in-memory version. This ensures you immediately work with the latest UI updates without confusion. Enjoy a smoother updating experience!
+
+### Fixed
+
+- Self-update now exits after replacing the binary and asks you to re-run, instead of silently continuing the command on the old in-memory binary (which showed the previous version's UI until you manually restarted).
+
 ## [0.10.0] - 2026-06-21
 
 The `thicket start` Plan page now features a horizontal color swatch picker allowing you to choose from eight vibrant colors, along with an optional one-line initial prompt that sends your message to Claude on first launch. Resumed workspaces skip this prompt, and your selected color tints the iTerm2 tab on each launch for a personalized experience.
