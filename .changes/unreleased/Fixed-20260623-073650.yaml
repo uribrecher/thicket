@@ -1,3 +1,0 @@
-kind: Fixed
-body: Self-update now exits after replacing the binary and asks you to re-run, instead of silently continuing the command on the old in-memory binary (which showed the previous version's UI until you manually restarted).
-time: 2026-06-23T07:36:50.513535+03:00
